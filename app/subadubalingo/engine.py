@@ -15,6 +15,7 @@ from typing import Callable
 
 import numpy as np
 
+from . import burnin
 from .common import (FFMPEG, PIPER, WHISPER, Cue, Language, Runner, ToolError, log, model_dirs)
 from .i18n import t
 
@@ -430,7 +431,7 @@ def wrap(text: str, width: int = 42) -> str:
 
 # --- Burning in subtitles and encoding ---------------------------------------------------
 
-SUB_STYLE = "FontName=Arial,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1.6,Shadow=0.6,MarginV=28"
+SUB_STYLE = burnin.DEFAULT_STYLE   # the look of burned-in subtitles comes from burnin.Look (Indstillinger)
 
 
 def _ffmpeg_progress(prog: Progress, duration_ms: int):
@@ -442,9 +443,10 @@ def _ffmpeg_progress(prog: Progress, duration_ms: int):
 
 
 def encode(runner: Runner, inputs: list, filter_complex: str | None, vf_srt: Path | None, maps: list,
-           audio_args: list, out: Path, duration_ms: int, prog: Progress, workdir: Path):
+           audio_args: list, out: Path, duration_ms: int, prog: Progress, workdir: Path,
+           look: burnin.Look | None = None):
     """Run ffmpeg into out (via a temp name). With vf_srt, the video is re-encoded with the subtitles
-    burned in: Quick Sync first (fast on Intel laptops), then libx264."""
+    burned in (in `look`, see burnin.py): Quick Sync first (fast on Intel laptops), then libx264."""
     tmp_out = out.with_name(out.stem + ".tmp" + out.suffix)
     common_tail = ["-movflags", "+faststart", "-t", f"{duration_ms / 1000:.3f}",
                    "-progress", "pipe:1", "-nostats", tmp_out]
@@ -453,7 +455,7 @@ def encode(runner: Runner, inputs: list, filter_complex: str | None, vf_srt: Pat
         # The subtitles filter breaks on drive colons, backslashes and quotes in paths, so the file is
         # copied to the work folder and given by a relative name, with ffmpeg running there.
         shutil.copyfile(vf_srt, workdir / "s.srt")
-        vf = f"subtitles=s.srt:charenc=UTF-8:force_style='{SUB_STYLE}'"
+        vf = burnin.video_filter(runner, look, Path(inputs[0]), workdir)
         attempts.append(["-vf", vf + ",format=nv12", "-c:v", "h264_qsv", "-preset", "faster", "-global_quality", "23"])
         attempts.append(["-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p"])
     else:
@@ -479,10 +481,11 @@ def encode(runner: Runner, inputs: list, filter_complex: str | None, vf_srt: Pat
 AUDIO_AAC = ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
 
 
-def burn(runner: Runner, video: Path, srt: Path, out: Path, info: MediaInfo, prog: Progress, workdir: Path):
+def burn(runner: Runner, video: Path, srt: Path, out: Path, info: MediaInfo, prog: Progress, workdir: Path,
+         look: burnin.Look | None = None):
     maps = ["-map", "0:v:0"] + (["-map", "0:a:0"] if info.has_audio else [])
     encode(runner, [video], None, srt, maps, AUDIO_AAC if info.has_audio else [], out,
-           info.duration_ms, prog, workdir)
+           info.duration_ms, prog, workdir, look)
 
 # --- Dubbing ---------------------------------------------------------------------------------
 
@@ -636,7 +639,7 @@ def shift_pitch(runner: Runner, wav: Path, semitones: float):
 def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, burn_srt: Path | None,
         keep_original: bool, info: MediaInfo, prog: Progress, workdir: Path, step_tts: str, step_video: str,
         voices: dict[str, Path] | None = None, palette: dict[str, list[Path]] | None = None,
-        speaker_model: Path | None = None):
+        speaker_model: Path | None = None, look: burnin.Look | None = None):
     """`voice` is the language's voice. With `palette` and `speaker_model`, every person in the video gets a voice
     of their own; with `voices` ({"male": ..., "female": ...}) each sentence gets the one that matches the
     original speaker's pitch."""
@@ -733,7 +736,7 @@ def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, bu
     else:
         fc = "[1:a]aresample=48000,aformat=channel_layouts=stereo[a]"
     encode(runner, [video, dub_wav], fc, burn_srt, ["-map", "0:v:0", "-map", "[a]"], AUDIO_AAC, out,
-           info.duration_ms, prog, workdir)
+           info.duration_ms, prog, workdir, look)
 
 # --- Checking a translation against the original ------------------------------------------------
 
