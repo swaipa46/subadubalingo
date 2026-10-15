@@ -1548,7 +1548,7 @@ class App:
         log.info("cut suggestions: %d from Claude, %d pauses -> %d", len(claude_cuts), len(pauses), len(suggestions))
         self._review_done.clear()
         self._review_result = None
-        post(("review", v, info.duration_ms, cues, suggestions, env))
+        post(("review", v, info.duration_ms, cues, suggestions, env, wav))
         while not self._review_done.wait(0.3):
             runner.check()
         runner.check()
@@ -1986,11 +1986,11 @@ class App:
 
     # --- The cut review ---------------------------------------------------------------------
 
-    def _start_review(self, video: Path, duration: int, cues, suggestions, env):
+    def _start_review(self, video: Path, duration: int, cues, suggestions, env, wav: Path | None = None):
         from .review import CutReview
         self._set_step(self.review_at)
         self._review = CutReview(self.left, self, video, duration, cues, suggestions, env,
-                                 on_done=self._review_finished, mcp_job=self.mcp_job)
+                                 on_done=self._review_finished, mcp_job=self.mcp_job, wav=wav)
         self._review.grid(row=0, column=0, sticky="nsew")
         skin.skin_cards(self.main)
         for frame in self.views.values():

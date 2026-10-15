@@ -33,5 +33,6 @@
  "review.just_before": "Just before  {time}",
  "review.just_after": "Just after  {time}",
  "review.frame_at": "The picture at {time}",
+ "review.scrub_at": "Here: {time}",
  "review.making_preview": "Making the clip ..."
 }

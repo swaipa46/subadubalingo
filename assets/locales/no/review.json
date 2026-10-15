@@ -33,5 +33,6 @@
  "review.just_before": "Rett før  {time}",
  "review.just_after": "Rett etter  {time}",
  "review.frame_at": "Bildet ved {time}",
+ "review.scrub_at": "Her: {time}",
  "review.making_preview": "Lager klippet ..."
 }

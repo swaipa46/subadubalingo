@@ -20,7 +20,7 @@ from tkinter import ttk
 
 import numpy as np
 
-from . import cutting, jobs, skin
+from . import cutting, jobs, scrub, skin
 from .common import Cue, Runner, log
 from .cutting import Cut, fmt_clock, fmt_length
 from .i18n import t
@@ -37,13 +37,17 @@ def kind_label(kind: str) -> str:
     return cutting.kind_label(kind)
 
 EDGE_PX = 7
+SCRUB_W = 168         # thumbnails for scrubbing, in design px wide: the details column's preview box
+SCRUB_FRAME_MS = 40   # while dragging, a new picture at most this often
+SCRUB_SOUND_MS = 120  # and a new snippet of sound at most this often,
+SCRUB_MOVE_MS = 60    # once the edge has moved this far
 MIN_VIEW_MS = 8_000
 KINDS = tuple(cutting.KINDS.keys())   # the legend's order: start, pause, end, inappropriate, offtopic, unclear, manual
 
 
 class CutReview(ttk.Frame):
     def __init__(self, master, app, video: Path, duration: int, cues: list[Cue], cuts: list[Cut],
-                 env: np.ndarray | None, on_done, mcp_job: str | None = None):
+                 env: np.ndarray | None, on_done, mcp_job: str | None = None, wav: Path | None = None):
         super().__init__(master)
         self.app, self.video, self.dur, self.cues = app, video, max(1, duration), cues
         self.cuts = sorted(cuts, key=lambda c: c.start)
@@ -59,6 +63,15 @@ class CutReview(ttk.Frame):
         self.runner = Runner()
         self.tmp = Path(tempfile.mkdtemp(prefix="sdl-review-"))
         self.q: queue.Queue = queue.Queue()
+        # Scrubbing: the picture and sound at the edge being dragged (scrub.py makes them in the background)
+        self.scrub = scrub.Scrubber(video, self.tmp, int(SCRUB_W * k), wav)
+        self._scrub_one = scrub.Latest(self._scrub_frame_work)   # exact frames while a thumbnail is not made yet
+        self._scrub_ms: int | None = None      # the time being dragged; None when not scrubbing
+        self._scrub_job = self._scrub_sound_job = None
+        self._scrub_frame_t = self._scrub_sound_t = 0.0
+        self._scrub_shown: int | None = None
+        self._scrub_sound_ms: int | None = None
+        self._scrub_img: tk.PhotoImage | None = None
         self._img_gen = 0
         self._images: list = []
         self._dirty_snapshot = True
@@ -178,7 +191,7 @@ class CutReview(ttk.Frame):
                                 wraplength=int(340 * k))
         self.d_text.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 6))
         # The two frames in fixed 168 x 94 boxes (round 2, item 15c): a taller picture is cropped, not grown
-        fw, fh = int(168 * self.k), int(94 * self.k)
+        fw, fh = int(SCRUB_W * self.k), int(94 * self.k)
         self._no_frame = tk.PhotoImage(master=self, width=fw, height=fh)   # holds the box (pixel units) until a frame comes
         box = dict(background=P.card, borderwidth=0, width=fw, height=fh, image=self._no_frame)
         self.img_a = tk.Label(det, **box)
@@ -449,6 +462,7 @@ class CutReview(ttk.Frame):
                 cut.end = max(t, cut.start + cutting.MIN_CUT_MS)
             if cut.source == "auto":
                 cut.source = "user"
+            self._scrub_to(cut.start if d["side"] == "start" else cut.end)
         elif d["mode"] == "new" and d["moved"]:
             a, b = sorted((self._snap(d["t0"]), t))
             if d["cut"] is None:
@@ -456,10 +470,12 @@ class CutReview(ttk.Frame):
                 self.cuts.append(d["cut"])
                 self.sel = d["cut"]
             d["cut"].start, d["cut"].end = a, max(b, a + 1)
+            self._scrub_to(t)   # the moving end
         self._set_hover(self.t_of(e.x))
 
     def _on_release(self, e):
         d, self.drag = self.drag, None
+        self._hide_scrub()
         if not d:
             return
         if d["mode"] == "new":
@@ -618,6 +634,73 @@ class CutReview(ttk.Frame):
                 self.q.put(("img", gen, label, out if ok else None))
         threading.Thread(target=work, daemon=True).start()
 
+    # --- Scrubbing (the picture and sound at the edge being dragged) ---------------------------
+
+    def _scrub_to(self, ms: int):
+        """The dragged edge is at ms: show its picture and play its sound soon, no more often than the limits."""
+        if self._scrub_ms is None:
+            self._img_gen += 1   # frames still coming for the cut's details would cover the live picture
+        self._scrub_ms = ms
+        now = time.monotonic()
+        if self._scrub_job is None:
+            wait = SCRUB_FRAME_MS / 1000 - (now - self._scrub_frame_t)
+            self._scrub_job = self.after(max(0, int(wait * 1000)), self._scrub_frame_tick)
+        if self._scrub_sound_job is None:
+            wait = SCRUB_SOUND_MS / 1000 - (now - self._scrub_sound_t)
+            self._scrub_sound_job = self.after(max(0, int(wait * 1000)), self._scrub_sound_tick)
+
+    def _scrub_frame_tick(self):
+        self._scrub_job = None
+        ms = self._scrub_ms
+        if ms is not None and ms != self._scrub_shown:
+            self._scrub_shown, self._scrub_frame_t = ms, time.monotonic()
+            self._show_scrub_frame(ms)
+
+    def _scrub_sound_tick(self):
+        self._scrub_sound_job = None
+        ms = self._scrub_ms
+        if ms is not None and (self._scrub_sound_ms is None or abs(ms - self._scrub_sound_ms) >= SCRUB_MOVE_MS):
+            self._scrub_sound_ms, self._scrub_sound_t = ms, time.monotonic()
+            self.scrub.play(ms)
+
+    def _show_scrub_frame(self, ms: int):
+        """Show the picture at ms (the nearest thumbnail, or an exact frame made now) with its time. The one place
+        that decides where the live picture goes."""
+        self.cap_a.configure(text=t("review.scrub_at", time=scrub.fmt_fine(ms)))
+        path = self.scrub.thumb(ms)
+        if path is None:
+            self._scrub_one.put(ms)   # arrives as ("scrub", ms, path) in _poll
+            return
+        self._put_scrub_image(path)
+
+    def _put_scrub_image(self, path: Path):
+        try:
+            self._scrub_img = tk.PhotoImage(master=self, file=str(path))   # kept: Tk drops images Python lets go
+        except tk.TclError:
+            return
+        self.img_a.configure(image=self._scrub_img)
+
+    def _scrub_frame_work(self, ms: int):
+        if self.scrub.thumb(ms) is not None:   # the thumbnail came meanwhile
+            self.q.put(("scrub", ms, self.scrub.thumb(ms)))
+            return
+        try:
+            path = self.scrub.frame(self.runner, ms)
+        except Exception:
+            path = None
+        self.q.put(("scrub", ms, path))
+
+    def _hide_scrub(self):
+        """Scrubbing ends (the mouse is let go): stop the sound. The picture stays until the release shows the
+        cut's details (or the frame where the user clicked) as before."""
+        for job in (self._scrub_job, self._scrub_sound_job):
+            if job is not None:
+                self.after_cancel(job)
+        self._scrub_job = self._scrub_sound_job = None
+        if self._scrub_ms is not None:
+            self.scrub.silence()
+        self._scrub_ms = self._scrub_shown = self._scrub_sound_ms = None
+
     def _play(self, what: str):
         cut = self.sel
         if not cut:
@@ -655,6 +738,11 @@ class CutReview(ttk.Frame):
                         label._img = img
                         label.configure(image=img)
                         self.after_idle(self._hold_height)
+                elif ev[0] == "scrub":
+                    _, ms, path = ev
+                    # only while still dragging, and not when a newer picture is already shown
+                    if path and self._scrub_ms is not None and ms == self._scrub_shown:
+                        self._put_scrub_image(path)
                 elif ev[0] == "play":
                     _, btn, old, path = ev
                     btn.configure(text=old, state="normal" if self.sel else "disabled")
@@ -734,5 +822,8 @@ class CutReview(ttk.Frame):
 
     def _on_destroy(self, e):
         if e.widget is self:
+            self._hide_scrub()
+            self._scrub_one.stop()
+            self.scrub.close()
             self.runner.cancel()
             shutil.rmtree(self.tmp, ignore_errors=True)
