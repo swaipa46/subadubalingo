@@ -120,7 +120,8 @@ def cut_rules() -> list[str]:
         "cannot be understood, not even in context,",
         "  filler = blocks with nothing but filler: \"øh\", \"øhm\", false starts, a repeated word or phrase "
         "(\"vi skal, vi skal\"), a long hesitation. Only blocks that hold nothing else; never a block that also says "
-        "something.",
+        "something. The reason is the filler itself in quotes (\"øh, øhm\"), or for a repetition the word for "
+        f"repetition in {user_language()}, a colon and the words (e.g. Gentagelse: \"vi vi skal\").",
         "  One line per cut: <first block>-<last block> <kind> <short reason>, e.g. "
         f"\"1-14 start {cut_example()}\". Cut whole blocks, and be careful: only cut what clearly does not belong. "
         "The app finds long silent pauses itself. The user reviews every cut before anything is cut. Write the reason "
@@ -287,9 +288,10 @@ def answer_cuts(text: str) -> list[str] | None:
     return [l.strip() for l in sections["cuts"] if l.strip()]
 
 
-def answer_outline(text: str, duration: int | None = None) -> chapters_mod.Outline:
-    """The chapters and summary in the answer (empty when it has none: older skills, short videos)."""
-    return chapters_mod.from_answer(_sections(text), duration)
+def answer_outline(text: str, duration: int | None = None, raw: bool = False) -> chapters_mod.Outline:
+    """The chapters and summary in the answer (empty when it has none: older skills, short videos). raw: one part's
+    chapters as given (parts mode joins them with chapters.merge_parts)."""
+    return chapters_mod.from_answer(_sections(text), duration, raw)
 
 
 def parse_words(lines: list[str]) -> list[tuple[str, str]]:
@@ -453,7 +455,9 @@ Do what the task says (language codes: da, sv, no, en):
   - `unclear`: what cannot be understood, not even in context
   - `filler`: blocks with nothing but filler words and hesitation: "øh", "øhm", false starts ("vi skal ... nej,
     vi"), a repeated word or phrase ("det er, det er"), a long hesitation. Only a block that holds nothing else:
-    never cut a block that also says something. Short blocks are fine; the app cuts them cleanly.
+    never cut a block that also says something. Short blocks are fine; the app cuts them cleanly. The reason is
+    the filler in quotes (`240 filler "øh, øhm"`), or for a repetition the word for repetition in the user's
+    language, a colon and the words (`251 filler Gentagelse: "vi vi skal"`).
   Be careful: only cut what clearly does not belong, and never in the middle of an explanation that goes on.
   The app finds long silent pauses itself. The user sees every cut on a timeline and approves them before
   anything is cut. Keep the time codes unchanged; the app moves them after cutting.
@@ -526,7 +530,8 @@ Välkommen till webbinariet om Membercare.
 === cuts ===
 1-14 start Folk kommer ind og tester lyd
 212-218 offtopic Snak om vejret
-240 filler Øh, øhm
+240 filler "øh, øhm"
+251 filler Gentagelse: "vi vi skal"
 === chapters ===
 0:00 Velkommen
 2:15 Sådan opretter du et medlem

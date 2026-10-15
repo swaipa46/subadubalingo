@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import bisect
 import os
+import re
 import queue
 import shutil
 import tempfile
@@ -29,7 +30,8 @@ from .theme import IMG, P, PIXEL_FONT, TERMINAL_FONT
 
 
 # Colours for a kind the theme's tokens.json does not have yet (the design session adds them): per theme, (border, fill)
-KIND_FALLBACK = {"light": {"filler": ("#4d7c0f", "#ecf5dc")}, "night": {"filler": ("#a3e635", "#2a3d12")}}
+KIND_FALLBACK = {"light": {"filler": ("#4d7c0f", "#ecf5dc")}, "night": {"filler": ("#a3e635", "#26350f")}}
+FILLER_CONTEXT_MS = 1500   # "Hør det" on a filler cut: this much before and after it, so it is heard in context
 
 
 def kind_colour(kind: str, part: str) -> str:
@@ -52,7 +54,15 @@ SCRUB_FRAME_MS = 40   # while dragging, a new picture at most this often
 SCRUB_SOUND_MS = 120  # and a new snippet of sound at most this often,
 SCRUB_MOVE_MS = 60    # once the edge has moved this far
 MIN_VIEW_MS = 8_000
-KINDS = tuple(cutting.KINDS.keys())   # the legend's order: start, pause, end, inappropriate, offtopic, unclear, filler, manual
+KINDS = tuple(cutting.KINDS.keys())   # the legend's order: start, pause, end, inappropriate, offtopic, unclear, manual, filler
+
+
+def why(cut: Cut) -> str:
+    """A cut's line in the list: its kind and the reason. A filler cut whose reason names its own kind of filler
+    ("Gentagelse: \"vi vi skal\"") shows only the reason (T8, filler-review)."""
+    if cut.kind == "filler" and re.match(r"^[^\"“:]{2,30}:\s", cut.reason or ""):
+        return cut.reason
+    return kind_label(cut.kind) + (f": {cut.reason}" if cut.reason else "")
 
 
 class CutReview(ttk.Frame):
@@ -110,6 +120,8 @@ class CutReview(ttk.Frame):
                   font=(PIXEL_FONT, -16 * kd)).grid(row=0, column=0, sticky="w")
         zoom = ttk.Frame(head)
         zoom.grid(row=0, column=2, sticky="e")
+        # Fyldord: keep them all with one click (T8, filler-review)
+        self.b_fillers = ttk.Button(zoom, text="", command=self._keep_fillers)
         skin.IconButton(zoom, "minus", width=0, command=lambda: self._zoom(1.6)).pack(side="left")
         skin.IconButton(zoom, "plus", width=0, command=lambda: self._zoom(1 / 1.6)).pack(side="left", padx=4)
         ttk.Button(zoom, text=t("review.zoom_all"), command=self._zoom_all).pack(side="left")
@@ -118,6 +130,8 @@ class CutReview(ttk.Frame):
         n_claude = sum(1 for c in self.cuts if c.source == "claude")
         n_auto = sum(1 for c in self.cuts if c.source == "auto")
         found = t("review.found", claude=n_claude, auto=n_auto) if self.cuts else t("review.found_none")
+        if any(c.kind == "filler" for c in self.cuts):
+            found += " " + t("filler.hint")
         hint = ttk.Label(self, style="Hint.TLabel", justify="left", text=(
             found + " " + t("review.hint") + (" " + t("review.hint_mcp") if self.mcp_job else "")))
         hint.grid(row=2, column=0, sticky="ew", pady=(2, 8))
@@ -195,6 +209,8 @@ class CutReview(ttk.Frame):
         self.tree.bind("<Delete>", lambda e: self._delete(self.sel))
 
         det = ttk.Frame(mid, padding=(14, 0, 0, 0))
+        # As wide as the two frame boxes also when a filler's details have none
+        mid.columnconfigure(1, minsize=14 + 2 * int(DETAIL_W * self.k) + 6)
         det.grid(row=0, column=1, rowspan=2, sticky="nsew")
         self.d_title = ttk.Label(det, text="", font="SunValleyBodyStrongFont")
         self.d_title.grid(row=0, column=0, columnspan=2, sticky="w")
@@ -522,12 +538,18 @@ class CutReview(ttk.Frame):
     def _refresh_list(self):
         self.tree.delete(*self.tree.get_children())
         self.tree.configure(height=self._tree_rows())
+        n_fillers = sum(1 for c in self.cuts if c.kind == "filler" and c.on)
+        if n_fillers:
+            self.b_fillers.configure(text=t("filler.keep_all", n=n_fillers))
+            self.b_fillers.pack(side="left", padx=(0, 8), before=self.b_fillers.master.winfo_children()[1])
+        else:
+            self.b_fillers.pack_forget()
         for n, cut in enumerate(self.cuts, 1):
-            why = kind_label(cut.kind) + (f": {cut.reason}" if cut.reason else "")
+            why_ = why(cut)
             self.tree.insert("", "end", iid=str(n), tags=() if cut.on else ("off",),
                              image=self._chip(cut.kind if cut.on else "off", 12, 0), values=(
                 f"{n}" if cut.on else f"({n})", f"{fmt_clock(cut.start)} - {fmt_clock(cut.end)} ({fmt_length(cut.length)})",
-                why if cut.on else t("review.list_kept", why=why)))
+                why_ if cut.on else t("review.list_kept", why=why_)))
         if len(self.cuts) > self._tree_rows():
             self.tree_sb.grid()
         else:
@@ -584,6 +606,13 @@ class CutReview(ttk.Frame):
         self._show_details()
         self._redraw()
 
+    def _keep_fillers(self):
+        """Keep every filler in the video (switch their cuts off)."""
+        for c in self.cuts:
+            if c.kind == "filler":
+                c.on = False
+        self._changed()
+
     def _toggle(self, cut: Cut | None):
         if cut:
             cut.on = not cut.on
@@ -615,6 +644,15 @@ class CutReview(ttk.Frame):
         self.d_text.configure(text=text + "\n" * max(0, 3 - text.count("\n")))   # about the same height for every cut
         self.after_idle(self._hold_height)
         self.b_toggle.configure(text=t("review.keep") if cut.on else t("review.cut_anyway"))
+        # A filler is too short for pictures: "Hør det" (the sound around it) and "Behold i videoen" (T8)
+        filler = cut.kind == "filler"
+        for w in (self.img_a, self.img_b, self.cap_a, self.cap_b, self.b_cut, self.b_delete):
+            w.grid_remove() if filler else w.grid()
+        self.b_trans.configure(text=t("filler.listen") if filler else t("review.play_transition"))
+        # "Hør det" and "Behold i videoen" side by side; otherwise the keep button under the play buttons
+        self.b_toggle.grid(row=0, column=1, padx=(6, 0), pady=0) if filler else             self.b_toggle.grid(row=1, column=0, padx=0, pady=(6, 0))
+        if filler:
+            return
         self.cap_a.configure(text=t("review.just_before", time=fmt_clock(cut.start)))
         self.cap_b.configure(text=t("review.just_after", time=fmt_clock(cut.end)))
         self._load_frames([(max(0, cut.start - 400), self.img_a), (min(self.dur - 200, cut.end + 300), self.img_b)])
@@ -809,14 +847,19 @@ class CutReview(ttk.Frame):
         cut = self.sel
         if not cut:
             return
-        btn = self.b_trans if what == "trans" else self.b_cut
+        if what == "trans" and cut.kind == "filler":
+            what = "listen"
+        btn = self.b_cut if what == "cut" else self.b_trans
         old = btn.cget("text")
         btn.configure(text=t("review.making_preview"), state="disabled")
         out = self.tmp / f"{what}-{cut.start}-{cut.end}.mp4"
 
         def work():
             try:
-                if what == "trans":
+                if what == "listen":   # a filler with a little around it, as it is in the video now
+                    ok = cutting.preview_cut(self.runner, self.video, max(0, cut.start - FILLER_CONTEXT_MS),
+                                             min(self.dur, cut.end + FILLER_CONTEXT_MS), out)
+                elif what == "trans":
                     ok = cutting.preview_transition(self.runner, self.video, cut.start, cut.end, out)
                 else:
                     ok = cutting.preview_cut(self.runner, self.video, cut.start, cut.end, out)

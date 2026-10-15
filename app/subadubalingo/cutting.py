@@ -50,8 +50,8 @@ KINDS = _Kinds({
     "inappropriate": ("#c42b1c", "#fde7e9"),
     "offtopic": ("#9d5d00", "#fff4ce"),
     "unclear": ("#00666d", "#ddf1ef"),
-    "filler": ("#4d7c0f", "#ecf5dc"),
     "manual": ("#0f6cbd", "#e1effa"),
+    "filler": ("#4d7c0f", "#ecf5dc"),
 })
 # Also the Danish words the skill used before v2.0 (skill version 3), and what Claude writes when it improvises
 KIND_ALIASES = {

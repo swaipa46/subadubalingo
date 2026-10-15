@@ -20,6 +20,18 @@ from pathlib import Path
 from .common import log, output_path
 from .i18n import CODES, current, t
 
+def _icon() -> str:
+    """The files list's icon for the chapters file: the design's "chapters" icon (T8), or the text file icon in an
+    install whose assets do not have it yet."""
+    try:
+        from .theme import assets_dir
+        return "chapters" if (assets_dir() / "ui" / "a-light" / "icons" / "chapters.png").exists() else "file-subtitles"
+    except Exception:
+        return "file-subtitles"
+
+
+ICON = _icon()
+
 # YouTube's rules for chapters in a description: the first at 0:00, at least three, each at least 10 s long
 MIN_CHAPTER_MS = 10_000
 MIN_CHAPTERS = 3
@@ -104,12 +116,13 @@ def tidy(chapters: list[Chapter], duration: int | None = None) -> list[Chapter]:
     return out if len(out) >= MIN_CHAPTERS else []
 
 
-def from_answer(sections: dict[str, list[str]], duration: int | None = None) -> Outline:
-    """The outline from an answer's sections (claude._sections): "chapters" and "summary"."""
+def from_answer(sections: dict[str, list[str]], duration: int | None = None, raw: bool = False) -> Outline:
+    """The outline from an answer's sections (claude._sections): "chapters" and "summary". raw: the chapters as
+    given, not tidied (one part of several, see merge_parts)."""
     chapters, bad = parse_chapter_lines(sections.get("chapters", []))
     if bad:
         log.info("chapter lines not read: %s", bad)
-    return Outline(tidy(chapters, duration), parse_summary(sections.get("summary", [])))
+    return Outline(chapters if raw else tidy(chapters, duration), parse_summary(sections.get("summary", [])))
 
 
 def remap(outline: Outline, ranges: list[tuple[int, int]], duration: int | None = None) -> Outline:
@@ -179,3 +192,16 @@ def save(video: Path, outline: Outline) -> Path | None:
     out.write_text(file_text(outline), encoding="utf-8")
     log.info("chapters: %d, summary %d chars -> %s", len(outline.chapters), len(outline.summary), out.name)
     return out
+
+
+def language_for(job: dict):
+    """The language to write the chapters and the summary in: the new video's (its dub, else its subtitles, else the
+    spoken language)."""
+    return job.get("speech") or job.get("subs") or job.get("lang")
+
+
+def merge_parts(outlines: list[Outline], duration: int | None = None) -> Outline:
+    """Parts mode: every part's chapters together, and the last summary given (asked for with the last part)."""
+    found = [c for o in outlines for c in o.chapters]
+    summary = next((o.summary for o in reversed(outlines) if o.summary), "")
+    return Outline(tidy(found, duration), summary)

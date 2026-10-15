@@ -18,10 +18,12 @@ right-hand column shows what the user sees.
 | Proofreading | Claude correcting misheard words in the transcript. | `check`, `proofread` | "Claude retter" |
 | Translation | Claude translating the cues, keeping numbers and time codes. | `targets` | "oversætter" |
 | Claude's turn | The step where Claude proofreads, translates and suggests cuts, through the MCP tools or the task/answer files. | `claude_turn` | "Din tur" |
-| Task file / answer file | `<video> - til Claude.txt` (`SUBADUBALINGO-TASK`) and `<video> - fra Claude.txt` (`SUBADUBALINGO-ANSWER`, sections `=== <code> ===`, `=== cuts ===`, `=== words ===`, `=== end ===`). | `claude.work_file_text`, `check_file_answer` | the files in Downloads |
+| Task file / answer file | `<video> - til Claude.txt` (`SUBADUBALINGO-TASK`) and `<video> - fra Claude.txt` (`SUBADUBALINGO-ANSWER`, sections `=== <code> ===`, `=== cuts ===`, `=== chapters ===`, `=== summary ===`, `=== words ===`, `=== end ===`). | `claude.work_file_text`, `check_file_answer` | the files in Downloads |
 | Skill | The instructions Claude gets as an uploaded skill `subadubalingo`, with a version number the app checks. | `claude.SKILL_MD`, `SKILL_VERSION` | "Claude-skill'en" |
 | Cut suggestion | A line `<first>-<last block> <kind> <reason>` from Claude, or a silent pause the app found. | `suggest_cuts`, `parse_cut_lines` | – |
-| Cut | A time range to remove, with a kind: start, pause, end, inappropriate, offtopic, unclear, manual. | `Cut`, `KINDS` | "klip" (Danish labels) |
+| Cut | A time range to remove, with a kind: start, pause, end, inappropriate, offtopic, unclear, manual, filler. | `Cut`, `KINDS` | "klip" (Danish labels) |
+| Filler | A cut kind (skill 6): blocks with nothing but filler words, false starts, repetitions or hesitation. | `"filler"` | "Fyldord" |
+| Chapters / summary | Claude's chapters (`0:00 Title`) and a short description of the video (skill 6), saved as `<video> - kapitler.txt` and shown on the done view. | `chapters.py`, `save_chapters` | "Kapitler og beskrivelse" |
 | Cut review | The timeline where the user adjusts, keeps or adds cuts before anything is cut. | `review.py`, `review_cuts`, `approve_cuts` | "Gennemse klippene" |
 | Cut video | The video with the cuts removed; subtitles and dub are made for it. | `cutting.cut_video` | "... - klippet.mp4" |
 | Dub | New speech in another language, a synthetic voice per sentence, timed to the original. | `engine.dub` | "svensk dub" |

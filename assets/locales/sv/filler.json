@@ -1,0 +1,5 @@
+{
+ "filler.keep_all": "Behåll alla utfyllnadsord ({n})",
+ "filler.listen": "Lyssna",
+ "filler.hint": "Utfyllnadsord är små klipp med öh, liksom och ord som sägs två gånger. De klipps bara bort om du låter dem vara kvar."
+}
