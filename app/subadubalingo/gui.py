@@ -19,7 +19,8 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import claude, cutting, engine, jobs, textstate
+from . import burnin, claude, cutting, engine, jobs, textstate
+from .burnin_ui import BurninCard
 from . import i18n, skin, theme
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
@@ -69,6 +70,14 @@ class Settings:
         self.theme = "system"              # Udseende: "system" (follow Windows), "light" (Lys) or "night" (Nat)
         self.ui_language = ""              # Programmets sprog: da, sv, no or en ("" until picked: Windows' language)
         self.last_dir = str(Path.home() / "Videos")
+        self.last_video = ""               # the last video picked or run: the burn-in sample in Indstillinger shows it
+        # Burned-in subtitles (burnin.Look; the defaults are the look from before 2.1)
+        self.burnin_size = "m"             # text size: "s", "m" or "l"
+        self.burnin_position = "bottom"    # "bottom" or "top"
+        self.burnin_box = False            # a dark box behind the text instead of an outline
+        self.burnin_logo_on = False        # "Logo i et hjørne"
+        self.burnin_logo = ""              # the logo's image file (kept while the logo is turned off)
+        self.burnin_logo_corner = "br"     # "tl", "tr", "bl" or "br"
         try:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
             self.__dict__.update(saved)
@@ -1080,6 +1089,7 @@ class App:
             self.recut.set(False)
             self.video.set(str(Path(p)))
             self.settings.last_dir = str(Path(p).parent)
+            self.settings.last_video = str(Path(p))
             self.settings.save()
 
     def _same_video(self):
@@ -1126,6 +1136,7 @@ class App:
         job = {"video": v, "original": original, "lang": lang, "speech": speech, "subs": subs, "outputs": [],
                "translate": [], "cut": mode == "new", "edited": edited, "cut_reused": mode == "reuse"}
         job["transcribe"] = self.redo.get() or textstate.status(orig_srt, v) != "ok"
+        self.settings.last_video = str(original)
         if not speech and not subs and not job["transcribe"] and not job["cut"]:
             self._auto_reason = f"De {lang.word('plural', 'da')} undertekster findes allerede ({orig_srt.name}). Vælg tale eller undertekster."
             if auto:
@@ -1508,12 +1519,13 @@ class App:
                 engine.dub(runner, v, read_srt(srt_of(speech)), job["voice"], out, srt_of(subs) if subs else None,
                            self.settings.keep_original_audio, info, prog, work, s_voice, s_dub,
                            voices=job.get("voices"), palette=job.get("palette"),
-                           speaker_model=job.get("speaker_model"))
+                           speaker_model=job.get("speaker_model"),
+                           look=burnin.Look.from_settings(self.settings))
                 post(("file", out))
             elif subs:
                 prog.start(s_burn)
                 out = burned_name(v, subs)
-                engine.burn(runner, v, srt_of(subs), out, info, prog, work)
+                engine.burn(runner, v, srt_of(subs), out, info, prog, work, burnin.Look.from_settings(self.settings))
                 post(("file", out))
             post(("done", job["result"]))
         except Cancelled:
@@ -2190,7 +2202,8 @@ class SkillGuide(tk.Toplevel):
 
 
 class SettingsDialog(tk.Toplevel):
-    """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles, then text and voices."""
+    """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles (folded until clicked), the
+    look of burned-in subtitles (burnin_ui.py), then text and voices."""
 
     def __init__(self, parent, settings: Settings, on_theme=None, on_language=None):
         super().__init__(parent)
@@ -2212,6 +2225,10 @@ class SettingsDialog(tk.Toplevel):
         ttk.Label(look, text=t("pickers.look_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
         self.look = tk.StringVar(value=settings.theme)
         theme_tiles(look, self.look).pack(fill="x")
+        skin.collapsible(lang)
+        skin.collapsible(look)
+        self.burnin = BurninCard(outer, settings)
+        self.burnin.pack(fill="x", pady=(14, 0))
         f = skin.Card(outer, text=t("pickers.text_voices"), padding=12)
         f.pack(fill="x", pady=(14, 0))
         ttk.Label(f, text=t("gui.settings.model")).grid(row=0, column=0, sticky="w")
@@ -2280,6 +2297,7 @@ class SettingsDialog(tk.Toplevel):
     def _save(self):
         self.s.whisper_model, self.s.use_gpu, self.s.keep_original_audio = self.model.get(), self.gpu.get(), self.keep.get()
         self.s.voice_mode = self.voice_mode.get()
+        self.burnin.save_to(self.s)
         self.s.save()
         look, code = self.look.get(), self.ui_language.get()
         self.destroy()
