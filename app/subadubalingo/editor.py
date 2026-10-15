@@ -16,6 +16,7 @@ tests/test_editor.py.
 """
 from __future__ import annotations
 
+import bisect
 import copy
 import difflib
 import queue
@@ -25,6 +26,7 @@ import tempfile
 import threading
 import time
 import tkinter as tk
+import tkinter.font as tkfont
 from dataclasses import dataclass, field
 from pathlib import Path
 from tkinter import ttk
@@ -33,6 +35,7 @@ from . import cutting, i18n, scrub, skin, textstate
 from .common import (FFMPEG, LANGUAGES, Cue, Language, Runner, find_srt, guess_srt_language, log, read_srt,
                      srt_names, write_srt)
 from .i18n import t
+from .pickers import Tooltip, _Picker
 from .theme import IMG, P, PIXEL_FONT, TERMINAL_FONT
 
 try:
@@ -49,7 +52,6 @@ VIEW_MIN_MS = 10_000    # the timeline shows at least this much around the chose
 EDGE_PX = 8             # how near (design px) the mouse must be to grab a line's edge
 DRAG_FRAME_MS = 60      # while dragging, a new picture at most this often
 DRAG_SOUND_MS = 120     # and a sound snippet at most this often
-PREVIEW_W, PREVIEW_H = 384, 216   # the picture, in design px (16:9)
 # Told to Claude (MCP) when it sends a job while the user is editing (the job protocol's messages are Danish)
 BUSY_MESSAGE = ("Brugeren retter undertekster i appen lige nu. Bed brugeren om at gemme og lukke "
                 "\"Ret underteksterne\" og prøv så igen.")
@@ -172,12 +174,6 @@ def word_changes(before: list[Cue], after: list[Cue], known: set[str] | None = N
         seen.add(wrong.lower())
         out.append((wrong, right))
     return out
-
-
-def similar(wrong: str, right: str) -> bool:
-    """Whether a correction looks like a misheard word (similar spelling) rather than another word: such pairs are
-    ticked from the start in the dialog."""
-    return difflib.SequenceMatcher(None, wrong.lower(), right.lower()).ratio() >= 0.5
 
 
 def backup_path(srt: Path) -> Path:
@@ -366,6 +362,7 @@ class Session:
         self.cur, self.sel = first, 0
         self.media = Media(self.video)
         self.back = "setup"   # the view to go back to
+        self.remake: set = set()   # languages the run's video was made from (the save dialog offers to remake it)
 
     @property
     def doc(self) -> Doc:
@@ -388,9 +385,11 @@ def is_open(app) -> bool:
     return getattr(app, "_editor_session", None) is not None
 
 
-def open_in(app, srt: Path | None = None, video: Path | None = None, source: Language | None = None):
+def open_in(app, srt: Path | None = None, video: Path | None = None, source: Language | None = None,
+            remake: set | None = None):
     """Open the editor in the main window for srt (or the subtitles of video), going back to the current view on
-    close."""
+    close. remake: the languages whose subtitles the run's video was made from (burned in, or the dub's text); after
+    saving one of them, the save dialog offers to make the video again."""
     if is_open(app) or getattr(app, "_running", False):
         return
     try:
@@ -401,6 +400,7 @@ def open_in(app, srt: Path | None = None, video: Path | None = None, source: Lan
             app._open(srt)   # still readable in another program
         return
     session.back = getattr(app, "view", "setup")
+    session.remake = set(remake or ())
     app._editor_session = session
     show(app)
 
@@ -418,17 +418,20 @@ def show(app):
 
 
 def close(app, ask: bool = True) -> bool:
-    """Close the editor (asking about unsaved changes); False when the user chose to stay."""
+    """Close the editor. Unsaved changes: Annullér asks whether to throw them away; closing the app asks whether
+    to save them. False when the user chose to stay."""
     session = getattr(app, "_editor_session", None)
     if session is None:
         return True
     ed = getattr(app, "_editor", None)
+    if ask and ed is not None:
+        ed.commit()
     if ask and session.dirty and ed is not None:
         from .gui import boxes
         answer = boxes.askyesnocancel(t("editor.title"), t("editor.unsaved"), parent=app._owner())
         if answer is None:
             return False
-        if answer and not ed.save():
+        if answer and not ed.save(dialog=False):
             return False
     session.close()
     app._editor_session = None
@@ -461,46 +464,254 @@ def file_menu(app, path: Path, event):
         m.grab_release()
 
 
+def row_button(row, command) -> ttk.Button:
+    """The small "Ret" button (30 px, edit icon) of a .srt row in the done view's files list; the row shows it while
+    it is under the mouse or has focus."""
+    k = 2 if IMG.two else 1
+    style = ttk.Style(row)
+    style.configure("Row.TButton", padding=(8 * k, 2 * k, 11 * k, 5 * k), background=P.picker_hover_bg)
+    b = skin.IconButton(row, "edit", text=t("editor.row_edit"), style="Row.TButton", command=command,
+                        takefocus=False)
+    return b
+
+
 def fmt_time(ms: int) -> str:
     """0:06,25 (the UI language's decimal sign; hours only when there are any)."""
     s = scrub.fmt_fine(ms)
     return s if i18n.current() == "en" else s.replace(".", ",")
 
 
-def fmt_seconds(ms: int) -> str:
-    s = f"{ms / 1000:.2f}"
+def fmt_seconds(ms: int, decimals: int = 1) -> str:
+    s = f"{ms / 1000:.{decimals}f}"
     return s if i18n.current() == "en" else s.replace(".", ",")
 
 
 def plural_t(key: str, n: int, **kw) -> str:
     return t(key + ("_one" if n == 1 else ""), n=n, **kw)
 
+
+def chars_per_second(c: Cue) -> float:
+    """How fast a line must be read: its characters (spaces and punctuation too) per second on screen."""
+    return len(flat(c.text)) / max(0.001, (c.end - c.start) / 1000)
+
+
+def is_joining(wrong: str, right: str) -> bool:
+    """A correction that only splits or joins whole words ("tids planen" -> "tidsplanen"): not ticked by default."""
+    return wrong.replace(" ", "").replace("-", "").lower() == right.replace(" ", "").replace("-", "").lower()
+
 # --- The editor --------------------------------------------------------------------------------
+# Layout and sizes: assets/ui/README.md "1. Subtitle editor", mockups design/mockups/*/editor-*.png.
+
+CPS_WARN = 20          # over this many characters a second a line is hard to read in time
+ROW_MIN = 38           # the list's rows, design px
+NUM_X, TIME_X, TEXT_X = 10, 42, 202
+WARN_W = 96            # room at a row's end for "23 tegn/s"
+VIDEO_W, VIDEO_H = 620, 349
+TRACK_RULER, TRACK_H, BOX_H = 24, 150, 38
+
+
+class DocPicker(_Picker):
+    """The languages made for the video, as the header's picker: DA SV NO in the pixel font."""
+
+    def __init__(self, parent, editor: "SubtitleEditor"):
+        super().__init__(parent)
+        self.editor = editor
+        for n, d in enumerate(editor.s.docs):
+            code = d.lang.code if d.lang else "?"
+            self.add(str(n), lambda d=d: d.lang.name if d.lang else d.path.name, text=code.upper())
+        self.refresh(str(editor.s.cur))
+
+    def pick(self, value: str):
+        self.editor.switch_lang(int(value))
+        self.refresh(str(self.editor.s.cur))
+
+
+class LineList(ttk.Frame):
+    """The lines as rows on a Canvas (only the rows in view are drawn, so a long webinar scrolls smoothly): the number
+    in the pixel font, "0:04,90 - 0:06,20" in VT323 and the wrapped text; a line too fast to read gets a warning at
+    its end. The chosen row is highlighted and its text is a field edited in place (editor.field)."""
+
+    def __init__(self, parent, editor: "SubtitleEditor"):
+        super().__init__(parent)
+        self.ed = editor
+        k, kd = editor.k, editor.kd
+        self.k = k
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+        self.f_text = tkfont.nametofont("SunValleyBodyFont")
+        self.f_num = (PIXEL_FONT, -10 * kd)
+        self.f_time = (TERMINAL_FONT, -20 * kd)
+        self.f_warn = ("Segoe UI", -int(12 * k))
+        self.f_head = ("Segoe UI", -int(13 * k))
+        head = tk.Frame(self, background=P.card, height=int(26 * k))
+        head.grid(row=0, column=0, columnspan=2, sticky="ew")
+        for x, key in ((NUM_X, None), (TIME_X, "editor.col_time"), (TEXT_X, "editor.col_text")):
+            tk.Label(head, text=t(key) if key else "#", background=P.card, foreground=P.hint, font=self.f_head,
+                     borderwidth=0, padx=0).place(x=int(x * k), y=0)
+        self.c = tk.Canvas(self, background=P.card, highlightthickness=0, borderwidth=0, takefocus=1)
+        self.c.grid(row=1, column=0, sticky="nsew")
+        self.sb = ttk.Scrollbar(self, orient="vertical", command=self._yview)
+        self.sb.grid(row=1, column=1, sticky="ns")
+        self.c.configure(yscrollcommand=self.sb.set)
+        self.foot = tk.Label(self, text="", background=P.card, foreground=P.hint, font=self.f_head, anchor="w",
+                             borderwidth=0, padx=int(NUM_X * k))
+        self.foot.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(int(10 * k), 0))
+        self._wrap_cache: dict = {}
+        self.tops: list[int] = []
+        self.heights: list[int] = []
+        self.c.bind("<Configure>", lambda e: self.layout())
+        self.c.bind("<Button-1>", self._click)
+        self.c.bind("<MouseWheel>", lambda e: self._wheel(e))
+        self.c.bind("<Up>", lambda e: self.ed.select(self.ed.s.sel - 1, focus=False))
+        self.c.bind("<Down>", lambda e: self.ed.select(self.ed.s.sel + 1, focus=False))
+        self.c.bind("<Return>", lambda e: self.ed.field.focus_set())
+
+    # Geometry
+
+    def _text_w(self) -> int:
+        return max(120, self.c.winfo_width() - int((TEXT_X + WARN_W + 8) * self.k))
+
+    def _lines(self, text: str, width: int) -> int:
+        """How many lines text wraps to in width (as the Canvas wraps it: at spaces, each paragraph apart)."""
+        key = (text, width)
+        if key not in self._wrap_cache:
+            n = 0
+            for para in (text or "-").split("\n"):
+                line, count = "", 1
+                for word in para.split():
+                    trial = f"{line} {word}" if line else word
+                    if line and self.f_text.measure(trial) > width:
+                        count, line = count + 1, word
+                    else:
+                        line = trial
+                n += count
+            if len(self._wrap_cache) > 5000:
+                self._wrap_cache.clear()
+            self._wrap_cache[key] = n
+        return self._wrap_cache[key]
+
+    def _height(self, c: Cue) -> int:
+        lines = self._lines(c.text, self._text_w() - int(16 * self.k))
+        return max(int(ROW_MIN * self.k), lines * self.f_text.metrics("linespace") + int(18 * self.k))
+
+    def layout(self):
+        """Row heights and tops for every line (after a resize, an edit that changes a row's height, or a split)."""
+        cues = self.ed.s.doc.cues
+        self.heights = [self._height(c) for c in cues]
+        self.tops, y = [], 0
+        for h in self.heights:
+            self.tops.append(y)
+            y += h
+        self.c.configure(scrollregion=(0, 0, self.c.winfo_width(), max(y, 1)))
+        self.draw()
+
+    def relayout_row(self, i: int):
+        cues = self.ed.s.doc.cues
+        if len(self.heights) != len(cues) or 0 <= i < len(cues) and self._height(cues[i]) != self.heights[i]:
+            self.layout()
+        else:
+            self.draw()
+
+    def row_at(self, y: float) -> int:
+        i = bisect.bisect_right(self.tops, y) - 1
+        return i if 0 <= i < len(self.tops) else -1
+
+    def see(self, i: int):
+        if not (0 <= i < len(self.tops)):
+            return
+        total = self.tops[-1] + self.heights[-1]
+        top, bottom = self.c.canvasy(0), self.c.canvasy(self.c.winfo_height())
+        y0, y1 = self.tops[i], self.tops[i] + self.heights[i]
+        if y0 < top:
+            self.c.yview_moveto(y0 / max(1, total))
+        elif y1 > bottom:
+            self.c.yview_moveto((y1 - self.c.winfo_height()) / max(1, total))
+        self.draw()
+
+    def _yview(self, *args):
+        self.c.yview(*args)
+        self.draw()
+
+    def _wheel(self, e):
+        self.c.yview_scroll(int(-e.delta / 40), "units")
+        self.draw()
+
+    def _click(self, e):
+        i = self.row_at(self.c.canvasy(e.y))
+        if i >= 0:
+            self.ed.select(i)
+
+    # Drawing
+
+    def draw(self):
+        c, k, kd = self.c, self.k, self.ed.kd
+        cues = self.ed.s.doc.cues
+        if len(self.tops) != len(cues):   # lines were added or removed since the last layout
+            self.layout()
+            return
+        c.delete("row")
+        w = c.winfo_width()
+        top, bottom = c.canvasy(0), c.canvasy(c.winfo_height())
+        i = max(0, self.row_at(top))
+        sel = self.ed.s.sel
+        tw = self._text_w() - int(16 * k)
+        field_shown = False
+        while 0 <= i < len(cues) and self.tops[i] < bottom:
+            q, y, h = cues[i], self.tops[i], self.heights[i]
+            chosen = i == sel
+            fg = P.picker_selected_text if chosen else P.text
+            if chosen:
+                c.create_rectangle(0, y, w, y + h, fill=P.picker_selected_bg, outline="", tags="row")
+            mid = y + h / 2
+            c.create_text(int(NUM_X * k), mid, text=str(i + 1), anchor="w", font=self.f_num,
+                          fill=fg if chosen else P.hint, tags="row")
+            c.create_text(int(TIME_X * k), mid, text=f"{fmt_time(q.start)} - {fmt_time(q.end)}", anchor="w",
+                          font=self.f_time, fill=fg, tags="row")
+            if chosen:
+                self.ed.place_field(c, int(TEXT_X * k) - int(8 * k), y + int(5 * k), tw + int(16 * k), h - int(10 * k))
+                field_shown = True
+            else:
+                c.create_text(int(TEXT_X * k), mid, text=q.text or "-", anchor="w", font=self.f_text, fill=fg,
+                              width=tw, tags="row")
+            cps = chars_per_second(q)
+            if cps > CPS_WARN:
+                x = w - int((WARN_W - 6) * k)
+                s = 10 * kd // 2 * 2
+                c.create_rectangle(x, mid - s / 2, x + s, mid + s / 2, fill=P.warning, outline="", tags="row")
+                c.create_text(x + s + int(6 * k), mid, text=t("editor.cps", n=round(cps)), anchor="w",
+                              font=self.f_warn, fill=P.picker_selected_text if chosen else P.warning, tags="row")
+            i += 1
+        if not field_shown:
+            self.ed.hide_field(c)
+        fast = sum(1 for q in cues if chars_per_second(q) > CPS_WARN)
+        foot = plural_t("editor.footer", len(cues))
+        if fast:
+            foot += "  ·  " + plural_t("editor.footer_fast", fast, cps=CPS_WARN)
+        self.foot.configure(text=foot)
 
 
 class SubtitleEditor(ttk.Frame):
     def __init__(self, master, app, session: Session, on_close):
         super().__init__(master)
         self.app, self.s, self.on_close = app, session, on_close
-        self.k = k = app.scale
+        self.k = app.scale
         self.kd = 2 if IMG.two else 1
         self.media = session.media
-        self._overlay: tk.Text | None = None
         self._drag: dict | None = None
         self._drag_frame_t = self._drag_sound_t = 0.0
-        self._frame_job = None
         self._img = None
-        self._want_ms: int | None = None   # the picture asked for last
+        self._typing = False
+        self._field_window = None
+        self._field_for = -1   # the line whose text the field holds (none until the first select)
+        self._want_ms: int | None = None   # the time of the picture asked for last (the playhead)
         self.v0, self.v1 = 0, VIEW_MIN_MS
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
         self._build()
-        self._fill_tree()
         skin.skin_cards(self)
-        # skin_cards gives every plain tk widget in a card the card's colour; these two have their own
-        self.pic.configure(background="#0b0320")
-        self.text_box.configure(background=P.input_border)
-        self._select(min(session.sel, len(self.s.doc.cues) - 1) if self.s.doc.cues else -1)
+        for w, colour in self._own_colours:   # skin_cards gives plain tk widgets in a card the card's colour
+            w.configure(background=colour)
+        self.after_idle(lambda: self.select(min(max(session.sel, 0), len(self.s.doc.cues) - 1), focus=False))
         self.bind("<Destroy>", self._on_destroy, add="+")
         self.after(100, self._poll)
 
@@ -508,126 +719,68 @@ class SubtitleEditor(ttk.Frame):
 
     def _build(self):
         k, kd = self.k, self.kd
+        self._own_colours = []
         head = ttk.Frame(self)
         head.grid(row=0, column=0, sticky="ew")
-        head.columnconfigure(1, weight=1)
+        head.columnconfigure(0, weight=1)
         ttk.Label(head, text=t("editor.title").upper(), style="Section.TLabel", foreground=P.heading,
                   font=(PIXEL_FONT, -16 * kd)).grid(row=0, column=0, sticky="w")
-        langs = ttk.Frame(head)
-        langs.grid(row=0, column=2, sticky="e")
-        ttk.Label(langs, text=t("editor.language")).pack(side="left", padx=(0, int(8 * k)))
-        self.lang_var = tk.StringVar()
-        self.c_lang = ttk.Combobox(langs, textvariable=self.lang_var, state="readonly", width=16)
-        self.c_lang.pack(side="left")
-        self.c_lang.bind("<<ComboboxSelected>>", lambda e: self._switch_lang(self.c_lang.current()))
-        self._lang_names()
-        sub = ttk.Label(self, style="Hint.TLabel", justify="left", text=(
-            (self.s.video.name if self.s.video else self.s.doc.path.name) + "  ·  " + t("editor.hint")
-            + ("" if self.s.video else "  " + t("editor.no_video"))))
-        sub.grid(row=1, column=0, sticky="ew", pady=(int(4 * k), int(10 * k)))
-        self.app._wrap(sub, self, 10)
+        self.picker = DocPicker(head, self)
+        self.picker.grid(row=0, column=1, sticky="e", padx=(0, int(14 * k)))
+        if len(self.s.docs) < 2:
+            self.picker.grid_remove()
+        self.b_close = ttk.Button(head, text=t("editor.cancel"), command=self.on_close)
+        self.b_close.grid(row=0, column=2, sticky="e", padx=(0, int(14 * k)))
+        self.b_save = skin.IconButton(head, "file-subtitles", text=t("editor.save"), style="Accent.TButton",
+                                      command=self.save)
+        self.b_save.grid(row=0, column=3, sticky="e")
+        sub = ttk.Frame(self)
+        sub.grid(row=1, column=0, sticky="ew", pady=(int(10 * k), int(14 * k)))
+        self.l_file = ttk.Label(sub, text="", font="SunValleyBodyStrongFont")
+        self.l_file.pack(side="left")
+        hint = t("editor.hint") + ("" if self.s.video else "  " + t("editor.no_video"))
+        ttk.Label(sub, text=hint, style="Hint.TLabel").pack(side="left", padx=(int(6 * k), 0))
 
         mid = ttk.Frame(self)
         mid.grid(row=2, column=0, sticky="nsew")
         mid.columnconfigure(0, weight=1)
         mid.rowconfigure(0, weight=1)
-        card_pad = (int(14 * k), int(14 * k), int(18 * k), int(18 * k))
-
-        # The lines, in a card: #, start, end, text
-        lc = skin.Card(mid, padding=card_pad)
+        lc = skin.Card(mid, padding=(int(14 * k), int(16 * k), int(18 * k), int(18 * k)))
         lc.grid(row=0, column=0, sticky="nsew")
         lc.columnconfigure(0, weight=1)
         lc.rowconfigure(0, weight=1)
-        ttk.Style(self).configure("Editor.Treeview", rowheight=int(30 * k))
-        cols = ("nr", "start", "end", "text")
-        self.tree = ttk.Treeview(lc, columns=cols, show="headings", selectmode="browse", style="Editor.Treeview")
-        for col, title, width, stretch in (("nr", "#", 46, False), ("start", t("editor.start"), 92, False),
-                                           ("end", t("editor.end"), 92, False), ("text", t("editor.col_text"), 300, True)):
-            self.tree.heading(col, text=title, anchor="w")
-            self.tree.column(col, width=int(width * k), minwidth=int(width * k * 0.7), stretch=stretch, anchor="w")
-        self.tree.grid(row=0, column=0, sticky="nsew")
-        sb = ttk.Scrollbar(lc, orient="vertical", command=self.tree.yview)
-        sb.grid(row=0, column=1, sticky="ns")
-        self.tree.configure(yscrollcommand=sb.set)
-        self.tree.tag_configure("edited", foreground=P.accent)
-        self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
-        self.tree.bind("<Double-Button-1>", self._on_tree_double)
-        self.tree.bind("<Return>", lambda e: self._edit_inline())
-        self.tree.bind("<F2>", lambda e: self._edit_inline())
-        self.tree.bind("<Delete>", lambda e: self._delete())
-        keys = ttk.Label(lc, text=t("editor.keys"), style="Hint.TLabel", justify="left")
-        keys.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(int(10 * k), 0))
-        self.app._wrap(keys, lc, int(40 * k))
+        self.lines = LineList(lc, self)
+        self.lines.grid(row=0, column=0, sticky="nsew")
+        self.field = tk.Text(self.lines.c, wrap="word", undo=False, font="SunValleyBodyFont", height=1,
+                             background=P.input_bg, foreground=P.text, insertbackground=P.text,
+                             selectbackground=P.selection_bg, selectforeground=P.selection_text, borderwidth=0,
+                             highlightthickness=2 * kd, highlightcolor=P.focus, highlightbackground=P.input_border,
+                             padx=int(6 * k), pady=int(4 * k))
+        self._field_keys(self.field)
 
-        # Right column: the picture, then the chosen line (its text, times and actions)
-        right = ttk.Frame(mid)
-        right.grid(row=0, column=1, sticky="nsew", padx=(int(20 * k), 0))
-        right.columnconfigure(0, weight=1)
-        pc = skin.Card(right, padding=card_pad)
-        pc.grid(row=0, column=0, sticky="ew")
-        pw, ph = int(PREVIEW_W * k), int(PREVIEW_H * k)
-        self._blank = tk.PhotoImage(master=self, width=pw, height=ph)
-        self.pic = tk.Label(pc, image=self._blank, text="...", compound="center", borderwidth=0, width=pw, height=ph,
-                            background="#0b0320", foreground="#9c8cc9", font=(PIXEL_FONT, -10 * kd))
-        self.pic.grid(row=0, column=0, columnspan=2, sticky="w")
-        if not self.s.video:
-            self.pic.configure(text="")
-        cap = ttk.Frame(pc)
-        cap.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(int(8 * k), 0))
-        cap.columnconfigure(1, weight=1)
-        self.pic_time = ttk.Label(cap, text="", font=(TERMINAL_FONT, -26 * kd), foreground=P.text)
-        self.pic_time.grid(row=0, column=0, sticky="w")
-        self.b_play = skin.IconButton(cap, "play", text=t("editor.play_line"), command=self._play_line)
-        self.b_play.grid(row=0, column=2, sticky="e")
+        # Right column (628 px): the video with the line as a subtitle, the play row, the timeline and the tools
+        right = ttk.Frame(mid, width=int(628 * k))
+        right.grid(row=0, column=1, sticky="ns", padx=(int(28 * k), 0))
+        vw, vh = int(VIDEO_W * k), int(VIDEO_H * k)
+        self.video = tk.Canvas(right, width=vw, height=vh, background="#0b0320", highlightthickness=0, borderwidth=0)
+        self.video.grid(row=0, column=0, sticky="w")
+        self._own_colours.append((self.video, "#0b0320"))
+        row = ttk.Frame(right)
+        row.grid(row=1, column=0, sticky="ew", pady=(int(12 * k), int(12 * k)))
+        row.columnconfigure(2, weight=1)
+        self.b_play = skin.IconButton(row, "play", width=0, command=self.play_line)
+        self.b_play.grid(row=0, column=0, sticky="w")
         if not self.s.video:
             self.b_play.state(["disabled"])
-
-        ln = self.line_card = skin.Card(right, text=" ", padding=card_pad)
-        ln.grid(row=1, column=0, sticky="nsew", pady=(int(16 * k), 0))
-        ln.columnconfigure(0, weight=1)
-        box = self.text_box = tk.Frame(ln, background=P.input_border, padx=max(1, kd), pady=max(1, kd))
-        box.grid(row=0, column=0, sticky="ew")
-        self.text = tk.Text(box, height=3, width=34, wrap="word", undo=False, font="SunValleyBodyFont",
-                            background=P.input_bg, foreground=P.text, insertbackground=P.text,
-                            selectbackground=P.selection_bg, selectforeground=P.selection_text, borderwidth=0,
-                            highlightthickness=0, padx=int(8 * k), pady=int(6 * k))
-        self.text.pack(fill="both", expand=True)
-        self.text.bind("<FocusIn>", lambda e: box.configure(background=P.focus))
-        self.text.bind("<FocusOut>", lambda e: (box.configure(background=P.input_border), self._commit_text()))
-        self._text_keys(self.text, self._text_changed)
-
-        times = ttk.Frame(ln)
-        times.grid(row=1, column=0, sticky="w", pady=(int(12 * k), 0))
-        self.t_labels = {}
-        for col, side in enumerate(("start", "end")):
-            f = ttk.Frame(times)
-            f.grid(row=0, column=col, sticky="w", padx=(0, int(24 * k)))
-            ttk.Label(f, text=t(f"editor.{side}"), style="Hint.TLabel").grid(row=0, column=0, columnspan=3, sticky="w")
-            skin.IconButton(f, "minus", width=0, command=lambda s=side: self._nudge(s, -NUDGE_MS)).grid(row=1, column=0)
-            lab = ttk.Label(f, text="", font=(TERMINAL_FONT, -24 * kd), width=9, anchor="center")
-            lab.grid(row=1, column=1, padx=int(4 * k))
-            skin.IconButton(f, "plus", width=0, command=lambda s=side: self._nudge(s, NUDGE_MS)).grid(row=1, column=2)
-            self.t_labels[side] = lab
-        self.t_len = ttk.Label(times, text="", style="Hint.TLabel")
-        self.t_len.grid(row=0, column=2, sticky="sw", pady=(0, int(6 * k)))
-
-        acts = ttk.Frame(ln)
-        acts.grid(row=2, column=0, sticky="w", pady=(int(14 * k), 0))
-        self.b_split = ttk.Button(acts, text=t("editor.split"), command=self._split)
-        self.b_split.grid(row=0, column=0, sticky="w")
-        self.b_merge = ttk.Button(acts, text=t("editor.merge"), command=self._merge)
-        self.b_merge.grid(row=0, column=1, sticky="w", padx=(int(8 * k), 0))
-        self.b_delete = ttk.Button(acts, text=t("editor.delete"), command=self._delete)
-        self.b_delete.grid(row=1, column=0, sticky="w", pady=(int(8 * k), 0))
-        self.b_undo = ttk.Button(acts, text=t("editor.undo"), command=self._undo)
-        self.b_undo.grid(row=1, column=1, sticky="w", padx=(int(8 * k), 0), pady=(int(8 * k), 0))
-
-        # The timeline around the chosen line, inside frames/timeline like the cut review's
-        tl = ttk.Frame(self, style="Timeline.TFrame", padding=(6 * kd, 6 * kd, 10 * kd, 10 * kd))
-        tl.grid(row=3, column=0, sticky="ew", pady=(int(16 * k), 0))
+        self.l_time = ttk.Label(row, text="", font=(TERMINAL_FONT, -22 * kd))
+        self.l_time.grid(row=0, column=1, sticky="w", padx=(int(14 * k), 0))
+        self.l_line = ttk.Label(row, text="", style="Hint.TLabel")
+        self.l_line.grid(row=0, column=2, sticky="e")
+        tl = ttk.Frame(right, style="Timeline.TFrame", padding=(6 * kd, 6 * kd, 10 * kd, 10 * kd))
+        tl.grid(row=2, column=0, sticky="ew")
         tl.columnconfigure(0, weight=1)
-        self.canvas = tk.Canvas(tl, height=int(104 * k), background=P.timeline_bg, highlightthickness=0,
-                                borderwidth=0)
+        self.canvas = tk.Canvas(tl, width=vw - 16 * kd, height=int((TRACK_RULER + TRACK_H) * k) + 8 * kd,
+                                background=P.timeline_bg, highlightthickness=0, borderwidth=0)
         self.canvas.grid(row=0, column=0, sticky="ew")
         c = self.canvas
         c.bind("<Configure>", lambda e: self._redraw())
@@ -636,309 +789,267 @@ class SubtitleEditor(ttk.Frame):
         c.bind("<B1-Motion>", self._on_drag)
         c.bind("<ButtonRelease-1>", self._on_release)
         c.bind("<MouseWheel>", lambda e: self._pan(-e.delta / 120 * 0.2))
+        tools = ttk.Frame(right)
+        tools.grid(row=3, column=0, sticky="w", pady=(int(14 * k), 0))
+        self.b_split = skin.IconButton(tools, "split", text=t("editor.split"), command=lambda: self.split())
+        self.b_split.grid(row=0, column=0)
+        self.b_merge = skin.IconButton(tools, "merge", text=t("editor.merge"), command=self.merge)
+        self.b_merge.grid(row=0, column=1, padx=(int(12 * k), 0))
+        self.b_delete = skin.IconButton(tools, "trash", width=0, command=self.delete)
+        self.b_delete.grid(row=0, column=2, padx=(int(12 * k), 0))
+        Tooltip(self.b_delete, t("editor.delete"))
+        keys = ttk.Label(right, text=t("editor.keys"), style="Hint.TLabel", justify="left")
+        keys.grid(row=4, column=0, sticky="ew", pady=(int(12 * k), 0))
+        keys.configure(wraplength=vw)
+        for seq, fn in (("<Control-s>", self._key_save), ("<space>", self._key_space), ("<Control-z>", self._key_undo)):
+            self.bind_all(seq, fn, add="+")
 
-        bottom = ttk.Frame(self)
-        bottom.grid(row=4, column=0, sticky="ew", pady=(int(14 * k), 0))
-        self.b_save = ttk.Button(bottom, text=t("editor.save"), style="Main.Accent.TButton", command=self.save)
-        self.b_save.pack(side="left")
-        ttk.Button(bottom, text=t("editor.close"), command=self.on_close).pack(side="left", padx=(int(12 * k), 0))
-        ttk.Button(bottom, text=t("editor.open_external"),
-                   command=lambda: self.app._open(self.s.doc.path)).pack(side="left", padx=(int(12 * k), 0))
-        self.status = ttk.Label(bottom, text="", style="Hint.TLabel", justify="left")
-        self.status.pack(side="left", padx=(int(16 * k), 0), fill="x", expand=True)
-        self.bind_all("<Control-s>", self._key_save, add="+")
-        self.bind_all("<F5>", self._key_play, add="+")
-
-    def _text_keys(self, widget: tk.Text, on_change):
+    def _field_keys(self, w: tk.Text):
         """Enter: on to the next line; Shift+Enter: a new line in the text; Ctrl+Enter: split at the cursor;
-        Ctrl+Z: undo the last change of a line."""
-        widget.bind("<KeyRelease>", lambda e: on_change())
-        widget.bind("<Return>", lambda e: (self._next_line(), "break")[1])
-        widget.bind("<Shift-Return>", lambda e: None)   # the Text's own newline
-        widget.bind("<Control-Return>", lambda e: (self._split(widget), "break")[1])
-        widget.bind("<Control-z>", lambda e: (self._undo(), "break")[1])
+        Up/Down on the field's first/last line: the line before/after; Alt(+Shift)+Left/Right: the start (end)
+        100 ms earlier/later; Esc: the line as it was when it was chosen."""
+        w.bind("<KeyRelease>", lambda e: self._text_changed())
+        w.bind("<Return>", lambda e: (self.select(self.s.sel + 1), "break")[1])
+        w.bind("<Shift-Return>", lambda e: None)
+        w.bind("<Control-Return>", lambda e: (self.split(), "break")[1])
+        w.bind("<Up>", lambda e: (self.select(self.s.sel - 1), "break")[1] if w.index("insert").startswith("1.") else None)
+        w.bind("<Down>", lambda e: (self.select(self.s.sel + 1), "break")[1]
+               if int(w.index("insert").split(".")[0]) == int(w.index("end-1c").split(".")[0]) else None)
+        for key, side, delta in (("<Alt-Left>", "start", -NUDGE_MS), ("<Alt-Right>", "start", NUDGE_MS),
+                                 ("<Alt-Shift-Left>", "end", -NUDGE_MS), ("<Alt-Shift-Right>", "end", NUDGE_MS)):
+            w.bind(key, lambda e, s=side, d=delta: (self.nudge(s, d), "break")[1])
+        w.bind("<Escape>", lambda e: (self._revert_line(), "break")[1])
+        w.bind("<FocusOut>", lambda e: self.commit())
 
-    def _lang_names(self):
-        names = []
-        for d in self.s.docs:
-            name = d.lang.name if d.lang else d.path.stem
-            names.append(name + (" *" if d.dirty else ""))
-        self.c_lang.configure(values=names)
-        self.lang_var.set(names[self.s.cur])
+    def place_field(self, canvas: tk.Canvas, x: int, y: int, w: int, h: int):
+        if self._field_window is None:
+            self._field_window = canvas.create_window(x, y, window=self.field, anchor="nw", width=w, height=h)
+        else:
+            canvas.coords(self._field_window, x, y)
+            canvas.itemconfigure(self._field_window, width=w, height=h, state="normal")
 
-    # --- The list -------------------------------------------------------------------------
+    def hide_field(self, canvas: tk.Canvas):
+        if self._field_window is not None:
+            canvas.itemconfigure(self._field_window, state="hidden")
 
-    def _row(self, i: int, c: Cue):
-        """A row's values; a line that differs from every saved line is marked (accent) until it is saved."""
-        edited = (c.start, c.end, clean_text(c.text)) not in self._saved_keys
-        return dict(values=(i + 1, fmt_time(c.start), fmt_time(c.end), flat(c.text) or "-"),
-                    tags=("edited",) if edited else ())
+    # --- Choosing a line ------------------------------------------------------------------
 
-    def _fill_tree(self):
-        self._saved_keys = {(c.start, c.end, clean_text(c.text)) for c in self.s.doc.saved}
-        self.tree.delete(*self.tree.get_children())
-        for i, c in enumerate(self.s.doc.cues):
-            self.tree.insert("", "end", iid=str(i), **self._row(i, c))
-
-    def _update_row(self, i: int):
-        if 0 <= i < len(self.s.doc.cues) and self.tree.exists(str(i)):
-            r = self._row(i, self.s.doc.cues[i])
-            self.tree.item(str(i), values=r["values"], tags=r["tags"])
-
-    def _on_tree_select(self, _=None):
-        sel = self.tree.selection()
-        if sel and int(sel[0]) != self.s.sel:
-            self._commit_text()
-            self._select(int(sel[0]), from_tree=True)
-
-    def _on_tree_double(self, e):
-        if self.tree.identify_region(e.x, e.y) == "cell":
-            self._edit_inline()
-            return "break"
-
-    def _select(self, i: int, from_tree: bool = False, show_frame: bool = True):
+    def select(self, i: int, focus: bool = True, show_frame: bool = True):
         cues = self.s.doc.cues
+        if not cues:
+            self.s.sel = -1
+            self.lines.layout()
+            self._show_line_info()
+            return
+        if not (0 <= i < len(cues)):
+            return
+        self.commit()
         self.s.sel = i
-        if not (0 <= i < len(cues)):
-            self.line_card.configure(text=t("editor.no_line"))
-            self.text.delete("1.0", "end")
-            for w in (self.b_split, self.b_merge, self.b_delete):
-                w.state(["disabled"])
-            self._redraw()
-            return
-        c = cues[i]
-        if not from_tree:
-            self.tree.selection_set(str(i))
-        self.tree.see(str(i))
-        self.line_card.configure(text=t("editor.line_title", n=i + 1, total=len(cues)))
         self._typing = False
-        self._load_text(c.text)
-        self._show_times()
-        for w in (self.b_split, self.b_delete):
-            w.state(["!disabled"])
+        self._loaded = cues[i].text
+        self.field.delete("1.0", "end")
+        self.field.insert("1.0", cues[i].text)
+        self._field_for = i
+        if not self.lines.tops or len(self.lines.tops) != len(cues):
+            self.lines.layout()
+        self.lines.see(i)
+        if focus:
+            self.field.focus_set()
+            self.field.mark_set("insert", "end-1c")
         self.b_merge.state(["!disabled"] if i + 1 < len(cues) else ["disabled"])
-        self._view_line(c)
+        self._view_line(cues[i])
+        self._show_line_info()
         if show_frame:
-            self._picture(c.start)
+            self._picture(cues[i].start)
+        else:
+            self._draw_video()
 
-    def _load_text(self, text: str):
-        self.text.delete("1.0", "end")
-        self.text.insert("1.0", text)
-        self.text.edit_modified(False)
-
-    def _show_times(self):
+    def _show_line_info(self):
         cues, i = self.s.doc.cues, self.s.sel
-        if not (0 <= i < len(cues)):
-            return
-        c = cues[i]
-        self.t_labels["start"].configure(text=fmt_time(c.start))
-        self.t_labels["end"].configure(text=fmt_time(c.end))
-        self.t_len.configure(text=t("editor.length", s=fmt_seconds(c.end - c.start)))
+        self.l_file.configure(text=self.s.doc.path.name)
+        if 0 <= i < len(cues):
+            q = cues[i]
+            self.l_line.configure(text=t("editor.line_info", n=i + 1, start=fmt_time(q.start), end=fmt_time(q.end),
+                                         s=fmt_seconds(q.end - q.start)))
+        else:
+            self.l_line.configure(text="")
+        self._draw_video()
 
     # --- Editing --------------------------------------------------------------------------
 
-    def _changed(self, i: int | None = None, rebuild: bool = False):
-        """After any change: the row (or the whole list), the language's * and the timeline."""
-        if rebuild:
-            self._fill_tree()
-        elif i is not None:
-            self._update_row(i)
-        self._lang_names()
-        self.status.configure(text="")
-        self._redraw()
-
     def _text_changed(self):
         cues, i = self.s.doc.cues, self.s.sel
-        if not (0 <= i < len(cues)):
+        if not (0 <= i < len(cues)) or i != self._field_for:
             return
-        text = self.text.get("1.0", "end-1c")
+        text = self.field.get("1.0", "end-1c")
         if text != cues[i].text:
-            if not getattr(self, "_typing", False):   # one undo step per line visit, not per key
+            if not self._typing:   # one undo step per line visit, not per key
                 self.s.doc.push_undo(i)
                 self._typing = True
             cues[i].text = text
-            self._changed(i)
+            self.lines.relayout_row(i)
+            self._changed()
 
-    def _commit_text(self):
-        self._text_changed()
-        self._typing = False
-
-    def _next_line(self):
-        self._close_overlay(commit=True)
-        self._commit_text()
-        if self.s.sel + 1 < len(self.s.doc.cues):
-            self._select(self.s.sel + 1)
-        self.text.focus_set()
-        self.text.mark_set("insert", "end-1c")
-
-    def _edit_inline(self):
-        """The chosen row's text, edited on the row itself (a Text over the text cell)."""
-        i = self.s.sel
-        if not (0 <= i < len(self.s.doc.cues)):
-            return
-        self._close_overlay(commit=True)
-        self.tree.see(str(i))
-        self.tree.update_idletasks()
-        box = self.tree.bbox(str(i), "text")
-        if not box:
-            return
-        x, y, w, h = box
-        lines = max(1, self.s.doc.cues[i].text.count("\n") + 1)
-        ov = self._overlay = tk.Text(self.tree, wrap="word", font="SunValleyBodyFont", background=P.input_bg,
-                                     foreground=P.text, insertbackground=P.text, selectbackground=P.selection_bg,
-                                     selectforeground=P.selection_text, borderwidth=0, highlightthickness=max(1, self.kd),
-                                     highlightcolor=P.focus, highlightbackground=P.focus, padx=int(4 * self.k), pady=0)
-        ov.insert("1.0", self.s.doc.cues[i].text)
-        ov.place(x=x, y=y, width=w, height=max(h, int(22 * self.k) * lines + int(8 * self.k)))
-        ov.focus_set()
-        ov.mark_set("insert", "end-1c")
-
-        def changed():
-            text = ov.get("1.0", "end-1c")
-            if text != self.s.doc.cues[i].text:
-                if not getattr(self, "_typing", False):
-                    self.s.doc.push_undo(i)
-                    self._typing = True
-                self.s.doc.cues[i].text = text
-                self._load_text(text)
-                self._changed(i)
-        self._text_keys(ov, changed)
-        ov.bind("<Escape>", lambda e: (self._close_overlay(commit=False), "break")[1])
-        ov.bind("<FocusOut>", lambda e: self._close_overlay(commit=True))
-        ov._changed = changed
-
-    def _close_overlay(self, commit: bool):
-        ov, self._overlay = self._overlay, None
-        if ov is None:
-            return
+    def commit(self):
+        """Take what is in the field (it is also taken on every key)."""
         try:
-            if commit:
-                ov._changed()
-            elif getattr(self, "_typing", False) and self.s.doc.undo:   # Esc: the line as before the overlay
-                self._undo()
-            ov.destroy()
-        except tk.TclError:
-            pass
-        self._typing = False
-        try:
-            self.tree.focus_set()
+            self._text_changed()
         except tk.TclError:
             pass
 
-    def _cursor(self, widget: tk.Text | None) -> int | None:
-        """The cursor's character position in the line's text, from the Text being edited."""
-        w = widget if widget is not None else (self._overlay or self.text)
-        try:
-            return len(w.get("1.0", "insert"))
-        except tk.TclError:
-            return None
+    def _revert_line(self):
+        cues, i = self.s.doc.cues, self.s.sel
+        if 0 <= i < len(cues) and cues[i].text != self._loaded:
+            cues[i].text = self._loaded
+            self.field.delete("1.0", "end")
+            self.field.insert("1.0", self._loaded)
+            self.lines.relayout_row(i)
+            self._changed()
 
-    def _split(self, widget: tk.Text | None = None):
+    def _changed(self):
+        """After any change: the Annullér/Luk wording, the line's info, the subtitle in the video, the timeline."""
+        self.b_close.configure(text=t("editor.cancel") if self.s.dirty else t("editor.close"))
+        self._show_line_info()
+        self._redraw()
+
+    def split(self):
         cues, i = self.s.doc.cues, self.s.sel
         if not (0 <= i < len(cues)):
             return
-        pos = self._cursor(widget)   # a button press: the cursor of the row being edited, else of the line's box
-        self._close_overlay(commit=True)
-        self._commit_text()
-        if pos is None or pos <= 0 or pos >= len(cues[i].text):
-            self.status.configure(text=t("editor.split_where"))
+        pos = len(self.field.get("1.0", "insert"))
+        self.commit()
+        if pos <= 0 or pos >= len(cues[i].text):
+            self._say(t("editor.split_where"))
             return
         parts = split_cue(cues[i], pos)
         if parts is None:
-            self.status.configure(text=t("editor.split_short"))
+            self._say(t("editor.split_short"))
             return
         self.s.doc.push_undo(i)
         cues[i:i + 1] = list(parts)
-        self._changed(rebuild=True)
-        self._select(i + 1)
-        self.text.focus_set()
-        self.text.mark_set("insert", "1.0")
+        self._typing = True   # the next line's field must not take the old text back
+        self.lines.layout()
+        self._typing = False
+        self.s.sel = -1
+        self.select(i + 1)
+        self.field.mark_set("insert", "1.0")
+        self._changed()
 
-    def _merge(self):
+    def merge(self):
         cues, i = self.s.doc.cues, self.s.sel
         if not (0 <= i < len(cues) - 1):
             return
-        self._close_overlay(commit=True)
-        self._commit_text()
+        self.commit()
         self.s.doc.push_undo(i)
         cues[i:i + 2] = [merge_cues(cues[i], cues[i + 1])]
-        self._changed(rebuild=True)
-        self._select(i)
+        self.lines.layout()
+        self.s.sel = -1
+        self.select(i)
+        self._changed()
 
-    def _delete(self):
-        cues, i = self.s.doc.cues, self.s.sel
-        if not (0 <= i < len(cues)) or self._overlay is not None:
-            return
-        self._commit_text()
-        self.s.doc.push_undo(i)
-        del cues[i]
-        self._changed(rebuild=True)
-        self._select(min(i, len(cues) - 1))
-
-    def _undo(self):
-        ov, self._overlay = self._overlay, None
-        if ov is not None:
-            try:
-                ov.destroy()
-            except tk.TclError:
-                pass
-        self._typing = False
-        doc = self.s.doc
-        if not doc.undo:
-            return
-        doc.cues, sel = doc.undo.pop()
-        self._changed(rebuild=True)
-        self._select(min(sel, len(doc.cues) - 1))
-
-    def _nudge(self, side: str, delta: int):
+    def delete(self):
         cues, i = self.s.doc.cues, self.s.sel
         if not (0 <= i < len(cues)):
             return
-        self._commit_text()
+        self.commit()
+        self.s.doc.push_undo(i)
+        del cues[i]
+        self.lines.layout()
+        self.s.sel = -1
+        if cues:
+            self.select(min(i, len(cues) - 1))
+        else:
+            self.select(0)
+        self._changed()
+
+    def undo(self):
+        doc = self.s.doc
+        self.commit()
+        if not doc.undo:
+            return
+        doc.cues, sel = doc.undo.pop()
+        self._typing = False
+        self.lines.layout()
+        self.s.sel = -1
+        self.select(min(sel, len(doc.cues) - 1), focus=False)
+        self._changed()
+
+    def nudge(self, side: str, delta: int):
+        cues, i = self.s.doc.cues, self.s.sel
+        if not (0 <= i < len(cues)):
+            return
+        self.commit()
         old = getattr(cues[i], side)
         self.s.doc.push_undo(i)
         new = set_edge(cues, i, side, old + delta, self.media.duration)
         if new == old:
             self.s.doc.undo.pop()
-            self.status.configure(text=t("editor.edge_blocked"))
+            self._say(t("editor.edge_blocked"))
             return
-        self._show_times()
-        self._changed(i)
+        self.lines.draw()
+        self._changed()
         self._picture(new)
 
-    def _switch_lang(self, n: int):
-        if n < 0 or n == self.s.cur:
+    def switch_lang(self, n: int):
+        if n < 0 or n >= len(self.s.docs) or n == self.s.cur:
             return
-        self._close_overlay(commit=True)
-        self._commit_text()
+        self.commit()
         # The same moment in the other language: the line that covers the chosen line's start
         at = self.s.doc.cues[self.s.sel].start if 0 <= self.s.sel < len(self.s.doc.cues) else 0
         self.s.cur = n
         cues = self.s.doc.cues
-        i = next((j for j, c in enumerate(cues) if c.end > at), len(cues) - 1)
-        self._fill_tree()
-        self._lang_names()
-        self.s.sel = -2
-        self._select(i)
+        self.lines.layout()
+        self.s.sel = -1
+        self.select(next((j for j, c in enumerate(cues) if c.end > at), len(cues) - 1), focus=False)
+        self.picker.refresh(str(n))
+        self._changed()
 
-    # --- Saving ---------------------------------------------------------------------------
+    def _say(self, text: str):
+        """A short note in the hint under the title (there is no status bar)."""
+        from .gui import boxes
+        boxes.showinfo(t("editor.title"), text, parent=self.app._owner())
+
+    # --- Keys -----------------------------------------------------------------------------
+
+    def _mine(self, e) -> bool:
+        try:
+            return self.winfo_exists() and self.winfo_ismapped() and str(e.widget).startswith(str(self.app.root))
+        except (tk.TclError, AttributeError):
+            return False
 
     def _key_save(self, e=None):
-        if self.winfo_exists() and self.winfo_ismapped():
+        if self._mine(e) and e.widget.winfo_toplevel() is self.winfo_toplevel():
             self.save()
             return "break"
 
-    def save(self) -> bool:
-        """Save every changed language; then offer the words corrected in the spoken language's text."""
-        self._close_overlay(commit=True)
-        self._commit_text()
+    def _key_undo(self, e=None):
+        if self._mine(e) and e.widget.winfo_toplevel() is self.winfo_toplevel():
+            self.undo()
+            return "break"
+
+    def _key_space(self, e=None):
+        """Space outside the text plays the line (in a field or on a button it does what it always does)."""
+        if not self._mine(e) or e.widget.winfo_toplevel() is not self.winfo_toplevel():
+            return None
+        if e.widget.winfo_class() in ("Text", "Entry", "TEntry", "TCombobox", "TButton", "TCheckbutton", "TLabel"):
+            return None
+        self.play_line()
+        return "break"
+
+    # --- Saving ---------------------------------------------------------------------------
+
+    def save(self, dialog: bool = True) -> bool:
+        """Save every changed language; then the dialog: where it was saved, the words corrected in the spoken
+        language's text for the word list, and (when the run's video was made from these subtitles) making it again."""
+        self.commit()
         dirty = [d for d in self.s.docs if d.dirty]
         if not dirty:
-            self.status.configure(text=t("editor.nothing_to_save"))
+            if dialog:
+                self._say(t("editor.nothing_to_save"))
             return True
         src = self.s.source_doc()
         before = copy.deepcopy(src.saved) if src in dirty else None
-        notes, backups = [], []
+        notes, saved = [], []
         for d in dirty:
             try:
                 r = save_doc(d, self.media.duration)
@@ -948,60 +1059,92 @@ class SubtitleEditor(ttk.Frame):
                 boxes.showerror(t("editor.title"), t("editor.save_failed", file=d.path.name, error=e),
                                 parent=self.app._owner())
                 return False
+            saved.append(d)
             if r.backup:
-                backups.append(r.backup.name)
+                notes.append(t("editor.backup", backup=r.backup.name))
             if r.moved:
                 notes.append(plural_t("editor.moved", r.moved))
             if r.dropped:
                 notes.append(plural_t("editor.dropped", r.dropped))
-        self._fill_tree()
-        self._lang_names()
-        self._select(min(self.s.sel, len(self.s.doc.cues) - 1), show_frame=False)
-        msg = t("editor.saved")
-        if backups:
-            msg += " " + t("editor.backup", backup=", ".join(backups))
-        msg += " " + " ".join(notes) + (" " if notes else "") + t("editor.remake")
+        self.lines.layout()
+        self.s.sel = min(self.s.sel, len(self.s.doc.cues) - 1)
+        self._loaded = self.s.doc.cues[self.s.sel].text if self.s.doc.cues else ""
+        self._changed()
+        if not dialog:
+            return True
+        pairs = []
         if before is not None:
             from . import claude
             known = {w.lower() for w, _ in claude.word_rules()}
             pairs = word_changes(before, src.cues, known)
-            if pairs:
-                chosen = offer_words(self, pairs, src.lang)
-                if chosen:
-                    added = claude.add_words(chosen)
-                    msg += " " + plural_t("editor.words_added", len(added))
-        self.status.configure(text=msg)
+        remake = any(d.lang in self.s.remake for d in saved)
+        chosen, again = save_dialog(self, [d.path.name for d in saved], notes, pairs, remake)
+        if chosen:
+            from . import claude
+            claude.add_words(chosen)
+        if again:
+            app = self.app
+            close(app, ask=False)
+            app.root.after_idle(app._start)
         return True
 
-    # --- The picture and the sound ----------------------------------------------------------
+    # --- The picture, the subtitle on it and the sound ------------------------------------------
 
     def _picture(self, ms: int):
-        if not self.s.video:
-            return
         self._want_ms = ms
-        self.pic_time.configure(text=fmt_time(ms))
-        self.media.frame(ms, int(PREVIEW_W * self.k))
+        self._time_label()
+        if self.s.video:
+            self.media.frame(ms, int(VIDEO_W * self.k) - 4 * self.kd)
         self._redraw()
 
-    def _key_play(self, e=None):
-        if self.winfo_exists() and self.winfo_ismapped():
-            self._play_line()
-            return "break"
+    def _time_label(self):
+        ms = self._want_ms or 0
+        total = self.media.duration
+        self.l_time.configure(text=fmt_time(ms) + (f" / {cutting.fmt_clock(total)}" if total else ""))
 
-    def _play_line(self):
+    def _draw_video(self):
+        """The frame, a 2 px border with the small pixel corners, and the chosen line as a subtitle."""
+        c, k, kd = self.video, self.k, self.kd
+        try:
+            c.delete("all")
+        except tk.TclError:
+            return
+        w, h = int(VIDEO_W * k), int(VIDEO_H * k)
+        if self._img is not None:
+            c.create_image(w // 2, h // 2, image=self._img)
+        elif self.s.video:
+            c.create_text(w // 2, h // 2, text="...", fill="#9c8cc9", font=(PIXEL_FONT, -10 * kd))
+        b = 2 * kd
+        c.create_rectangle(b / 2, b / 2, w - b / 2, h - b / 2, outline=P.card_border, width=b)
+        for x, y in ((0, 0), (w - b, 0), (0, h - b), (w - b, h - b)):   # the corners cut by one pixel step
+            c.create_rectangle(x, y, x + b, y + b, fill=P.window, outline="")
+        cues, i = self.s.doc.cues, self.s.sel
+        if 0 <= i < len(cues) and cues[i].text.strip():
+            font = ("Segoe UI", -int(22 * k))
+            tid = c.create_text(w // 2, h - int(28 * k), text=clean_text(cues[i].text), fill="#ffffff", font=font,
+                                justify="center", anchor="s", width=w - int(60 * k))
+            x0, y0, x1, y1 = c.bbox(tid)
+            box = c.create_rectangle(x0 - int(10 * k), y0 - int(4 * k), x1 + int(10 * k), y1 + int(4 * k),
+                                     fill="#0b0320", outline="")
+            c.tag_lower(box, tid)
+
+    def _key_play(self, e=None):
+        self.play_line()
+
+    def play_line(self):
         cues, i = self.s.doc.cues, self.s.sel
         if self.media.playing:
             self.media.stop()
-            self.b_play.configure(text=t("editor.play_line"))
+            self.b_play.icon = "play"
+            self.b_play._set_icon()
             return
         if not (0 <= i < len(cues)) or self.media.wav is None:
-            if self.s.video and self.media.wav is None:
-                self.status.configure(text=t("editor.sound_wait"))
             return
         c = cues[i]
         self.media.play(c.start, min(MAX_PLAY_MS, c.end - c.start))
         self._picture(c.start)
-        self.b_play.configure(text=t("editor.stop"))
+        self.b_play.icon = "stop"
+        self.b_play._set_icon()
         self.after(200, self._play_tick)
 
     def _play_tick(self):
@@ -1010,7 +1153,8 @@ class SubtitleEditor(ttk.Frame):
         if self.media.playing:
             self.after(200, self._play_tick)
         else:
-            self.b_play.configure(text=t("editor.play_line"))
+            self.b_play.icon = "play"
+            self.b_play._set_icon()
 
     def _poll(self):
         if not self.winfo_exists():
@@ -1023,10 +1167,11 @@ class SubtitleEditor(ttk.Frame):
                     if path is not None:
                         try:
                             self._img = tk.PhotoImage(master=self, file=str(path))
-                            self.pic.configure(image=self._img, text="")
                         except tk.TclError:
                             pass
+                        self._draw_video()
                 elif ev[0] in ("duration", "sound"):
+                    self._time_label()
                     self._redraw()
         except queue.Empty:
             pass
@@ -1035,7 +1180,7 @@ class SubtitleEditor(ttk.Frame):
     # --- The timeline -----------------------------------------------------------------------
 
     def _m(self) -> int:
-        return 10 * self.kd
+        return 8 * self.kd
 
     def _width(self) -> int:
         return max(100, self.canvas.winfo_width() - 2 * self._m())
@@ -1051,16 +1196,16 @@ class SubtitleEditor(ttk.Frame):
         return int(min(max(self.v0 + (x - self._m()) / self._width() * (self.v1 - self.v0), 0), self._dur()))
 
     def _view_line(self, c: Cue):
-        """Show the line with some of its neighbours: at least VIEW_MIN_MS, the line in the middle third."""
+        """Show the line with some of its neighbours: at least VIEW_MIN_MS, the line in the middle."""
         if self._drag:
             return
-        span = max(VIEW_MIN_MS, 3 * (c.end - c.start))
+        span = max(VIEW_MIN_MS * 0.8, 3 * (c.end - c.start))
         mid = (c.start + c.end) / 2
         self._set_view(mid - span / 2, mid + span / 2)
 
     def _set_view(self, v0: float, v1: float):
         dur = self._dur()
-        span = min(max(VIEW_MIN_MS / 4, v1 - v0), max(dur, VIEW_MIN_MS))
+        span = min(max(VIEW_MIN_MS / 4, v1 - v0), max(dur, VIEW_MIN_MS / 4))
         v0 = min(max(0, v0), max(0, dur - span))
         self.v0, self.v1 = int(v0), int(v0 + span)
         self._redraw()
@@ -1068,6 +1213,13 @@ class SubtitleEditor(ttk.Frame):
     def _pan(self, frac: float):
         span = self.v1 - self.v0
         self._set_view(self.v0 + span * frac, self.v0 + span * (1 + frac))
+
+    def _rows(self):
+        """(ruler bottom, track top, box top, box bottom) in canvas px."""
+        k, kd = self.k, self.kd
+        ruler = int(TRACK_RULER * k)
+        bottom = self.canvas.winfo_height() - 4 * kd
+        return ruler, ruler + 2 * kd, bottom - int(BOX_H * k), bottom
 
     def _redraw(self):
         c = self.canvas
@@ -1078,86 +1230,97 @@ class SubtitleEditor(ttk.Frame):
             return
         c.delete("all")
         k, kd, m = self.k, self.kd, self._m()
-        w, h = c.winfo_width(), c.winfo_height()
-        ruler = 26 * kd
-        top, bottom = ruler + 2 * kd, h - 4 * kd
-        mid = (top + bottom) // 2
+        w = c.winfo_width()
+        ruler, top, box0, box1 = self._rows()
         env = self.media.env
+        wave_mid = (top + box0) // 2 + int(6 * k)
         if env is not None and len(env):
             import numpy as np
-            cols = max(2, int(self._width() / max(1, k)))
+            cols = max(2, int(self._width() / max(1, 2 * kd)))
             idx = np.clip(np.linspace(self.v0 / cutting.ENVELOPE_MS, self.v1 / cutting.ENVELOPE_MS,
                                       cols + 1)[:-1].astype(int), 0, len(env) - 1)
-            level = np.clip((np.maximum.reduceat(env, idx) + 60) / 60, 0.02, 1.0) * ((bottom - top) / 2 - 4 * kd)
+            amp = (box0 - top) / 2 + int(10 * k)
+            level = np.clip((np.maximum.reduceat(env, idx) + 60) / 60, 0.04, 1.0) * amp
             xs = m + np.arange(cols) * self._width() / cols
-            pts = [v for x, l in zip(xs, level) for v in (x, mid - l)] + \
-                  [v for x, l in zip(xs[::-1], level[::-1]) for v in (x, mid + l)]
+            pts = [v for x, l in zip(xs, level) for v in (x, wave_mid - l)] + \
+                  [v for x, l in zip(xs[::-1], level[::-1]) for v in (x, wave_mid + l)]
             if len(pts) >= 8:
                 c.create_polygon(pts, fill=P.timeline_waveform, outline="")
-        # The lines: the neighbours outlined in the speech colour with their number, the chosen one in the manual cut
-        # colours with drag handles on its edges
-        font = ("Segoe UI Semibold", 10)
-        y0, y1 = top + 8 * kd, bottom - 8 * kd
+        # The lines: 38 px boxes at the bottom of the track (card fill, 2 px border); the chosen one in
+        # your_turn_card with a 3 px accent border and 8 x 26 drag handles
+        num_font, text_font = (PIXEL_FONT, -8 * kd), ("Segoe UI", -int(12 * k))
+        edge = P.heading if P.name == "light" else P.card_border
         sel = self.s.sel
         for i, q in enumerate(self.s.doc.cues):
-            if q.end <= self.v0 or q.start >= self.v1:
+            if q.end <= self.v0 or q.start >= self.v1 or i == sel:
                 continue
-            x0, x1 = self.x_of(q.start), self.x_of(q.end)
-            if i == sel:
-                continue
-            c.create_rectangle(x0, y0, max(x1, x0 + 2), y1, outline=P.timeline_speech, width=2 * kd)
-            if x1 - x0 > 30 * kd:
-                c.create_text(x0 + 6 * kd, y0 + 5 * kd, text=str(i + 1), anchor="nw", fill=P.timeline_speech, font=font)
+            self._box(i, q, P.card, edge, 2 * kd, num_font, text_font)
         if 0 <= sel < len(self.s.doc.cues):
             q = self.s.doc.cues[sel]
-            x0, x1 = self.x_of(q.start), self.x_of(q.end)
-            border, fill = getattr(P, "cut_manual_border", P.accent), getattr(P, "cut_manual_fill", P.picker_hover_bg)
-            c.create_rectangle(x0, y0, x1, y1, fill=fill, outline=border, width=3 * kd)
-            words = flat(q.text)
-            room = x1 - x0 - 16 * kd
-            if room > 20 * kd:
-                label = f"{sel + 1}  {words}"
-                while label and self._measure(label, font) > room:
-                    label = label[:-2]
-                c.create_text(x0 + 8 * kd, mid, text=label, anchor="w", fill=P.text, font=font)
+            x0, x1 = self._box(sel, q, P.your_turn_card, P.accent, 3 * kd, num_font, text_font)
+            ymid = (box0 + box1) // 2
             dragging = self._drag["side"] if self._drag else None
             for side, x in (("start", x0), ("end", x1)):
-                if dragging == side:
-                    c.create_image(x, mid, image=IMG.get("art/timeline-handle-dragging"))
-                else:
-                    c.create_rectangle(x - 5 * kd, mid - 20 * kd, x + 5 * kd, mid + 20 * kd, fill=border, outline="")
-        # The ruler, over anything that reaches up there
+                hw, hh = (6 if dragging == side else 4) * kd, 13 * kd
+                c.create_rectangle(x - hw, ymid - hh, x + hw, ymid + hh, fill=P.accent, outline=P.card_border
+                                   if dragging == side else "", width=kd)
+        # The ruler (24 px), over anything that reaches up there
         c.create_rectangle(0, 0, w, top, fill=P.timeline_bg, outline="")
         c.create_rectangle(m, ruler, w - m, top, fill=P.card_border, outline="")
         px_per_s = self._width() / max(0.001, (self.v1 - self.v0) / 1000)
-        step = next((s for s in (1, 2, 5, 10, 15, 30, 60, 120, 300, 600) if s * px_per_s >= 80 * k), 600)
+        step = next((s for s in (1, 2, 5, 10, 15, 30, 60, 120, 300, 600) if s * px_per_s >= 56 * k), 600)
         sec = (self.v0 // 1000 // step) * step
         while sec * 1000 <= self.v1:
             x = round(self.x_of(sec * 1000))
             if m - 1 <= x <= w - m - 2 * kd:
-                c.create_rectangle(x, 6 * kd, x + 2 * kd, ruler, fill=P.timeline_ruler, outline="")
-                c.create_text(x + 7 * kd, ruler - 3 * kd, text=cutting.fmt_clock(sec * 1000), anchor="sw",
-                              fill=P.timeline_ruler, font=(TERMINAL_FONT, -18 * kd))
+                c.create_rectangle(x, 4 * kd, x + 2 * kd, ruler, fill=P.timeline_ruler, outline="")
+                c.create_text(x + 5 * kd, ruler - 2 * kd, text=cutting.fmt_clock(sec * 1000), anchor="sw",
+                              fill=P.timeline_ruler, font=(TERMINAL_FONT, -16 * kd))
             sec += step
-        # Where the picture is from
+        # The playhead: where the picture is from, 2 px with a 12 x 8 cap
         if self._want_ms is not None and self.v0 <= self._want_ms <= self.v1:
-            x = self.x_of(self._want_ms)
-            c.create_line(x, top, x, bottom, fill=P.heading, width=kd)
+            x = round(self.x_of(self._want_ms))
+            colour = P.progress_fill_current
+            c.create_rectangle(x - kd, top, x + kd, box1, fill=colour, outline="")
+            c.create_rectangle(x - 6 * kd, top, x + 6 * kd, top + 8 * kd, fill=colour, outline="")
+
+    def _box(self, i, q, fill, border, width, num_font, text_font):
+        c, kd = self.canvas, self.kd
+        _, _, y0, y1 = self._rows()
+        x0, x1 = self.x_of(q.start), max(self.x_of(q.end), self.x_of(q.start) + 2)
+        c.create_rectangle(x0 + width / 2, y0 + width / 2, x1 - width / 2, y1 - width / 2, fill=fill, outline=border,
+                           width=width)
+        room = x1 - x0 - 12 * kd
+        if room > 10 * kd:
+            num_w = self._measure(str(i + 1), num_font) + 6 * kd
+            c.create_text(x0 + 6 * kd, (y0 + y1) / 2, text=str(i + 1), anchor="w", fill=border, font=num_font)
+            rest = room - num_w
+            words = flat(q.text)
+            if rest > 14 * kd and words:
+                while words and self._measure(words, text_font) > rest:
+                    words = words[:-1]
+                c.create_text(x0 + 6 * kd + num_w, (y0 + y1) / 2, text=words, anchor="w", fill=P.text, font=text_font)
+        return x0, x1
 
     def _measure(self, text: str, font) -> int:
-        if not hasattr(self, "_font"):
-            from tkinter import font as tkfont
-            self._font = tkfont.Font(root=self, font=font)
-        return self._font.measure(text)
+        key = str(font)
+        if not hasattr(self, "_fonts"):
+            self._fonts = {}
+        if key not in self._fonts:
+            self._fonts[key] = tkfont.Font(root=self, font=font)
+        return self._fonts[key].measure(text)
 
-    def _hit(self, x: float):
-        """('edge', side) on the chosen line's edge, ('line', i) on a line, or None."""
+    def _hit(self, x: float, y: float):
+        """('edge', side) on the chosen line's edge, ('line', i) on a line's box, or None (the track)."""
         cues, sel = self.s.doc.cues, self.s.sel
         if 0 <= sel < len(cues):
             q = cues[sel]
             for side, ms in (("start", q.start), ("end", q.end)):
                 if abs(self.x_of(ms) - x) <= EDGE_PX * self.kd:
                     return ("edge", side)
+        _, _, y0, _ = self._rows()
+        if y < y0:
+            return None
         ms = self.t_of(x)
         for i, q in enumerate(cues):
             if q.start <= ms <= q.end:
@@ -1167,23 +1330,21 @@ class SubtitleEditor(ttk.Frame):
     def _on_motion(self, e):
         if self._drag:
             return
-        hit = self._hit(e.x)
+        hit = self._hit(e.x, e.y)
         self.canvas.configure(cursor="sb_h_double_arrow" if hit and hit[0] == "edge" else
                               "hand2" if hit else "crosshair")
 
     def _on_press(self, e):
-        self.canvas.focus_set()
-        self._commit_text()
-        hit = self._hit(e.x)
+        self.commit()
+        hit = self._hit(e.x, e.y)
         if hit and hit[0] == "edge":
             self.s.doc.push_undo(self.s.sel)
             self._drag = {"side": hit[1], "moved": False}
             self._redraw()
         elif hit:
-            self._select(hit[1])
+            self.select(hit[1], focus=False)
         else:
             self._picture(self.t_of(e.x))
-            self._redraw()
 
     def _on_drag(self, e):
         d = self._drag
@@ -1193,13 +1354,14 @@ class SubtitleEditor(ttk.Frame):
         ms = int(round(self.t_of(e.x) / 10) * 10)
         new = set_edge(self.s.doc.cues, i, d["side"], ms, self.media.duration)
         d["moved"] = True
-        self._show_times()
-        self._update_row(i)
-        self._redraw()
+        self.lines.draw()
+        self._show_line_info()
         now = time.monotonic()
         if now - self._drag_frame_t >= DRAG_FRAME_MS / 1000:
             self._drag_frame_t = now
             self._picture(new)
+        else:
+            self._redraw()
         if now - self._drag_sound_t >= DRAG_SOUND_MS / 1000 and new != d.get("sound_at"):
             self._drag_sound_t, d["sound_at"] = now, new
             # The sound up to the end edge, or from the start edge: what the viewer hears at that moment
@@ -1215,55 +1377,98 @@ class SubtitleEditor(ttk.Frame):
             self.media.stop()
             q = self.s.doc.cues[self.s.sel]
             self._picture(q.start if d["side"] == "start" else max(q.start, q.end - 40))
-            self._changed(self.s.sel)
+            self._changed()
         self._redraw()
 
     def _on_destroy(self, e):
         if e.widget is self:
-            for seq in ("<Control-s>", "<F5>"):
+            for seq in ("<Control-s>", "<space>", "<Control-z>"):
                 try:
                     self.unbind_all(seq)
                 except tk.TclError:
                     pass
 
 
-def offer_words(parent, pairs: list[tuple[str, str]], lang: Language | None) -> list[tuple[str, str]]:
-    """Ask which corrected words go into the word list (corrections.txt): a check box per word, the ones that look
-    misheard ticked. Returns the chosen pairs (none when the dialog is closed)."""
+def save_dialog(parent, files: list[str], notes: list[str], pairs: list[tuple[str, str]],
+                remake: bool) -> tuple[list[tuple[str, str]], bool]:
+    """After Gem (700 px wide): "Gemt" and where; the corrected words as check box rows (the old word struck through,
+    an arrow, the new one; all ticked except splits and joins of whole words); "Lav videoen igen" when the run's video
+    was made from these subtitles. Returns (the words for the word list, make the video again)."""
     from .gui import place_over
-    k = 2 if IMG.two else 1
+    k = parent.k if hasattr(parent, "k") else 1
     win = tk.Toplevel(parent)
-    win.title(t("editor.words_title"))
+    win.title(t("editor.title"))
     win.transient(parent.winfo_toplevel())
     win.resizable(False, False)
-    frame = ttk.Frame(win, padding=(20 * k, 16 * k, 24 * k, 20 * k))
+    wrap = int(640 * k)
+    frame = ttk.Frame(win, padding=(int(30 * k), int(24 * k), int(30 * k), int(24 * k)))
     frame.pack(fill="both", expand=True)
-    ttk.Label(frame, text=t("editor.words_title"), style="Section.TLabel").pack(anchor="w")
-    ttk.Label(frame, text=t("editor.words_text", plural=lang.plural if lang else ""), justify="left",
-              wraplength=440 * k).pack(anchor="w", pady=(6 * k, 12 * k))
-    card = skin.Card(frame, padding=(14 * k, 12 * k, 18 * k, 16 * k))
-    card.pack(fill="x")
-    vars_ = []
-    for wrong, right in pairs[:20]:
-        v = tk.BooleanVar(value=similar(wrong, right))
-        ttk.Checkbutton(card, variable=v, text=f"{wrong}  →  {right}").pack(anchor="w", pady=2 * k)
-        vars_.append(((wrong, right), v))
-    chosen: list[tuple[str, str]] = []
+    frame.columnconfigure(0, weight=1)
+    ttk.Label(frame, text=t("editor.saved_title"), font=("Segoe UI Semibold", -int(22 * k)),
+              foreground=P.heading).grid(row=0, column=0, sticky="w")
+    ttk.Label(frame, text=t("editor.saved_in")).grid(row=1, column=0, sticky="w", pady=(int(10 * k), 0))
+    ttk.Label(frame, text="\n".join(files), font="SunValleyBodyStrongFont", justify="left",
+              wraplength=wrap).grid(row=2, column=0, sticky="w")
+    if notes:
+        ttk.Label(frame, text=" ".join(notes), style="Hint.TLabel", justify="left",
+                  wraplength=wrap).grid(row=3, column=0, sticky="w", pady=(int(6 * k), 0))
+    vars_: list = []
+    n_var = tk.StringVar()
+    if pairs:
+        card = skin.Card(frame, text=t("editor.words_title"), padding=(int(18 * k), int(14 * k), int(22 * k),
+                                                                         int(18 * k)))
+        card.grid(row=4, column=0, sticky="ew", pady=(int(18 * k), 0))
+        card.columnconfigure(3, weight=1)
+        ttk.Label(card, text=t("editor.words_text"), style="Hint.TLabel", justify="left",
+                  wraplength=wrap - int(40 * k)).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, int(10 * k)))
+        struck = tkfont.Font(root=win, font=tkfont.nametofont("SunValleyBodyFont"))
+        struck.configure(overstrike=1)
+        for r, (wrong, right) in enumerate(pairs[:12], 1):
+            v = tk.BooleanVar(value=not is_joining(wrong, right))
+            v.trace_add("write", lambda *a: count())
+            ttk.Checkbutton(card, variable=v).grid(row=r, column=0, sticky="w", pady=int(3 * k))
+            ttk.Label(card, text=wrong, style="Hint.TLabel", font=struck).grid(row=r, column=1, sticky="w",
+                                                                                padx=(int(4 * k), int(40 * k)))
+            ttk.Label(card, text="→", style="Hint.TLabel").grid(row=r, column=2, sticky="w", padx=(0, int(20 * k)))
+            ttk.Label(card, text=right, font="SunValleyBodyStrongFont").grid(row=r, column=3, sticky="w")
+            vars_.append(((wrong, right), v))
+    again = tk.BooleanVar(value=False)
+    if remake:
+        rm = ttk.Frame(frame)
+        rm.grid(row=5, column=0, sticky="ew", pady=(int(18 * k), 0))
+        ttk.Checkbutton(rm, variable=again, text=t("editor.remake_check")).grid(row=0, column=0, sticky="w")
+        ttk.Label(rm, text=t("editor.remake_hint"), style="Hint.TLabel", justify="left",
+                  wraplength=wrap - int(30 * k)).grid(row=1, column=0, sticky="w", padx=(int(30 * k), 0))
+    result: dict = {"words": [], "again": False}
 
-    def add():
-        chosen.extend(p for p, v in vars_ if v.get())
+    def done(take_words: bool):
+        result["words"] = [p for p, v in vars_ if v.get()] if take_words else []
+        result["again"] = again.get()
         win.destroy()
+
+    def count():
+        n = sum(1 for _, v in vars_ if v.get())
+        n_var.set(plural_t("editor.words_add", n))
+        b_add.state(["!disabled"] if n else ["disabled"])
     btns = ttk.Frame(frame)
-    btns.pack(fill="x", pady=(16 * k, 0))
-    ttk.Button(btns, text=t("editor.words_add"), style="Accent.TButton", command=add).pack(side="left")
-    ttk.Button(btns, text=t("editor.words_skip"), command=win.destroy).pack(side="left", padx=(10 * k, 0))
+    btns.grid(row=6, column=0, sticky="e", pady=(int(22 * k), 0))
+    if pairs:
+        ttk.Button(btns, text=t("editor.words_skip"), command=lambda: done(False)).pack(side="left")
+        b_add = ttk.Button(btns, textvariable=n_var, style="Accent.TButton", command=lambda: done(True))
+        b_add.pack(side="left", padx=(int(12 * k), 0))
+        count()
+    else:
+        ttk.Button(btns, text=t("editor.ok"), style="Accent.TButton", command=lambda: done(False)).pack(side="left")
     skin.dialog(win)
+    win.update_idletasks()
+    win.geometry(f"{max(int(700 * k), win.winfo_reqwidth())}x{win.winfo_reqheight()}")
     try:
         place_over(win, parent.winfo_toplevel())
     except Exception:
         pass
-    win.bind("<Escape>", lambda e: win.destroy())
+    win.bind("<Escape>", lambda e: done(False))
+    win.protocol("WM_DELETE_WINDOW", lambda: done(False))
     win.grab_set()
     win.focus_set()
     parent.wait_window(win)
-    return chosen
+    return result["words"], result["again"]

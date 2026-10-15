@@ -105,7 +105,8 @@ try:
     # The same word corrected twice is offered once; a split line does not hide it
     two = editor.word_changes([Cue(0, 1, "memberkær og memberkær")], [Cue(0, 1, "Membercare og"), Cue(1, 2, "Membercare")])
     assert two == [("memberkær", "Membercare")], two
-    assert editor.similar("memberkær", "Membercare") and not editor.similar("her", "godt")
+    assert editor.is_joining("tids planen", "tidsplanen") and not editor.is_joining("memberkær", "Membercare")
+    assert round(editor.chars_per_second(Cue(0, 1000, "tyve tegn på et sekund"))) == 22
 
     # --- Saving: the first original kept as .bak, numbering from 1, no overlaps, the text state kept current
     folder = tmp / "videos"
