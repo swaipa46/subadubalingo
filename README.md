@@ -93,6 +93,9 @@ EG-org); Cowork er ikke testet. Test: `tests/mcp_test.py` spiller Claude.
 
   Test i en sandkasse (midlertidig LOCALAPPDATA/APPDATA/USERPROFILE):
   `tests/install_test.py dist-1.9.9/Videosprog dist-1.9.10/Videosprog`.
+- **Selvopdatering (v2.1):** den installerede kopi spørger GitHub højst én gang i døgnet, henter en ny version,
+  tjekker signatur og SHA-256 og lægger den i sin egen versionsmappe. Et bånd under headeren siger "Ny version X er
+  klar", og "Genstart nu" skifter. Udgivelse med `tools/publish.ps1`. Detaljer: `docs/auto-opdatering.md`.
 
 ## Klip før undertekster og dub (v1.9)
 "Klip videoen først" (og `start_video(klip=true)`) tilføjer trinene Claude foreslår klip -> brugeren gennemser dem

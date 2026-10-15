@@ -1,99 +1,152 @@
-# Selvopdatering: hvad der skal til
+# Selvopdatering
 
-Mål: Videosprog finder selv en ny version, henter den og installerer den med ét klik fra brugeren. Det skal ske
-uden at gå i stykker, mens Claude kører MCP-serveren (se zlib-fejlen 15.10.2026 i README).
+SubaDubaLingo finder selv en ny version, henter den og installerer den med ét klik fra brugeren. Det sker uden at gå
+i stykker, mens Claude kører MCP-serveren (se zlib-fejlen 15.10.2026 i README).
+
+Bygget 16.10.2026 (branch `feature/autoupdate`). Koden: `app/subadubalingo/update.py` (net, tjek, udpakning, skift),
+`app/subadubalingo/autoupdate.py` (hvornår, og båndet i vinduet), `installer.place`/`installer.activate`,
+`tools/publish.ps1`.
 
 ## 1. Hvor ligger udgivelserne?
 
 **Besluttet 15.10.2026:** som GitHub Releases i det offentlige repo `swaipa46/subadubalingo`, hvor koden også
-ligger. Det kræver ingen login, ingen SharePoint og ingen opsætning hos brugeren. Manifestet signeres med ed25519
-(`app/subadubalingo/ed25519.py`, testet mod RFC 8032). Overvejelserne herunder er bevaret.
+ligger. Det kræver ingen login, ingen SharePoint og ingen opsætning hos brugeren.
 
-Appen skal kunne læse et lille manifest og zip-filen uden at brugeren logger ind. Det er den eneste del, der ikke
-kan løses i koden.
+- Manifestet hentes fra `https://github.com/swaipa46/subadubalingo/releases/latest/download/latest.json`
+  (`update.MANIFEST_URL`), og zip'en ved siden af (samme mappe, navnet fra manifestet).
+- Zip'en lægges op som `SubaDubaLingo-<version>.zip` uden mellemrum, for GitHub laver mellemrum i filnavne om til
+  punktummer.
 
-| Mulighed | For | Imod |
-|---|---|---|
-| **Offentligt GitHub-repo kun til udgivelser** (fx `KasperAtEG/videosprog-releases`, kun Releases, ingen kode) | Gratis, stabile URL'er, `releases/latest`-API, ingen login | Zip'en (og dermed koden i exe'en) er offentlig. Kræver et ja fra EG. |
-| SharePoint/Teams-mappe, som brugeren synkroniserer med OneDrive | Bliver i EG, ingen godkendelse. Appen læser bare en lokal mappe. | Brugeren skal synkronisere mappen én gang. Det virker ikke, hvis synkroniseringen er slået fra. |
-| Azure Storage (statisk blob) | Bliver i EG's Azure, enkle URL'er | Kræver et abonnement og at nogen ejer det |
-| Det private repo `KasperAtEG/videosprog` | Allerede der | Brugeren har ikke adgang, og et token i appen er udelukket |
+Fravalgt: SharePoint/OneDrive-mappe (brugeren skal synkronisere), Azure Storage (kræver et abonnement og en ejer), og
+et privat repo (et token i appen er udelukket).
 
-Anbefaling: SharePoint-mappen, hvis det kun er brugeren og en håndfuld kolleger, og et offentligt repo kun til
-udgivelser, hvis det skal ud til de ca. 40 i BU'en, og EG siger god for det. Koden nedenfor er ens for begge:
-kun "hent manifest" og "hent zip" er forskellige (URL eller filsti).
-
-## 2. Manifest
+## 2. Manifest og signatur
 
 `latest.json` ved siden af zip'en:
 
 ```json
-{"version": "1.10.0", "zip": "Videosprog 1.10.0.zip", "sha256": "...", "size": 134217728,
- "notes": "Kort på dansk til brugeren", "skill": 3, "signature": "<ed25519 over de andre felter>"}
+{"version": "2.1.0", "zip": "SubaDubaLingo-2.1.0.zip", "size": 134217728, "sha256": "...",
+ "notes": "Kort på dansk til brugeren", "skill": 5, "signature": "<ed25519 over de andre felter>"}
 ```
 
-- `sha256` fanger en afbrudt eller ødelagt download.
-- `signature`: SHA-256 fra samme sted beviser ikke, hvem der har lavet filen. Den offentlige nøgle ligger i
-  appen, og den private hos Kasper, som signerer i `publish.ps1`. Python har ikke ed25519 i standardbiblioteket.
-  Valg: et lille ren-Python ed25519-modul (ca. 100 linjer, kun til verifikation), eller Authenticode-signering
-  af exe'en med et EG-kodecertifikat. Authenticode hjælper også med WDAC og SmartScreen, så det er bedst, hvis
-  EG har et.
+- `signature` er Ed25519 over alle de andre felter, sorteret og kompakt (`update.manifest_bytes`).
+  - Den offentlige nøgle står i appen (`update.PUBLIC_KEY`), og den private ligger hos Kasper, DPAPI-beskyttet i
+    `%USERPROFILE%\.subadubalingo-release`.
+  - Den ren-Python Ed25519 (`ed25519.py`) er testet mod RFC 8032.
+  - En udgivelse, som ikke er signeret med Kaspers nøgle, installeres aldrig, heller ikke hvis GitHub-kontoen
+    overtages.
+- `size` og `sha256` fanger en afbrudt eller ødelagt download og en zip, der er byttet ud på serveren. De er
+  dækket af signaturen.
+- `notes` vises som tooltip på båndet. `skill` er til orientering, for den nye version viser selv SkillGuide, hvis
+  dens skill er nyere end den, brugeren har lagt ind.
 
 ## 3. Installationsform: én mappe pr. version
 
-Fejlen 15.10 opstod, fordi en opdatering byttede mappen ud under en kørende proces. Med automatiske
-opdateringer sker det oftere, fordi Claude næsten altid kører. Løsningen er aldrig at røre en mappe, der er i brug:
+Opdateringen rører aldrig en mappe, der er i brug (v1.9.10):
 
 ```
-%LOCALAPPDATA%\Programs\Videosprog\
-    1.9.9\Videosprog.exe      <- Claude kører måske stadig MCP-serveren herfra
-    1.10.0\Videosprog.exe     <- ny
-    current.txt               "1.10.0"
+%LOCALAPPDATA%\Programs\SubaDubaLingo\
+    2.0.0\SubaDubaLingo.exe     <- Claude kører måske stadig MCP-serveren herfra
+    2.1.0\SubaDubaLingo.exe     <- ny, pakket ud af opdateringen
+    current.txt                 "2.0.0", indtil brugeren trykker Genstart nu
 ```
 
-- Opdatering: pak ud i `1.10.0.new`, tjek at `base_library.zip` og exe'en er der, og omdøb til `1.10.0`.
-  Skriv derefter `current.txt`, og peg genvejene (Start og skrivebord) og `claude_desktop_config.json` på den
-  nye exe. Den kode findes allerede (`_shortcut`, `_point_claude_at`).
-- Den gamle MCP-server kører videre uforstyrret fra `1.9.9\`. Den nye exe-tjek (`_outdated`) skal så kigge på
-  `current.txt` i stedet for exe'ens tidsstempel, og beder Claude om en genstart. Først ved næste start af
-  Claude bruges den nye.
-- Oprydning: ved hver start slettes versionsmapper, som ingen proces kører fra (`installer.running_from`).
-  Den nuværende og den forrige bliver altid, så man kan gå tilbage.
-- Overgang: den første opdatering flytter den gamle flade installation ind i en versionsmappe. Det sker kun,
-  når intet kører fra den. Ellers venter den til næste gang.
+- **Pakket ud, ikke skiftet:** `update.stage` pakker zip'en ud i `~/.subadubalingo/updates/` og kopierer den
+  ind i sin egen versionsmappe med `installer.place`. Det er den samme kode, som installation fra zip bruger: den
+  kopierer til `<version>.new`, tjekker at exe'en og `_internal\base_library.zip` er der, og omdøber til
+  `<version>`.
+  - Navne i zip'en, der peger uden for mappen (`..`, absolutte stier), afvises.
+  - Både `/` og `\` virker som skilletegn, for Compress-Archive i Windows PowerShell skriver `\`.
+- **Skift:** `installer.activate` skriver `current.txt` og peger genvejene (Start, skrivebord og fastgjorte ikoner
+  på proceslinjen) og Claudes MCP-indgang på den nye exe. Indgangen tilføjes ikke, hvis brugeren ikke havde den.
+- **Claude kører videre:** en MCP-server, som Claude stadig kører fra den gamle mappe, ser at `current.txt` ikke
+  længere er dens egen version. Den beder Claude om at bede brugeren genstarte Claude (`mcp_server._outdated`).
+- **Oprydning:** ved hver start fjerner `installer.cleanup()` mapper, ingen proces kører fra. Disse bliver altid:
+  - den nuværende og den forrige version, så man kan gå tilbage;
+  - den nyeste version over den nuværende, dvs. en opdatering, der er pakket ud og venter på genstart.
 
 ## 4. Flow i appen
 
-1. Ved start (og højst én gang i døgnet), i en baggrundstråd: hent manifestet med 5 s timeout. Offline eller
-   fejl: stille. Ingen besked, kun en linje i loggen.
-2. Er der en nyere version, hentes zip'en i baggrunden til `~/.videosprog/updates/` og tjekkes (størrelse,
-   SHA-256, signatur). Ikke mens et job kører, for det skal ikke tage båndbredde fra en dub.
-3. Når appen er ledig (intet job, ingen dialog), vises et lille banner i bunden: "Version 1.10.0 er klar:
-   <noter>. [Opdatér nu] [Senere]". Det er ikke en popup, for brugeren skal ikke afbrydes.
-4. "Opdatér nu": pak ud som i afsnit 3, start den nye exe med `--updated-from 1.9.9`, og luk den gamle. Den nye
-   viser "Opdateret til 1.10.0" og, hvis `skill` er steget, den eksisterende SkillGuide.
-5. Startes appen af Claude (`--from-claude`), spørges der ikke midt i et job. Banneret venter til bagefter.
-6. Indstilling: "Søg efter opdateringer" (standard til) og "Søg nu"-knap under Indstillinger.
+1. **Hvornår:** ved start, kun i den installerede kopi, højst én gang i døgnet (`Settings.update_checked`), og kun
+   når "Søg efter opdateringer" er slået til (`Settings.check_updates`, standard til, i Indstillinger nederst).
+2. **Tjek:** en baggrundstråd henter manifestet med 5 s timeout. Er brugeren offline, eller er der en netværksfejl,
+   sker der intet: kun en linje i loggen, og der prøves igen ved næste start. En udgivelse, der ikke består et tjek
+   (signatur, felter, størrelse, SHA-256, zip), afvises med en advarsel i loggen og prøves igen næste dag.
+3. **Download:** er versionen nyere, hentes zip'en til `~/.subadubalingo/updates/`. Det sker ikke, mens en video
+   bliver lavet, så downloaden ikke tager båndbredde fra en dub. Derefter pakkes den ud som i afsnit 3.
+4. **Båndet:** under headeren står "NY VERSION 2.1.0 er klar · Genstart for at opdatere. Dine indstillinger
+   bevares." med knapperne Genstart nu, Senere og ×. Det er ikke en popup, så brugeren ikke bliver afbrudt.
+   - Udseende: mockup `design/mockups/*/update-banner.png` og specifikationen i `assets/ui/README.md`.
+   - Rammen er `frames/update-banner`. Mangler den i temaet, bruges "din tur"-rammen (`frames/callout`).
+   - Senere og × skjuler båndet indtil næste start.
+   - Båndet kommer igen efter skift af tema eller sprog.
+   - En opdatering, der er pakket ud men ikke skiftet til, huskes (`updates/ready.json`). Den vises igen ved næste
+     start uden ny download.
+5. **Genstart nu:**
+   - Knappen er grå, mens en video bliver lavet (tooltip "Når videoen er færdig").
+   - Ellers skifter den som i afsnit 3, slipper programmets enkelt-instans-mutex og starter den nye exe med
+     `--updated-from <gammel version>`, og så lukker den gamle.
+   - Den nye viser én gang "LEVEL UP Version 2.1.0 · Opdateret fra 2.0.0. Dine indstillinger er bevaret." og
+     SkillGuide, hvis dens skill er nyere.
+6. **Startet af Claude** (`--from-claude`): et job afbrydes aldrig. Genstart nu er grå under kørslen, og en download
+   venter, til den er færdig.
+
+Til test kan miljøvariablen `SUBADUBALINGO_UPDATE_URL` pege på et andet manifest. Signaturen tjekkes stadig mod
+`PUBLIC_KEY`, så det åbner ikke for andre udgivelser.
 
 ## 5. Udgivelse (Kasper)
 
-`publish.ps1 -Version 1.10.0`: kør `build.ps1`, beregn SHA-256, signér manifestet, upload zip og
-`latest.json` (gh release create, eller kopi til SharePoint-mappen), og tag commit'en `v1.10.0`.
+```powershell
+tools\publish.ps1 -Notes "Kort på dansk til brugeren"
+```
 
-## 6. Overvejet og fravalgt
+1. Den kører `build.ps1` (til `dist-release\`), med versionen fra `common.APP_VERSION`.
+2. Den kopierer zip'en til `dist-release\release-<version>\SubaDubaLingo-<version>.zip`.
+3. Den skriver `latest.json` med version, zip-navn, størrelse, SHA-256, noter og skill-version.
+4. Den signerer med `tools\release_key.py sign` og tjekker signaturen med appens egen `update.manifest_ok`.
+5. Den skriver den `gh release create v<version> ...`-kommando, der skal køres. Scriptet uploader ikke selv noget.
 
-- **Velopack** (Squirrels efterfølger, har Python-binding): henter, laver delta-pakker og genstarter. Fravalgt
-  indtil videre: den installerer i sin egen `current\`-mappe og løser ikke problemet med Claudes
-  MCP-server, der låser mappen. Den skal også bygges ind i build og install. Værd at se på igen, hvis zip'en på
-  128 MB bliver et problem (delta-opdateringer).
+Flag:
+
+- `-SkipBuild` genbruger en zip, der allerede er bygget.
+- `-DryRun` bygger og signerer ikke. Den skriver et usigneret manifest og kommandoerne, så man kan se, hvad der
+  ville ske.
+
+Nøglen:
+
+- `tools\release_key.py public` skriver den offentlige nøgle. Den skal være den samme som `update.PUBLIC_KEY`.
+- Er pc'en ny, gendan nøglen med `restore` fra backup'en i password manageren.
+
+## 6. Test
+
+- `tests/test_autoupdate.py` kører uden GUI og uden net. Den starter en lokal HTTP-server (`http.server` i en
+  tråd), som serverer falske udgivelser signeret med en engangsnøgle, der laves i testen (`update.PUBLIC_KEY`
+  patches). Testen kører i en sandkasse med midlertidig LOCALAPPDATA, APPDATA og USERPROFILE. Den dækker:
+  - god opdatering: pakket ud ved siden af uden skift, oprydning, skift, Claudes indgang, genveje;
+  - forkert signatur og anden nøgle;
+  - forkert SHA-256 og forkert størrelse;
+  - zip med `..` og zip uden exe;
+  - netværksfejl (ingen server, 404) og et manifest, der ikke er JSON;
+  - ældre og samme version;
+  - reglen om én gang i døgnet;
+  - at gamle indstillingsfiler stadig kan indlæses.
+- `tests/autoupdate_shots.py --theme light|night [--ui D:\SubaDubaLingo\assets\ui]` tager billeder af båndet og
+  Indstillinger og tjekker knapperne. Billederne gemmes i `design/implemented/<tema>/autoupdate-*.png`.
+  - Billederne: klar, under en kørsel, efter genstart, og Indstillinger.
+  - Knapperne: Genstart nu er grå under en kørsel, Senere virker, og Genstart nu skifter, slipper mutex'en, starter
+    den nye og lukker vinduet.
+- `tests/install_test.py` dækker stadig installation fra zip (`install()` = `place()` + `activate()`).
+
+## 7. Overvejet og fravalgt
+
+- **Velopack** (Squirrels efterfølger, har Python-binding) henter, laver delta-pakker og genstarter. Den er fravalgt
+  indtil videre:
+  - Den installerer i sin egen `current\`-mappe og løser ikke problemet med Claudes MCP-server, der låser mappen.
+  - Den skal bygges ind i build og install.
+  - Den er værd at se på igen, hvis zip'en på ca. 130 MB bliver et problem (delta-opdateringer).
 - **Opdatering i stilhed uden at spørge:** nej. Brugeren skal vide, hvorfor programmet ser anderledes ud, og et job
   må aldrig blive afbrudt.
-
-## Rækkefølge
-
-1. Kasper vælger, hvor udgivelserne skal ligge, og om der skal signeres med ed25519 eller Authenticode.
-2. ~~Versionsmapper og `current.txt` i installer.py, inkl. overgang og oprydning.~~ Færdig i v1.9.10
-   (`tests/install_test.py`). `Videosprog.exe --install` er klar til at blive kaldt af opdateringen.
-3. Manifest, download og verifikation (`subadubalingo/update.py`), og test mod en lokal mappe.
-4. Banner og indstillinger i GUI'en.
-5. `publish.ps1`.
+- **Authenticode-signering af exe'en:** den ville hjælpe med SmartScreen og WDAC, men kræver et EG-kodecertifikat.
+  Ed25519 over manifestet dækker selve opdateringen.
+- **"Søg nu"-knap i Indstillinger:** ikke lavet. Tjekket sker ved start, og det er nok, når der kun udgives en
+  gang imellem.

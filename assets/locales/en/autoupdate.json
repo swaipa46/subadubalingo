@@ -1,11 +1,15 @@
 {
- "autoupdate.tag": "LEVEL UP",
- "autoupdate.ready": "New version {version} is ready · Restart to update",
- "autoupdate.ready_busy": "New version {version} is ready · You can restart when the video is done",
+ "autoupdate.tag": "NEW VERSION",
+ "autoupdate.version": "{version} is ready",
+ "autoupdate.hint": "· Restart to update. Your settings are kept.",
+ "autoupdate.busy_tip": "When the video is done",
+ "autoupdate.restart_tip": "Closes the program and opens the new version",
  "autoupdate.restart": "Restart now",
  "autoupdate.later": "Later",
+ "autoupdate.close": "Close",
  "autoupdate.failed": "The update could not be completed: {error}",
- "autoupdate.updated": "Updated from {old} to version {version}",
- "autoupdate.ok": "OK",
+ "autoupdate.updated_tag": "LEVEL UP",
+ "autoupdate.updated": "Version {version}",
+ "autoupdate.updated_hint": "· Updated from {old}. Your settings are kept.",
  "autoupdate.setting": "Check for updates"
 }

@@ -4,7 +4,7 @@ a theme switch, that "Genstart nu" does nothing during a run, and that it switch
 mutex, starts the new exe with --updated-from and closes the window when idle (update.switch/restart are faked).
 Runs in a sandbox profile (no real settings or installation) on the monitor the user is not working on, captured
 with PrintWindow.
-  python tests/autoupdate_shots.py [OUT_ROOT] --theme light|night [--lang da|sv|no|en]
+  python tests/autoupdate_shots.py [OUT_ROOT] --theme light|night [--lang da|sv|no|en] [--ui ASSETS_UI_DIR]
 OUT_ROOT defaults to D:\\SubaDubaLingo\\design\\implemented; files go to <OUT_ROOT>\\<theme>\\autoupdate-*.png"""
 import ctypes
 import os
@@ -33,6 +33,18 @@ out = out_root / forced_theme
 out.mkdir(parents=True, exist_ok=True)
 suffix = "" if forced_lang == "da" else f"-{forced_lang}"
 theme.resolve = lambda choice: forced_theme
+if "--ui" in sys.argv:
+    # The design session's newer assets/ui (e.g. the uncommitted frames/update-banner in the main checkout), with
+    # this branch's fonts and texts: junctions in a temp assets folder
+    import subprocess
+    mixed = T / "assets"
+    mixed.mkdir()
+    here = Path(__file__).resolve().parent.parent / "assets"
+    for name, target in (("ui", Path(arg("--ui", ""))), ("fonts", here / "fonts"), ("locales", here / "locales"),
+                         ("branding", here / "branding")):
+        subprocess.run(["cmd", "/c", "mklink", "/J", str(mixed / name), str(target)], check=True,
+                       capture_output=True)
+    theme.assets_dir = lambda: mixed
 i18n.resolve = lambda choice: forced_lang
 gui.Settings.save = lambda self: None
 theme.load_fonts()

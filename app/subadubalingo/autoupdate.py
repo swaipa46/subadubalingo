@@ -4,13 +4,14 @@ On start, in the installed copy only and at most once a day, a background thread
 when there is a newer version downloads and stages it next to the current one (update.run). Offline or any other
 trouble: quiet, a line in the log. The download waits while a video is being made.
 
-When a version is staged, a band at the bottom of the window says so ("Ny version 2.1.0 er klar · Genstart for at
-opdatere") with "Genstart nu", which switches current.txt, shortcuts and Claude's entry to it and starts it
-(update.switch/restart), and "Senere". It is not a popup, so nothing is interrupted, and restarting is not possible
-while a video is being made. The new copy, started with --updated-from, says "Opdateret til version 2.1.0" once.
+When a version is staged, a band under the header says so ("NY VERSION 2.1.0 er klar · Genstart for at opdatere.
+Dine indstillinger bevares.") with "Genstart nu", which switches current.txt, shortcuts and Claude's entry to it and
+starts it (update.switch/restart), "Senere" and x. It is not a popup, so nothing is interrupted, and restarting is not
+possible while a video is being made. The new copy, started with --updated-from, says "LEVEL UP Version 2.1.0" once.
 
-The band is the "din tur" callout frame (frames/callout) in the theme's callout colours. App._build calls build(),
-so it comes back after a theme or language switch.
+Design: design/mockups/*/update-banner.png and assets/ui/README.md (T8): frames/update-banner (the "din tur" callout
+frame where a theme lacks it) in the callout colours. App._build calls build(), so it comes back after a theme or
+language switch.
 """
 from __future__ import annotations
 
@@ -22,11 +23,11 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
-from . import theme, update
+from . import skin, theme, update
 from .common import APP_VERSION, log
 from .i18n import t
 from .pickers import Tooltip
-from .theme import P
+from .theme import IMG, P
 
 DAY = 24 * 3600
 URL_ENV = "SUBADUBALINGO_UPDATE_URL"   # another manifest URL (testing); the signature is checked all the same
@@ -112,7 +113,7 @@ def _busy(app) -> bool:
 
 
 def build(app):
-    """The band at the bottom of the main window (row 2 of app.main), or nothing. Safe to call again."""
+    """The band under the header (row 0 of app.main), or nothing. Safe to call again."""
     st = _state(app)
     try:
         if st.frame is not None and st.frame.winfo_exists():
@@ -129,47 +130,87 @@ def build(app):
     else:
         return
     k = app.scale
-    style = ttk.Style(app.root)
-    style.configure("Update.TButton", background=P.callout_bg)
-    style.configure("Update.Accent.TButton", background=P.callout_bg)
-    f = st.frame = ttk.Frame(app.main, style="Callout.TFrame",
-                             padding=(int(16 * k), int(8 * k), int(18 * k), int(10 * k)))
-    f.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(int(14 * k), 0))
-    f.columnconfigure(1, weight=1)
+    f = st.frame = ttk.Frame(app.main, style=_band_style(app),
+                             padding=(int(16 * k), int(6 * k), int(12 * k), int(6 * k)))
+    f.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, int(16 * k)))
+    f.columnconfigure(3, weight=1)
+    f.rowconfigure(0, minsize=int(34 * k))   # as tall with or without buttons
     label = dict(background=P.callout_bg, foreground=P.callout_text)
-    tk.Label(f, text=t("autoupdate.tag"), font=(theme.PIXEL_FONT, -int(10 * k)), **label).grid(
-        row=0, column=0, sticky="w", padx=(int(4 * k), int(16 * k)))
-    text = tk.Label(f, font="SunValleyBodyStrongFont", justify="left", anchor="w", **label)
-    text.grid(row=0, column=1, sticky="ew")
-    f.bind("<Configure>", lambda e: text.configure(wraplength=max(200, e.width - int(420 * k))), add="+")
+    up = _image("icons/up-on-callout")
+    if up:
+        tk.Label(f, image=up, borderwidth=0, **label).grid(row=0, column=0, padx=(0, int(12 * k)))
+    tag = tk.Label(f, font=(theme.PIXEL_FONT, -int(12 * k)), **label)
+    tag.grid(row=0, column=1, sticky="w", padx=(0, int(16 * k)), pady=(int(3 * k), 0))   # the pixel font sits high
+    strong = tk.Label(f, font="SunValleyBodyStrongFont", **label)
+    strong.grid(row=0, column=2, sticky="w", padx=(0, int(8 * k)))
+    # One line, clipped in a narrow window (wrapping on the band's width fed back into the layout and never settled)
+    rest = tk.Label(f, font="SunValleyBodyFont", anchor="w", **label)
+    rest.grid(row=0, column=3, sticky="ew")
+
     buttons = tk.Frame(f, background=P.callout_bg)
-    buttons.grid(row=0, column=2, sticky="e", padx=(int(12 * k), 0))
+    buttons.grid(row=0, column=4, sticky="e", padx=(int(12 * k), 0))
+    close = tk.Label(buttons, text="✕", cursor="hand2", font="SunValleyBodyStrongFont", padx=int(8 * k), **label)
     if kind == "updated":
-        text.configure(text=t("autoupdate.updated", version=APP_VERSION, old=st.updated_from))
-        ttk.Button(buttons, text=t("autoupdate.ok"), style="Update.TButton",
-                   command=lambda: _close_updated(app)).pack(side="left")
+        tag.configure(text=t("autoupdate.updated_tag"))
+        strong.configure(text=t("autoupdate.updated", version=APP_VERSION))
+        rest.configure(text=t("autoupdate.updated_hint", old=st.updated_from))
+        close.bind("<Button-1>", lambda e: _close_updated(app))
+        close.pack(side="left", padx=(int(8 * k), 0))
+        Tooltip(close, t("autoupdate.close"))
         return
     version = st.ready["version"]
+    tag.configure(text=t("autoupdate.tag"))
+    strong.configure(text=t("autoupdate.version", version=version))
     notes = str(st.ready.get("notes") or "").strip()
     if notes:
-        Tooltip(text, notes)
-    later = ttk.Button(buttons, text=t("autoupdate.later"), style="Update.TButton", command=lambda: _later(app))
-    later.pack(side="left", padx=(0, int(8 * k)))
-    go = ttk.Button(buttons, text=t("autoupdate.restart"), style="Update.Accent.TButton",
-                    command=lambda: restart_now(app))
-    go.pack(side="left")
+        Tooltip(rest, notes)
+    # Primary on Lys; on Nat the band is yellow, so a secondary button (assets/ui/README.md, update banner)
+    go = ttk.Button(buttons, text=t("autoupdate.restart"), command=lambda: restart_now(app),
+                    style="Update.Accent.TButton" if P.name == "light" else "Update.TButton")
+    go.pack(side="left", padx=(0, int(8 * k)))
+    Tooltip(go, lambda: t("autoupdate.busy_tip") if _busy(app) else t("autoupdate.restart_tip"))
+    ttk.Button(buttons, text=t("autoupdate.later"), style="Update.TButton",
+               command=lambda: _later(app)).pack(side="left")
+    close.bind("<Button-1>", lambda e: _later(app))
+    close.pack(side="left", padx=(int(8 * k), 0))
+    Tooltip(close, t("autoupdate.later"))
 
     def refresh():
         if st.frame is not f or not f.winfo_exists():
             return
         busy = _busy(app)
-        if st.error:
-            text.configure(text=st.error)
-        else:
-            text.configure(text=t("autoupdate.ready_busy" if busy else "autoupdate.ready", version=version))
+        rest.configure(text=st.error or t("autoupdate.hint"))
         go.configure(state="disabled" if busy else "normal")
         app.root.after(1000, refresh)
     refresh()
+
+
+def _image(rel: str):
+    try:
+        return IMG.get(rel) if IMG.path(rel).exists() else None
+    except Exception:
+        return None
+
+
+def _band_style(app) -> str:
+    """The band's frame: frames/update-banner (design T8), or the "din tur" callout frame where the theme lacks it.
+    Smaller buttons than elsewhere, on the band's colour."""
+    style = ttk.Style(app.root)
+    k = app.scale
+    for name in ("Update.TButton", "Update.Accent.TButton"):
+        style.configure(name, background=P.callout_bg, padding=(12 * k, 5 * k, 15 * k, 8 * k))
+    try:
+        if not _image("frames/update-banner"):
+            raise KeyError("update-banner")
+        P.nine_slice("update-banner", IMG.two)
+        element = f"UpdateBanner.border-{P.name}"
+        skin._element(style, element, "update-banner")
+        style.layout("UpdateBanner.TFrame", [(element, {"sticky": "nsew", "children": [
+            ("Frame.padding", {"sticky": "nsew"})]})])
+        style.configure("UpdateBanner.TFrame", background=P.window)
+        return "UpdateBanner.TFrame"
+    except (KeyError, tk.TclError):
+        return "Callout.TFrame"
 
 
 def _later(app):
