@@ -1,5 +1,8 @@
 {
- "audio.option": "Forbedr lyden (jævn lydstyrke og mindre støj i talen)",
- "audio.hint": "Gælder de videoer, programmet laver. Dubbens egen stemme ændres ikke.",
+ "audio.setup_option": "Forbedr lyden: ens lydstyrke og mindre støj",
+ "audio.setup_hint": "Gør tale lettere at høre og fjerner sus og brum. Påvirker kun den nye video.",
+ "audio.settings_title": "Lyd",
+ "audio.settings_option": "Forbedr lyden som standard",
+ "audio.settings_hint": "Ens lydstyrke og mindre støj. Kan slås fra for hver video.",
  "audio.measuring": "Måler lyden..."
 }

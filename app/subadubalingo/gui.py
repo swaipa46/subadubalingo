@@ -301,6 +301,7 @@ class App:
         self.redo = tk.BooleanVar(value=False)
         self.cut = tk.BooleanVar(value=bool(self.settings.cut_first))
         self.recut = tk.BooleanVar(value=False)
+        self.improve = tk.BooleanVar(value=bool(self.settings.improve_audio))   # Forbedr lyden, for this video
         self.cut_lines: list[str] = []       # Claude's cut suggestions from the last Claude round
         self._review = None
         self._review_done = threading.Event()
@@ -569,21 +570,22 @@ class App:
         self.c_subs.bind("<<ComboboxSelected>>", lambda e: self._refresh())
         # Short checkbox labels; what happens otherwise is on a wrapped hint line under each (lined up with the text)
         indent = int(30 * self.scale)   # under the label: indicator 16 + gap 12 + the check button's 2 px padding
+        self.cb_improve = audio.setup_option(g2, self.improve, 3, indent, self._wrap)
         self.cb_redo = ttk.Checkbutton(g2, variable=self.redo, command=self._refresh, text=t("gui.setup.redo"))
-        self.cb_redo.grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.cb_redo.grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.redo_hint = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
-        self.redo_hint.grid(row=4, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
+        self.redo_hint.grid(row=5, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
         self._wrap(self.redo_hint, g2, 40 + indent)
         self.cb_recut = ttk.Checkbutton(g2, variable=self.recut, command=self._refresh, text=t("gui.setup.recut"))
-        self.cb_recut.grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.cb_recut.grid(row=6, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.recut_hint = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
-        self.recut_hint.grid(row=6, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
+        self.recut_hint.grid(row=7, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
         self._wrap(self.recut_hint, g2, 40 + indent)
         self._recut_forced = False   # ticked by the program because the video is listened to again
         # What the user gets, under a dashed line: a small DU FÅR, then the file name (design review round 2, item 10)
         k = self.scale
         self.plan_row = ttk.Frame(g2)
-        self.plan_row.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(int(14 * k), 0))
+        self.plan_row.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(int(14 * k), 0))
         self.plan_row.columnconfigure(1, weight=1)
         line = tk.Canvas(self.plan_row, height=max(2, int(2 * k)), highlightthickness=0, borderwidth=0,
                          background=P.card)
@@ -597,7 +599,7 @@ class App:
         self.plan_result.grid(row=1, column=1, sticky="ew")
         self._wrap(self.plan_result, g2, int(120 * k))
         self.plan_steps = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
-        self.plan_steps.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(int(6 * k), 0))
+        self.plan_steps.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(int(6 * k), 0))
         self._wrap(self.plan_steps, g2, 40)
 
         g3 = ttk.Frame(v, padding=(0, 6))
@@ -962,6 +964,8 @@ class App:
             self.recut_hint.configure(text=t("gui.setup.recut_hint"))
         for w in (self.cb_recut, self.recut_hint):
             w.grid() if show_recut else w.grid_remove()
+        applies = audio.applies(self.cut.get(), self._speech_lang(), self._subs_lang(), self.settings.keep_original_audio)
+        self.cb_improve.state(["!disabled"] if applies else ["disabled"])
         result, rest = self._plan_text()
         if result:
             self.plan_result.configure(text=result)
@@ -1079,6 +1083,7 @@ class App:
         if p:
             self.redo.set(False)
             self.recut.set(False)
+            self.improve.set(bool(self.settings.improve_audio))
             self.video.set(str(Path(p)))
             self.settings.last_dir = str(Path(p).parent)
             self.settings.save()
@@ -1125,7 +1130,8 @@ class App:
             v = edited
         orig_srt = srt_path(v, lang)
         job = {"video": v, "original": original, "lang": lang, "speech": speech, "subs": subs, "outputs": [],
-               "translate": [], "cut": mode == "new", "edited": edited, "cut_reused": mode == "reuse"}
+               "translate": [], "cut": mode == "new", "edited": edited, "cut_reused": mode == "reuse",
+               "improve_audio": bool(self.improve.get())}
         job["transcribe"] = self.redo.get() or textstate.status(orig_srt, v) != "ok"
         if not speech and not subs and not job["transcribe"] and not job["cut"]:
             self._auto_reason = f"De {lang.word('plural', 'da')} undertekster findes allerede ({orig_srt.name}). Vælg tale eller undertekster."
@@ -1326,6 +1332,7 @@ class App:
             self.redo.set(bool(req.get("redo")))
             self.cut.set(bool(req.get("cut")))
             self.recut.set(bool(req.get("cut")) and bool(req.get("redo")))
+            self.improve.set(bool(self.settings.improve_audio))
             self.video.set(req["video"])
             # A language code, or (requests before 2.1) its Danish name
             self.lang.set((lang_by_name(req.get("lang")) or LANG_BY_CODE["da"]).name)
@@ -1509,12 +1516,12 @@ class App:
                 engine.dub(runner, v, read_srt(srt_of(speech)), job["voice"], out, srt_of(subs) if subs else None,
                            self.settings.keep_original_audio, info, prog, work, s_voice, s_dub,
                            voices=job.get("voices"), palette=job.get("palette"),
-                           speaker_model=job.get("speaker_model"), improve_audio=self.settings.improve_audio)
+                           speaker_model=job.get("speaker_model"), improve_audio=job["improve_audio"])
                 post(("file", out))
             elif subs:
                 prog.start(s_burn)
                 out = burned_name(v, subs)
-                engine.burn(runner, v, srt_of(subs), out, info, prog, work, self.settings.improve_audio)
+                engine.burn(runner, v, srt_of(subs), out, info, prog, work, job["improve_audio"])
                 post(("file", out))
             post(("done", job["result"]))
         except Cancelled:
@@ -1564,7 +1571,7 @@ class App:
         edited: Path = job["edited"]
         prog.start(step_name)
         cutting.cut_video(runner, v, ranges, edited, info.duration_ms, info.has_audio, prog, work,
-                          self.settings.improve_audio)
+                          job["improve_audio"])
         textstate.record_cut(edited, v, ranges)
         post(("file", edited))
         # The subtitles that belong to the original (and match its blocks) are moved to the cut video.
@@ -1953,7 +1960,19 @@ class App:
     # --- Dialogs and the Claude panel ---------------------------------------------------
 
     def _settings_dialog(self):
-        SettingsDialog(self.root, self.settings, on_theme=self.set_theme, on_language=self.set_language)
+        improve = self.settings.improve_audio
+        dlg = SettingsDialog(self.root, self.settings, on_theme=self.set_theme, on_language=self.set_language)
+        dlg.bind("<Destroy>", lambda e: e.widget is dlg and self._settings_closed(improve), add="+")
+
+    def _settings_closed(self, improve_before: bool):
+        """A new default for Forbedr lyden applies to the video on screen; keeping the original under a dub can
+        make that check box matter."""
+        if self.settings.improve_audio != improve_before:
+            self.improve.set(bool(self.settings.improve_audio))
+        try:
+            self._refresh()
+        except tk.TclError:
+            pass
 
     # --- The Claude skill's version ---------------------------------------------------------
 
@@ -2226,8 +2245,6 @@ class SettingsDialog(tk.Toplevel):
         self.voice_mode = tk.StringVar(value=settings.voice_mode)
         dubopts = ttk.Frame(f)
         dubopts.grid(row=5, column=0, sticky="w")
-        self.improve_audio = tk.BooleanVar(value=settings.improve_audio)
-        audio.settings_option(dubopts, self.improve_audio)
         ttk.Checkbutton(dubopts, text=t("gui.settings.keep_audio"), variable=self.keep).pack(anchor="w")
         ttk.Label(dubopts, text=t("gui.settings.voices")).pack(anchor="w", pady=(8, 0))
         for value in ("person", "gender", "one"):
@@ -2240,6 +2257,8 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(links, text=t("gui.settings.save_skill"), command=self._save_skill).pack(side="left", padx=(0, 6))
         ttk.Button(links, text=t("gui.settings.connect"), command=self._connect_claude).pack(side="left", padx=(0, 6))
         ttk.Button(links, text=t("gui.open_log"), command=lambda: self._open(log_file())).pack(side="left")
+        self.improve_audio = tk.BooleanVar(value=settings.improve_audio)
+        audio.settings_card(outer, self.improve_audio).pack(fill="x", pady=(14, 0))
         foot = ttk.Frame(outer)
         foot.pack(fill="x", pady=(14, 0))
         ttk.Label(foot, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").pack(side="left")

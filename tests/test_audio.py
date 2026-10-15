@@ -19,22 +19,31 @@ from subadubalingo import audio, cutting, engine
 from subadubalingo.common import FFMPEG, NO_WINDOW, Runner
 
 # --- The chain ----------------------------------------------------------------------------------------------
-c = audio.chain(-20.0)
+c = audio.chain(-20.0, floor=-55.0)
 parts = c.split(",")
-assert parts[0].startswith("afwtdn=") and parts[1] == "highpass=f=80", c
+assert parts[0].startswith("afwtdn=sigma=") and parts[1] == "highpass=f=80", c
+assert abs(float(parts[0].split("=")[-1]) - 10 ** (-57 / 20)) < 1e-6, c   # floor -55 LUFS -> RMS about -57 dB
 assert "volume=4.00dB" in parts, c                                  # -20 LUFS -> -16 LUFS
 assert any(p.startswith("alimiter=") and "latency=1" in p for p in parts), c   # look-ahead compensated
 assert parts[-1] == "aresample=48000", c
-for slow_or_shifting in ("loudnorm", "afftdn", "atempo", "asetpts", "adelay"):  # nothing that moves time
+for slow_or_shifting in ("loudnorm", "afftdn", "adaptive", "atempo", "asetpts", "adelay"):   # nothing that moves time
     assert slow_or_shifting not in c, c
 assert audio.chain(-20.0, 16000).endswith("aresample=16000")
-# No speech (or no measurement): clean only, no gain
+# Noise reduction only with steady noise well below the speech
+assert audio.chain(-20.0) == audio.chain(-20.0, floor=-120.0)      # digital silence in the pauses (Teams)
+for floor in (None, -120.0, -80.0, -30.0, -25.0):
+    assert audio.noise_sigma(-20.0, floor) is None, floor
+assert audio.noise_sigma(-20.0, -40.0) and audio.noise_sigma(-30.0, -40.0) is None   # 10 LU: that is speech
+# No speech (or no measurement): highpass only, no gain
 for i in (None, -70.0, -61.0):
-    c0 = audio.chain(i)
-    assert "volume" not in c0 and "alimiter" not in c0 and c0.startswith(audio.PRE_FILTERS), c0
+    c0 = audio.chain(i, floor=-65.0)
+    assert c0 == "highpass=f=80,aresample=48000", c0
 assert audio.gain_db(-50.0) == audio.MAX_GAIN and audio.gain_db(0.0) == -16.0
 assert abs(audio.gain_db(-12.5) + 3.5) < 1e-9
 assert audio.prepare(Runner(), Path("nope.mp4"), False) is None    # off: nothing runs
+assert audio.applies(True, None, None, False) and audio.applies(False, None, "no", False)
+assert not audio.applies(False, "sv", "no", False) and audio.applies(False, "sv", None, True)
+assert not audio.applies(False, None, None, True)
 print("chain ok")
 
 summary = """[Parsed_ebur128_0 @ 000001] Summary:
@@ -51,8 +60,13 @@ summary = """[Parsed_ebur128_0 @ 000001] Summary:
 
   True peak:
     Peak:       -1.4 dBFS""".splitlines()
-r = audio.parse_ebur128(["t: 1.0 M: -18.0 S: -19.0 I: -17.0 LUFS LRA: 2.0 LU"] + summary)
+frame = "[Parsed_ebur128_1 @ 0000021] t: {t}  TARGET:-23 LUFS    M:{m} S:-30.0     I: -20.0 LUFS       LRA:   3.0 LU"
+frames = [frame.format(t=k / 10, m=m) for k, m in
+          enumerate([-120.7] * 4 + [-50.0] * 2 + [-60.0] + [-20.0] * 12 + ["-inf"] + [-25.0] * 3)]
+r = audio.parse_ebur128(frames + summary)
 assert (r.i, r.lra, r.peak) == (-20.4, 9.4, -1.4), r
+assert r.floor == -60.0, r       # sorted from 0.4 s on: -inf (-120), -60, -50, -50, -25, ...; the tenth of 19 is index 1
+assert audio.parse_ebur128(summary).floor is None
 assert audio.parse_ebur128(["nothing"]) is None
 assert audio.parse_ebur128(summary[:-1] + ["    Peak:       -inf dBFS"]).peak == -70.0
 print("parse ok")
@@ -63,7 +77,7 @@ cleaned = engine.dub_mix(True, audio.chain(-20.0))
 assert plain == "[1:a]aresample=48000,aformat=channel_layouts=stereo[a]", plain
 assert kept.startswith("[0:a:0]volume=0.12[o];"), kept
 voice = "[1:a]aresample=48000,volume=1.0[d]"
-assert voice in kept and voice in cleaned and audio.PRE_FILTERS not in kept
+assert voice in kept and voice in cleaned and audio.HIGHPASS not in kept
 assert cleaned.startswith("[0:a:0]" + audio.chain(-20.0) + ",volume=0.12[o];"), cleaned
 assert cleaned.split(";")[1:] == kept.split(";")[1:], "only the original's branch may change"
 g = cutting._filters([(1000, 2000)], "yuv420p", True, "highpass=f=80")
@@ -111,16 +125,19 @@ try:
     assert after.peak <= audio.TARGET_TP + 0.6, after                 # AAC may overshoot the limiter a little
     assert abs(after.lra - before.lra) <= 3.0, (before, after)        # a gain, not a compressor
 
+    def lag_ms(a: np.ndarray, b: np.ndarray) -> float:
+        """How much later b is than a (cross-correlation peak within +- 50 ms), at 16 kHz."""
+        n = min(len(a), len(b))
+        a, b = a[:n] - a[:n].mean(), b[:n] - b[:n].mean()
+        lags = range(-800, 801)
+        corr = [float(np.dot(a[max(0, -k):n - max(0, k)], b[max(0, k):n - max(0, -k)])) for k in lags]
+        return list(lags)[int(np.argmax(corr))] / 16
+
     # Not moved in time: same length, and the waveforms line up (cross-correlation peak at 0 +- 1 ms)
     a, b = samples(video), samples(out)
-    n = min(len(a), len(b))
     assert abs(len(a) - len(b)) <= 16000 * 0.03, (len(a), len(b))
-    a, b = a[:n] - a[:n].mean(), b[:n] - b[:n].mean()
-    lags = range(-800, 801)                                          # +- 50 ms
-    corr = [float(np.dot(a[max(0, -k):n - max(0, k)], b[max(0, k):n - max(0, -k)])) for k in lags]
-    lag = list(lags)[int(np.argmax(corr))]
-    print(f"offset: {lag / 16:.2f} ms")
-    assert abs(lag) <= 16, lag
+    print(f"offset: {lag_ms(a, b):.2f} ms")
+    assert abs(lag_ms(a, b)) <= 1.0
 
     # Noise: the whole call with white noise added; the pause (0.3-1.9 s) gets quieter, the speech does not
     noisy = work / "noisy.wav"
@@ -131,11 +148,16 @@ try:
     def rms_db(x, a, b):
         return 20 * np.log10(max(1e-9, float(np.sqrt((x[int(a * 16000):int(b * 16000)] ** 2).mean()))))
     denoised = work / "denoised.wav"
-    ff("-i", noisy, "-af", audio.PRE_FILTERS, "-c:a", "pcm_s16le", denoised)
+    m = audio.ebur128(runner, noisy, audio.HIGHPASS, peak=False, frames=True)
+    noisy_chain = audio.chain(m.i, 16000, m.floor)
+    print(f"noise:  floor {m.floor:.1f} LUFS -> {noisy_chain.split(',')[0]}")
+    assert noisy_chain.startswith("afwtdn=sigma="), noisy_chain
+    ff("-i", noisy, "-af", noisy_chain.split(",volume")[0], "-c:a", "pcm_s16le", denoised)
     x0, x1 = samples(noisy), samples(denoised)
     pause0, pause1, speech0, speech1 = rms_db(x0, .3, 1.9), rms_db(x1, .3, 1.9), rms_db(x0, 9, 12), rms_db(x1, 9, 12)
     print(f"noise:  pause {pause0:.1f} -> {pause1:.1f} dB, speech {speech0:.1f} -> {speech1:.1f} dB")
-    assert pause1 <= pause0 - 4 and abs(speech1 - speech0) <= 1.0
+    assert pause1 <= pause0 - 8 and abs(speech1 - speech0) <= 1.0
+    assert abs(lag_ms(x0, x1)) <= 1.0, lag_ms(x0, x1)
 
     # Marked, so a cut video that is burned or dubbed later is not cleaned twice
     assert audio.is_marked(runner, out) and not audio.is_marked(runner, video)

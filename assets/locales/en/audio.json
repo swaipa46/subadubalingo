@@ -1,5 +1,8 @@
 {
- "audio.option": "Improve the sound (even volume and less noise in the speech)",
- "audio.hint": "Applies to the videos the app makes. The dub's own voice is not changed.",
+ "audio.setup_option": "Improve the sound: even volume and less noise",
+ "audio.setup_hint": "Makes speech easier to hear and removes hiss and hum. Only affects the new video.",
+ "audio.settings_title": "Sound",
+ "audio.settings_option": "Improve the sound by default",
+ "audio.settings_hint": "Even volume and less noise. Can be turned off for each video.",
  "audio.measuring": "Measuring the sound..."
 }

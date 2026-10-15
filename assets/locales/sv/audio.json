@@ -1,5 +1,8 @@
 {
- "audio.option": "Förbättra ljudet (jämn ljudnivå och mindre brus i talet)",
- "audio.hint": "Gäller videorna som programmet gör. Dubbningens egen röst ändras inte.",
+ "audio.setup_option": "Förbättra ljudet: jämn ljudnivå och mindre brus",
+ "audio.setup_hint": "Gör talet lättare att höra och tar bort sus och brum. Påverkar bara den nya videon.",
+ "audio.settings_title": "Ljud",
+ "audio.settings_option": "Förbättra ljudet som standard",
+ "audio.settings_hint": "Jämn ljudnivå och mindre brus. Kan stängas av för varje video.",
  "audio.measuring": "Mäter ljudet..."
 }
