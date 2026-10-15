@@ -119,11 +119,18 @@ def load_fonts():
 
 
 def dark_title_bar(win, on: bool):
-    """Night: a dark window title bar (Windows 10 20H1 and later); Windows' own dialogs stay light."""
+    """Night: a dark window title bar and frame (DWMWA_USE_IMMERSIVE_DARK_MODE: 20, or 19 before Windows 10 20H1).
+    Windows only repaints the frame when told to (SWP_FRAMECHANGED). Its own dialogs stay light."""
     try:
-        from .gui import frame_hwnd
-        hwnd = frame_hwnd(win) or win.winfo_id()
+        win.update_idletasks()
+        hwnd = int(win.wm_frame(), 16)
         val = ctypes.c_int(1 if on else 0)
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), 20, ctypes.byref(val), ctypes.sizeof(val))
+        dwm = ctypes.windll.dwmapi
+        if dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), 20, ctypes.byref(val), ctypes.sizeof(val)) != 0:
+            dwm.DwmSetWindowAttribute(ctypes.c_void_p(hwnd), 19, ctypes.byref(val), ctypes.sizeof(val))
+        u32 = ctypes.windll.user32
+        u32.SetWindowPos.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                     ctypes.c_int, ctypes.c_uint]
+        u32.SetWindowPos(ctypes.c_void_p(hwnd), None, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020)
     except Exception:
-        pass
+        log.exception("could not set the title bar colour")

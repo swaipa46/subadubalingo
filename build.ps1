@@ -13,7 +13,8 @@ foreach ($t in 'bin\whisper\whisper-cli.exe', 'bin\piper\piper.exe', 'bin\ffmpeg
 $brand = 'assets\branding'
 & .venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --windowed --name $name --icon "$brand\SubaDubaLingo.ico" `
     --add-data "$brand\SubaDubaLingo.ico;$brand" --add-data "$brand\header-logo.png;$brand" `
-    --add-data "$brand\header-logo@2x.png;$brand" --add-data 'bin;bin' --collect-data sv_ttk --collect-all sherpa_onnx --paths app --distpath $Out --workpath build app\main.py
+    --add-data "$brand\header-logo@2x.png;$brand" --add-data 'assets\ui;assets\ui' --add-data 'assets\fonts;assets\fonts' `
+    --add-data 'bin;bin'--collect-data sv_ttk --collect-all sherpa_onnx --paths app --distpath $Out --workpath build app\main.py
 if ($LASTEXITCODE) { throw 'PyInstaller failed' }
 $dir = "$Out\$name"
 New-Item -ItemType Directory -Force "$dir\models" | Out-Null
