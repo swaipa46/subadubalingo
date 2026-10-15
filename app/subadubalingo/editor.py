@@ -292,17 +292,25 @@ class Media:
         except Exception:   # closed meanwhile, or ffmpeg missing: the editor works without picture and sound
             log.info("editor: no media for %s", self.video, exc_info=True)
 
-    def frame(self, ms: int, width: int):
-        """Ask for the picture at ms; arrives as ("frame", ms, path or None). Only the newest request is served."""
+    def frame(self, ms: int, width: int, height: int):
+        """Ask for the picture at ms, fitted into width x height; arrives as ("frame", ms, path or None). Only the
+        newest request is served."""
         if self.video:
-            self._frames.put((int(ms), width))
+            self._frames.put((int(ms), width, height))
 
     def _frame_work(self, item):
-        ms, width = item
+        ms, width, height = item
         ms = int(round(ms / 40) * 40)   # one frame at 25 fps: dragging back and forth reuses the files
-        out = self.tmp / f"frame-{width}-{ms}.png"
-        ok = out.exists() or cutting.frame_png(self.frame_runner, self.video, ms, out, width)
-        self.events.put(("frame", item[0], out if ok else None))
+        out = self.tmp / f"frame-{width}x{height}-{ms}.png"
+        if not out.exists():
+            try:
+                self.frame_runner.run([FFMPEG(), "-hide_banner", "-v", "error", "-y", "-ss", f"{ms / 1000:.3f}", "-i",
+                                       self.video, "-frames:v", "1", "-vf",
+                                       f"scale={width}:{height}:force_original_aspect_ratio=decrease", out],
+                                      quiet=True)
+            except Exception:   # the editor closed (the runner is cancelled) or ffmpeg is missing
+                return
+        self.events.put(("frame", item[0], out if out.exists() else None))
 
     def play(self, ms: int, length_ms: int):
         """Play length_ms of the sound from ms, cutting off whatever plays (silent until the sound is extracted)."""
@@ -418,8 +426,8 @@ def show(app):
 
 
 def close(app, ask: bool = True) -> bool:
-    """Close the editor. Unsaved changes: Annullér asks whether to throw them away; closing the app asks whether
-    to save them. False when the user chose to stay."""
+    """Close the editor (Annullér/Luk, or the main window closing). With unsaved changes it asks whether to save
+    them first (Yes, No: throw them away, Cancel: stay). False when the user chose to stay."""
     session = getattr(app, "_editor_session", None)
     if session is None:
         return True
@@ -592,7 +600,7 @@ class LineList(ttk.Frame):
 
     def _height(self, c: Cue) -> int:
         lines = self._lines(c.text, self._text_w() - int(16 * self.k))
-        return max(int(ROW_MIN * self.k), lines * self.f_text.metrics("linespace") + int(18 * self.k))
+        return max(int(ROW_MIN * self.k), lines * self.f_text.metrics("linespace") + int(18 * self.k) + 4 * self.ed.kd)
 
     def layout(self):
         """Row heights and tops for every line (after a resize, an edit that changes a row's height, or a split)."""
@@ -837,7 +845,7 @@ class SubtitleEditor(ttk.Frame):
     def select(self, i: int, focus: bool = True, show_frame: bool = True):
         cues = self.s.doc.cues
         if not cues:
-            self.s.sel = -1
+            self.s.sel, self._field_for = -1, -1
             self.lines.layout()
             self._show_line_info()
             return
@@ -1012,24 +1020,26 @@ class SubtitleEditor(ttk.Frame):
     # --- Keys -----------------------------------------------------------------------------
 
     def _mine(self, e) -> bool:
+        """A key pressed in the main window while the editor is shown (not in a dialog over it)."""
         try:
-            return self.winfo_exists() and self.winfo_ismapped() and str(e.widget).startswith(str(self.app.root))
-        except (tk.TclError, AttributeError):
+            return bool(self.winfo_exists() and self.winfo_ismapped()
+                        and e.widget.winfo_toplevel() is self.winfo_toplevel())
+        except (tk.TclError, AttributeError, KeyError):   # e.widget can be a name of a menu's clone
             return False
 
     def _key_save(self, e=None):
-        if self._mine(e) and e.widget.winfo_toplevel() is self.winfo_toplevel():
+        if self._mine(e):
             self.save()
             return "break"
 
     def _key_undo(self, e=None):
-        if self._mine(e) and e.widget.winfo_toplevel() is self.winfo_toplevel():
+        if self._mine(e):
             self.undo()
             return "break"
 
     def _key_space(self, e=None):
         """Space outside the text plays the line (in a field or on a button it does what it always does)."""
-        if not self._mine(e) or e.widget.winfo_toplevel() is not self.winfo_toplevel():
+        if not self._mine(e):
             return None
         if e.widget.winfo_class() in ("Text", "Entry", "TEntry", "TCombobox", "TButton", "TCheckbutton", "TLabel"):
             return None
@@ -1094,7 +1104,7 @@ class SubtitleEditor(ttk.Frame):
         self._want_ms = ms
         self._time_label()
         if self.s.video:
-            self.media.frame(ms, int(VIDEO_W * self.k) - 4 * self.kd)
+            self.media.frame(ms, int(VIDEO_W * self.k) - 4 * self.kd, int(VIDEO_H * self.k) - 4 * self.kd)
         self._redraw()
 
     def _time_label(self):

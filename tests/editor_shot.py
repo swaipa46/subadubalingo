@@ -167,6 +167,17 @@ ed._text_changed()
 ed._revert_line()
 assert ed.s.doc.cues[1].text == old
 
+# A line too fast to read is marked, and counted in the footer
+q2 = ed.s.doc.cues[2]
+old2, q2.text = q2.text, "Testing, testing, en, to, tre, fire, fem, seks, syv, otte, ni og ti."
+ed.lines.layout()
+assert editor.chars_per_second(q2) > editor.CPS_WARN
+assert gui.t("editor.footer_fast_one", n=1, cps=editor.CPS_WARN) in ed.lines.foot.cget("text")
+assert any(ed.lines.c.itemcget(i, "text") == gui.t("editor.cps", n=round(editor.chars_per_second(q2)))
+           for i in ed.lines.c.find_withtag("row") if ed.lines.c.type(i) == "text")
+q2.text = old2
+ed.lines.layout()
+
 # Split the Anne line at "hun" with the field's cursor, merge it back, undo both
 n_before = len(ed.s.doc.cues)
 ed.select(i_anne)
