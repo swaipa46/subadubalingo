@@ -70,7 +70,7 @@ def apply(root: tk.Tk, name: str, scale: float):
     style.configure("Section.TLabel", font="SunValleySubtitleFont", foreground=P.heading)
     style.configure("Turn.TLabel", font="SunValleyBodyStrongFont", foreground=P.your_turn_title)
     style.configure("Pct.TLabel", font=(PIXEL_FONT, 22), foreground=P.heading)
-    style.configure("Big.TLabel", font=(PIXEL_FONT, 16), foreground=P.your_turn_title)
+    style.configure("Big.TLabel", font=(PIXEL_FONT, 22), foreground=P.your_turn_title)
     style.configure("Pixel.TLabel", font=(PIXEL_FONT, 12), foreground=P.heading)
     for nm, colour in (("Title.TLabel", P.heading), ("Section.TLabel", P.heading), ("Pct.TLabel", P.heading),
                        ("Big.TLabel", P.your_turn_title), ("Turn.TLabel", P.your_turn_title),
@@ -130,27 +130,32 @@ def apply(root: tk.Tk, name: str, scale: float):
         style.configure(f"YT.{nm}", background=P.your_turn_card)
 
     # Buttons: secondary (TButton) and primary (Accent.TButton), pixel frames with their states
-    pad = (12 * k, 3 * k, 14 * k, 6 * k)
+    # 40 px tall with 14 px on the sides inside the frame (the frame's shadow takes 3 px right and below); the main
+    # action of a view (Main.Accent.TButton: Start, Klip videoen, Afspil) is 48 px (design review round 1, item 12)
+    pad = (14 * k, 5 * k, 17 * k, 8 * k)
     _element(style, f"Btn2.border{suffix}", "button-secondary", {
         "disabled": "button-secondary-disabled", "pressed": "button-secondary-pressed",
-        "focus": "button-secondary-focus", "active": "button-secondary-hover"})
+        "focus": "button-secondary-focus", "active": "button-secondary-hover"}, padding=0)
     _element(style, f"Btn1.border{suffix}", "button-primary", {
         "disabled": "button-primary-disabled", "pressed": "button-primary-pressed",
-        "focus": "button-primary-focus", "active": "button-primary-hover"})
+        "focus": "button-primary-focus", "active": "button-primary-hover"}, padding=0)
     for st, el, fg in (("TButton", "Btn2", P.button_secondary_text), ("Accent.TButton", "Btn1", P.button_primary_text)):
         style.configure(st, background=P.window)
         style.layout(st, [(f"{el}.border{suffix}", {"sticky": "nsew", "children": [
             ("Button.padding", {"sticky": "nsew", "children": [("Button.label", {"sticky": "nsew"})]})]})])
         style.configure(st, padding=pad, foreground=fg, anchor="center", font="SunValleyBodyStrongFont")
         style.map(st, foreground=[("disabled", P.disabled_text), ("!disabled", fg)])
+    style.configure("Main.Accent.TButton", padding=(18 * k, 9 * k, 21 * k, 12 * k))
 
     # Check and radio buttons: pixel indicators
     for cls, on, off, extra in (("TCheckbutton", "check-on", "check-off", [("disabled", IMG.get("icons/check-disabled"))]),
                                 ("TRadiobutton", "radio-on", "radio-off", [])):
         el = f"{cls[1:]}.pixind{suffix}"
         try:
+            # width: the indicator plus 12 px before the text (design review round 1, item 8)
             style.element_create(el, "image", IMG.get(f"icons/{off}"), *extra,
-                                 ("selected", IMG.get(f"icons/{on}")), sticky="w", padding=(0, 0, 8 * k, 0))
+                                 ("selected", IMG.get(f"icons/{on}")), sticky="w",
+                                 width=IMG.get(f"icons/{off}").width() + 12 * k)
         except tk.TclError:
             pass
         style.layout(cls, [(f"{cls[1:]}.padding", {"sticky": "nsew", "children": [
@@ -163,7 +168,7 @@ def apply(root: tk.Tk, name: str, scale: float):
         style.layout(f"Card.{cls}", style.layout(cls))
         style.layout(f"YT.{cls}", style.layout(cls))
 
-    for cls in ("TButton", "Accent.TButton"):
+    for cls in ("TButton", "Accent.TButton", "Main.Accent.TButton"):
         style.configure(f"Card.{cls}", background=P.card)
         style.configure(f"YT.{cls}", background=P.your_turn_card)
     style.configure("Header.TButton", background=P.header_band)
@@ -186,6 +191,16 @@ def apply(root: tk.Tk, name: str, scale: float):
     style.configure("PickItem.TLabel", background=P.button_secondary_bg, foreground=P.button_secondary_text,
                     font=(PIXEL_FONT, 12), padding=(4 * k, 4 * k, 4 * k, 3 * k), anchor="center")
     style.map("PickItem.TLabel", foreground=[("selected", P.picker_selected_text), ("!selected", P.button_secondary_text)])
+    # The progress bar's trough (frames/progress-trough) around SegmentBar's canvas
+    _element(style, f"Trough.border{suffix}", "progress-trough")
+    style.layout("Trough.TFrame", [(f"Trough.border{suffix}", {"sticky": "nsew", "children": [
+        ("Frame.padding", {"sticky": "nsew"})]})])
+    style.configure("Trough.TFrame", background=P.window)
+    # The "your turn" band under the progress bar (frames/callout; design review round 1, item 11)
+    _element(style, f"Callout.border{suffix}", "callout")
+    style.layout("Callout.TFrame", [(f"Callout.border{suffix}", {"sticky": "nsew", "children": [
+        ("Frame.padding", {"sticky": "nsew"})]})])
+    style.configure("Callout.TFrame", background=P.window)
     # Settings in the header: the cog alone in a square secondary button
     style.configure("Icon.TButton", background=P.header_band, padding=(2 * k, 2 * k))
     # Choice tiles (Programmets sprog, Udseende, the first start): tile frames with hover, chosen and focus
@@ -217,6 +232,13 @@ def apply(root: tk.Tk, name: str, scale: float):
     root.option_add("*TCombobox*Listbox.foreground", P.text)
     root.option_add("*TCombobox*Listbox.selectBackground", P.selection_bg)
     root.option_add("*TCombobox*Listbox.selectForeground", P.selection_text)
+
+    # --- Cut review (review.py): the frame around the timeline Canvas (frames/timeline; design review round 1,
+    # item 18). Padding: the 2 px border and 4 px air, plus the 4 px shadow on the right and bottom
+    _element(style, f"Timeline.border{suffix}", "timeline")
+    style.layout("Timeline.TFrame", [(f"Timeline.border{suffix}", {"sticky": "nsew", "children": [
+        ("Frame.padding", {"sticky": "nsew"})]})])
+    style.configure("Timeline.TFrame", background=P.window, padding=(6 * k, 6 * k, 10 * k, 10 * k))
 
 
 def _pad4(pad) -> tuple:
@@ -272,6 +294,32 @@ class Card(ttk.Frame):
         if cnf is None and not kw:
             return None
         return super().configure(cnf, **kw)
+
+    config = configure
+
+
+class IconButton(ttk.Button):
+    """A button with a 16 px pixel icon left of its text (design review round 1, item 13). On a primary (yellow)
+    button the icon's -on-primary variant is used where there is one, also when the style changes later."""
+
+    def __init__(self, parent, icon: str, **kw):
+        self.icon = icon
+        super().__init__(parent, compound="left", **kw)
+        self._set_icon()
+
+    def _set_icon(self):
+        from .theme import THEMES, assets_dir
+        name = self.icon
+        if "Accent" in str(super().cget("style")):
+            if (assets_dir() / "ui" / THEMES[P.name] / "icons" / f"{name}-on-primary.png").exists():
+                name += "-on-primary"
+        super().configure(image=IMG.get(f"icons/{name}"))
+
+    def configure(self, cnf=None, **kw):
+        out = super().configure(cnf, **kw)
+        if "style" in kw or (isinstance(cnf, dict) and "style" in cnf):
+            self._set_icon()
+        return out
 
     config = configure
 

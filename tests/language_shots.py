@@ -46,6 +46,16 @@ root = tk.Tk()
 app = gui.App(root)
 _screen.place(root)
 shot(root, "main")
+# The done view, as after a run (STAGE CLEAR, the new video, the run's files, what next)
+video = Path.home() / "Videos" / "Webinar.mp4"
+result = gui.dub_name(video, gui.LANG_BY_CODE["sv"], gui.LANG_BY_CODE["no"])
+app.created = [gui.srt_name(video, gui.LANG_BY_CODE["da"]), gui.srt_name(video, gui.LANG_BY_CODE["no"]), result]
+for path in app.created:
+    app.files.insert("end", path.name)
+app._show("done")
+app._show_result("done", result, replay=True)
+shot(root, "done")
+app._show("setup")
 dlg = gui.SettingsDialog(root, app.settings, on_theme=app.set_theme, on_language=app.set_language)
 area = _screen.other_work_area()
 if area:

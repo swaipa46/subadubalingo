@@ -20,11 +20,11 @@ from tkinter import ttk
 
 import numpy as np
 
-from . import cutting, jobs
+from . import cutting, jobs, skin
 from .common import Cue, Runner, log
 from .cutting import Cut, fmt_clock, fmt_length
 from .i18n import t
-from .theme import P
+from .theme import IMG, P, PIXEL_FONT, TERMINAL_FONT
 
 
 def kind_colour(kind: str, part: str) -> str:
@@ -38,6 +38,7 @@ def kind_label(kind: str) -> str:
 
 EDGE_PX = 7
 MIN_VIEW_MS = 8_000
+KINDS = tuple(cutting.KINDS.keys())   # the legend's order: start, pause, end, inappropriate, offtopic, unclear, manual
 
 
 class CutReview(ttk.Frame):
@@ -49,6 +50,8 @@ class CutReview(ttk.Frame):
         self.env = env
         self.on_done, self.mcp_job = on_done, mcp_job
         self.k = k = app.scale
+        self.kd = 2 if IMG.two else 1   # the design's px (1x) on the pixel grid: doubled at 125 % and above
+        self._chips: dict[str, tk.PhotoImage] = {}
         self.v0, self.v1 = 0, self.dur
         self.sel: Cut | None = None
         self.drag: dict | None = None
@@ -65,7 +68,7 @@ class CutReview(ttk.Frame):
                             {max(cues[i - 1].end if i else 0, c.start - 200) for i, c in enumerate(cues)})
         self.columnconfigure(0, weight=1)
         self.rowconfigure(3, weight=1)   # extra height goes to the timeline; the list is as tall as it needs
-        self.rowconfigure(6, weight=0)
+        self.rowconfigure(7, weight=0)
         self._build()
         self.bind("<Destroy>", self._on_destroy, add="+")
         self.after(50, self._redraw)
@@ -74,15 +77,17 @@ class CutReview(ttk.Frame):
     # --- Layout ---------------------------------------------------------------------------
 
     def _build(self):
-        k = self.k
+        k, kd = self.k, self.kd
         head = ttk.Frame(self)
         head.grid(row=0, column=0, sticky="ew")
         head.columnconfigure(1, weight=1)
-        ttk.Label(head, text=t("review.title"), style="Section.TLabel", foreground=P.heading).grid(row=0, column=0, sticky="w")
+        # A short heading: Press Start 2P 16 px in heading (design review round 1, item 22)
+        ttk.Label(head, text=t("review.title"), style="Section.TLabel", foreground=P.heading,
+                  font=(PIXEL_FONT, -16 * kd)).grid(row=0, column=0, sticky="w")
         zoom = ttk.Frame(head)
         zoom.grid(row=0, column=2, sticky="e")
-        ttk.Button(zoom, text="−", width=3, command=lambda: self._zoom(1.6)).pack(side="left")
-        ttk.Button(zoom, text="+", width=3, command=lambda: self._zoom(1 / 1.6)).pack(side="left", padx=4)
+        skin.IconButton(zoom, "minus", width=0, command=lambda: self._zoom(1.6)).pack(side="left")
+        skin.IconButton(zoom, "plus", width=0, command=lambda: self._zoom(1 / 1.6)).pack(side="left", padx=4)
         ttk.Button(zoom, text=t("review.zoom_all"), command=self._zoom_all).pack(side="left")
         self.summary = ttk.Label(self, text="", font="SunValleyBodyStrongFont", foreground=P.step_active)
         self.summary.grid(row=1, column=0, sticky="w", pady=(4, 0))
@@ -94,11 +99,17 @@ class CutReview(ttk.Frame):
         hint.grid(row=2, column=0, sticky="ew", pady=(2, 8))
         self.app._wrap(hint, self, 10)
 
-        self.canvas = tk.Canvas(self, height=int(150 * k), background=P.timeline_bg, highlightthickness=1,
-                                highlightbackground=P.card_shadow, cursor="crosshair")
-        self.canvas.grid(row=3, column=0, sticky="nsew")
+        # The timeline inside frames/timeline (item 18); the Canvas is the frame's inside
+        tl = ttk.Frame(self, style="Timeline.TFrame", padding=(6 * kd, 6 * kd, 10 * kd, 10 * kd))
+        tl.grid(row=3, column=0, sticky="nsew")
+        tl.columnconfigure(0, weight=1)
+        tl.rowconfigure(0, weight=1)
+        self.canvas = tk.Canvas(tl, height=int(150 * k), background=P.timeline_bg, highlightthickness=0,
+                                borderwidth=0, cursor="crosshair")
+        self.canvas.grid(row=0, column=0, sticky="nsew")
         self.xbar = ttk.Scrollbar(self, orient="horizontal", command=self._xview)
-        self.xbar.grid(row=4, column=0, sticky="ew")
+        self.xbar.grid(row=4, column=0, sticky="ew", pady=(2 * kd, 0))
+        self.xbar.grid_remove()   # only while zoomed in (_redraw)
         c = self.canvas
         c.bind("<Configure>", lambda e: self._redraw())
         c.bind("<Motion>", self._on_motion)
@@ -111,25 +122,44 @@ class CutReview(ttk.Frame):
         c.bind("<Shift-MouseWheel>", lambda e: self._pan(-e.delta / 120 * 0.15))
         c.bind("<space>", lambda e: self._toggle(self.sel))
         c.bind("<Delete>", lambda e: self._delete(self.sel))
+
+        # Legend: the seven cut kinds, a 16 px square (fill, 3 px border) and the name, 18 px apart (item 19)
+        legend = ttk.Frame(self)
+        legend.grid(row=5, column=0, sticky="w", pady=(10 * kd, 0))
+        for i, kind in enumerate(KINDS):
+            ttk.Label(legend, image=self._chip(kind, 16, 3)).grid(
+                row=0, column=2 * i, padx=((18 if i else 0) * kd, 6 * kd))
+            ttk.Label(legend, text=kind_label(kind)).grid(row=0, column=2 * i + 1)
         self.hover = ttk.Label(self, text=" ", style="Hint.TLabel")
-        self.hover.grid(row=5, column=0, sticky="ew", pady=(4, 6))
+        self.hover.grid(row=6, column=0, sticky="ew", pady=(2 * kd, 6 * kd))
 
         mid = self.mid = ttk.Frame(self)
         self._mid_min = 0
-        mid.grid(row=6, column=0, sticky="nsew")
+        mid.grid(row=7, column=0, sticky="nsew")
         mid.columnconfigure(0, weight=1)
         mid.rowconfigure(0, weight=1)
+        # The list in a card (frames/card), without headings; the tree column holds the kind's colour chip (item 21)
+        card = skin.Card(mid, padding=(14 * kd, 16 * kd, 18 * kd, 18 * kd))
+        card.grid(row=0, column=0, sticky="new")   # as tall as its rows, like the mockup
+        card.columnconfigure(0, weight=1)
+        card.rowconfigure(0, weight=1)
+        ttk.Style(self).configure("Review.Treeview", background=P.card, fieldbackground=P.card, bordercolor=P.card,
+                                  lightcolor=P.card, darkcolor=P.card, indent=0, indicatorsize=0,
+                                  indicatormargins=0)   # no expand indicator before the chip (a flat list)
         cols = ("nr", "tid", "hvorfor")
-        self.tree = ttk.Treeview(mid, columns=cols, show="headings", selectmode="browse", height=self._tree_rows())
-        for col, title, width, stretch in (("nr", "#", 48, False), ("tid", t("review.col_time"), 150, False),
+        self.tree = ttk.Treeview(card, columns=cols, show="tree", selectmode="browse", height=self._tree_rows(),
+                                 style="Review.Treeview")
+        self.tree.column("#0", width=int(12 * kd + 22 * k), minwidth=int(12 * kd + 22 * k), stretch=False)
+        for col, title, width, stretch in (("nr", "#", 36, False), ("tid", t("review.col_time"), 180, False),
                                            ("hvorfor", t("review.col_why"), 220, True)):
             self.tree.heading(col, text=title, anchor="w")
             self.tree.column(col, width=int(width * k), stretch=stretch, anchor="w")
         self.tree.grid(row=0, column=0, sticky="nsew")
-        sb = ttk.Scrollbar(mid, orient="vertical", command=self.tree.yview)
+        self.tree_sb = sb = ttk.Scrollbar(card, orient="vertical", command=self.tree.yview)
         sb.grid(row=0, column=1, sticky="ns")
+        sb.grid_remove()   # only when the cuts do not fit (_refresh_list)
         keys = ttk.Label(mid, style="Hint.TLabel", justify="left", text=t("review.keys"))
-        keys.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        keys.grid(row=1, column=0, sticky="w", pady=(6, 0))
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.tag_configure("off", foreground=P.hint)
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select)
@@ -138,7 +168,7 @@ class CutReview(ttk.Frame):
         self.tree.bind("<Delete>", lambda e: self._delete(self.sel))
 
         det = ttk.Frame(mid, padding=(14, 0, 0, 0))
-        det.grid(row=0, column=2, rowspan=2, sticky="nsew")
+        det.grid(row=0, column=1, rowspan=2, sticky="nsew")
         self.d_title = ttk.Label(det, text="", font="SunValleyBodyStrongFont")
         self.d_title.grid(row=0, column=0, columnspan=2, sticky="w")
         self.d_text = ttk.Label(det, text=t("review.click_cut"), style="Hint.TLabel", justify="left",
@@ -154,9 +184,9 @@ class CutReview(ttk.Frame):
         self.cap_b.grid(row=3, column=1, sticky="w", padx=(6, 0))
         acts = ttk.Frame(det)
         acts.grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        self.b_trans = ttk.Button(acts, text=t("review.play_transition"), command=lambda: self._play("trans"))
+        self.b_trans = skin.IconButton(acts, "play", text=t("review.play_transition"), command=lambda: self._play("trans"))
         self.b_trans.grid(row=0, column=0, sticky="w")
-        self.b_cut = ttk.Button(acts, text=t("review.play_cut"), command=lambda: self._play("cut"))
+        self.b_cut = skin.IconButton(acts, "play", text=t("review.play_cut"), command=lambda: self._play("cut"))
         self.b_cut.grid(row=0, column=1, sticky="w", padx=(6, 0))
         self.b_toggle = ttk.Button(acts, text=t("review.keep"), command=lambda: self._toggle(self.sel))
         self.b_toggle.grid(row=1, column=0, sticky="w", pady=(6, 0))
@@ -165,9 +195,10 @@ class CutReview(ttk.Frame):
         self.detail_btns = (self.b_trans, self.b_cut, self.b_toggle, self.b_delete)
 
         bottom = ttk.Frame(self)
-        bottom.grid(row=7, column=0, sticky="ew", pady=(14, 0))
-        self.b_ok = ttk.Button(bottom, text=t("review.approve"), style="Accent.TButton", command=self._approve)
-        self.b_ok.pack(side="left", ipady=4)
+        bottom.grid(row=8, column=0, sticky="ew", pady=(14, 0))
+        self.b_ok = skin.IconButton(bottom, "cut", text=t("review.approve"), style="Main.Accent.TButton",
+                                    command=self._approve)
+        self.b_ok.pack(side="left")
         ttk.Button(bottom, text=t("review.skip"), command=self._skip).pack(side="left", padx=10)
         ttk.Button(bottom, text=t("review.cancel"), command=self.app._cancel).pack(side="left")
         self.b_hint = ttk.Label(bottom, text="", style="Hint.TLabel")
@@ -180,13 +211,33 @@ class CutReview(ttk.Frame):
     def _tree_rows(self) -> int:
         return min(max(len(self.cuts), 3), 8)
 
+    def _text_w(self, text: str, font) -> int:
+        if not hasattr(self, "_font"):
+            from tkinter import font as tkfont
+            self._font = tkfont.Font(root=self, font=font)
+        return self._font.measure(text)
+
+    def _chip(self, kind: str, size: int, border: int) -> tk.PhotoImage:
+        """A square in a cut kind's colours (size and border in design px): cut_<kind>_border around cut_<kind>_fill,
+        or all border colour when border is 0. Kind "off" is a kept cut, in hint. Kept referenced (Tk drops images
+        Python no longer holds)."""
+        key = f"{kind}-{size}-{border}"
+        if key not in self._chips:
+            n, b = size * self.kd, border * self.kd
+            img = tk.PhotoImage(master=self, width=n, height=n)
+            img.put(P.hint if kind == "off" else kind_colour(kind, "border"), to=(0, 0, n, n))
+            if b and n > 2 * b:
+                img.put(P.card if kind == "off" else kind_colour(kind, "fill"), to=(b, b, n - b, n - b))
+            self._chips[key] = img
+        return self._chips[key]
+
     # --- Geometry -------------------------------------------------------------------------
 
     def _width(self) -> int:
         return max(100, self.canvas.winfo_width() - 2 * self._m())
 
     def _m(self) -> int:
-        return int(8 * self.k)
+        return 10 * self.kd
 
     def x_of(self, t: float) -> float:
         return self._m() + (t - self.v0) / max(1, self.v1 - self.v0) * self._width()
@@ -248,11 +299,12 @@ class CutReview(ttk.Frame):
         if not c.winfo_exists():
             return
         c.delete("all")
-        k, m = self.k, self._m()
+        k, kd, m = self.k, self.kd, self._m()
         w, h = c.winfo_width(), c.winfo_height()
-        top, bottom = int(22 * k), h - int(6 * k)
-        mid = (top + bottom) / 2 - 4 * k
-        amp = (bottom - top) / 2 - 10 * k
+        ruler = 28 * kd                      # the ruler row, with a 2 px bottom border in card_border (item 18)
+        top, bottom = ruler + 2 * kd, h - 2 * kd
+        mid = (top + bottom) // 2
+        amp = (bottom - top) / 2 - 14 * kd
         # cut fills first, under the sound
         for cut in self.cuts:
             if cut.on and cut.end > self.v0 and cut.start < self.v1:
@@ -272,7 +324,7 @@ class CutReview(ttk.Frame):
             if len(upper) >= 4:
                 c.create_polygon(upper + lower, fill=P.timeline_waveform, outline="")
         # speech
-        y0, y1 = bottom - 10 * k, bottom - 3 * k
+        y0, y1 = bottom - 14 * kd, bottom - 8 * kd
         i = max(0, bisect.bisect_right(self.starts, self.v0) - 1)
         last_x = -10
         while i < len(self.cues) and self.cues[i].start < self.v1:
@@ -282,47 +334,53 @@ class CutReview(ttk.Frame):
                 c.create_rectangle(max(m, x0), y0, min(w - m, max(x1, x0 + 1)), y1, fill=P.timeline_speech, outline="")
                 last_x = x1
             i += 1
-        # cut outlines, handles and labels
+        # cut outlines (3 px, 5 px selected; inside the cut), drag handles (10 x 44 px, centred on the edges) and
+        # labels, in cut_<kind>_border (item 20)
+        font = ("Segoe UI Semibold", 10)
         for n, cut in enumerate(self.cuts, 1):
             if cut.end <= self.v0 or cut.start >= self.v1:
                 continue
-            strong = kind_colour(cut.kind, "border")
-            x0, x1 = self.x_of(cut.start), self.x_of(cut.end)
+            strong = kind_colour(cut.kind, "border") if cut.on else P.hint
+            x0, x1 = round(self.x_of(cut.start)), round(self.x_of(cut.end))
             selected = cut is self.sel
-            if cut.on:
-                c.create_rectangle(x0, top, x1, bottom, outline=strong, width=3 * k if selected else 1.5 * k)
+            lw = (5 if selected else 3) * kd
+            if x1 - x0 > lw:
+                c.create_rectangle(x0 + lw / 2, top + lw / 2, x1 - lw / 2, bottom - lw / 2 + 1, outline=strong,
+                                   width=lw, dash=() if cut.on else (4 * kd, 3 * kd))
             else:
-                c.create_rectangle(x0, top, x1, bottom, outline=P.hint, dash=(4, 3), width=2 * k if selected else 1)
-            if selected:
+                c.create_rectangle(x0, top, x0 + lw, bottom, outline="", fill=strong)
+            if cut.on or selected:
                 for x in (x0, x1):
-                    c.create_rectangle(x - 3 * k, mid - 14 * k, x + 3 * k, mid + 14 * k, fill=strong if cut.on else P.hint,
-                                       outline=P.timeline_bg)
-            label = f"{n}  {kind_label(cut.kind) if cut.on else t('review.kept')}"
-            if x1 - x0 > 150 * k:
-                c.create_text(max(x0, m) + 6 * k, top + 4 * k, text=label, anchor="nw", fill=strong if cut.on else P.hint,
-                              font="SunValleyCaptionFont")
-            elif x1 - x0 > 14 * k:
-                c.create_text((x0 + x1) / 2, top + 4 * k, text=str(n), anchor="n", fill=strong if cut.on else P.hint,
-                              font="SunValleyCaptionFont")
-        # ruler
+                    c.create_rectangle(x - 5 * kd, mid - 22 * kd, x + 5 * kd, mid + 22 * kd, fill=strong, outline="")
+            label = f"{n} {kind_label(cut.kind) if cut.on else t('review.kept')}"
+            tx = max(x0, m) + lw + 6 * kd
+            if x1 - tx > self._text_w(label, font) + 6 * kd:
+                c.create_text(tx, top + lw + 6 * kd, text=label, anchor="nw", fill=strong, font=font)
+            elif x1 - tx > self._text_w(str(n), font) + 2 * kd:
+                c.create_text(tx, top + lw + 6 * kd, text=str(n), anchor="nw", fill=strong, font=font)
+        # ruler: ticks and times in VT323 in timeline_ruler, over anything that reaches up there
         c.create_rectangle(0, 0, w, top, fill=P.timeline_bg, outline="")
-        c.create_line(0, top, w, top, fill=P.card_shadow)
+        c.create_rectangle(m, ruler, w - m, top, fill=P.card_border, outline="")
         span_s = (self.v1 - self.v0) / 1000
         px_per_s = self._width() / max(0.001, span_s)
         step = next((s for s in (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600) if s * px_per_s >= 80 * k), 3600)
         sec = (self.v0 // 1000 // step) * step
         while sec * 1000 <= self.v1:
-            x = self.x_of(sec * 1000)
-            if x >= m - 1:
-                c.create_line(x, top - 6 * k, x, top, fill=P.timeline_ruler)
-                c.create_text(x + 3 * k, top - 4 * k, text=fmt_clock(sec * 1000), anchor="sw", fill=P.timeline_ruler,
-                              font="SunValleyCaptionFont")
+            x = round(self.x_of(sec * 1000))
+            if m - 1 <= x <= w - m - 2 * kd:
+                c.create_rectangle(x, 6 * kd, x + 2 * kd, ruler, fill=P.timeline_ruler, outline="")
+                c.create_text(x + 6 * kd, ruler - 4 * kd, text=fmt_clock(sec * 1000), anchor="sw", fill=P.timeline_ruler,
+                              font=(TERMINAL_FONT, -16 * kd))
             sec += step
         # hover line
         if self.hover_t is not None and self.v0 <= self.hover_t <= self.v1:
             x = self.x_of(self.hover_t)
             c.create_line(x, top, x, bottom, fill=P.heading)
         self.xbar.set(self.v0 / self.dur, self.v1 / self.dur)
+        if self.v0 > 0 or self.v1 < self.dur:   # the scroll bar only while zoomed in
+            self.xbar.grid()
+        else:
+            self.xbar.grid_remove()
 
     # --- Mouse ----------------------------------------------------------------------------
 
@@ -425,9 +483,14 @@ class CutReview(ttk.Frame):
         self.tree.configure(height=self._tree_rows())
         for n, cut in enumerate(self.cuts, 1):
             why = kind_label(cut.kind) + (f": {cut.reason}" if cut.reason else "")
-            self.tree.insert("", "end", iid=str(n), tags=() if cut.on else ("off",), values=(
-                f"{n}." if cut.on else f"({n})", f"{fmt_clock(cut.start)} - {fmt_clock(cut.end)}  ({fmt_length(cut.length)})",
+            self.tree.insert("", "end", iid=str(n), tags=() if cut.on else ("off",),
+                             image=self._chip(cut.kind if cut.on else "off", 12, 0), values=(
+                f"{n}" if cut.on else f"({n})", f"{fmt_clock(cut.start)} - {fmt_clock(cut.end)} ({fmt_length(cut.length)})",
                 why if cut.on else t("review.list_kept", why=why)))
+        if len(self.cuts) > self._tree_rows():
+            self.tree_sb.grid()
+        else:
+            self.tree_sb.grid_remove()
         if self.sel in self.cuts:
             iid = str(self.cuts.index(self.sel) + 1)
             self.tree.selection_set(iid)
@@ -524,7 +587,7 @@ class CutReview(ttk.Frame):
             return
         if h > self._mid_min:
             self._mid_min = h
-            self.rowconfigure(6, minsize=h)
+            self.rowconfigure(7, minsize=h)
 
     def _show_frame_at(self, ms: int):
         self.cap_a.configure(text=t("review.frame_at", time=fmt_clock(ms)))

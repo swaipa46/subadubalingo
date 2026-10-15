@@ -383,14 +383,22 @@ class App:
         """The header band across the window: logo and CUT · DUB · SUB, then from the right Indstillinger (the cog),
         the language picker and the theme picker, and the four-colour stripe under it (assets/ui/README.md "Header")."""
         k = self.scale
-        band = self.header = tk.Frame(self.root, background=P.header_band, padx=int(24 * k), pady=int(12 * k))
+        band = self.header = tk.Frame(self.root, background=P.header_band, padx=int(24 * k), pady=int(10 * k))
         band.pack(side="top", fill="x")
         brand = tk.Frame(band, background=P.header_band)
         brand.pack(side="left")
-        tk.Label(brand, image=IMG.get("art/header-logo"), background=P.header_band, borderwidth=0).pack(anchor="w")
-        # The brand words under the wordmark, as on the title screen
-        tk.Label(brand, text="CUT · DUB · SUB", background=P.header_band, foreground=P.header_text,
-                 font=(theme.TERMINAL_FONT, 15), borderwidth=0, pady=0).pack(anchor="w", padx=(int(64 * k), 0))
+        # The logo art is the icon and the wordmark side by side; they are split so the brand words can sit under the
+        # wordmark, next to the icon (design review round 1, item 5)
+        logo = IMG.get("art/header-logo")
+        two = 2 if IMG.two else 1
+        icon, mark = tk.PhotoImage(master=self.root), tk.PhotoImage(master=self.root)
+        icon.tk.call(icon, "copy", logo, "-from", 0, 0, 56 * two, logo.height())
+        mark.tk.call(mark, "copy", logo, "-from", 60 * two, 10 * two, logo.width(), 38 * two)
+        self._logo_parts = (icon, mark)
+        tk.Label(brand, image=icon, background=P.header_band, borderwidth=0).grid(row=0, column=0, rowspan=2, sticky="w")
+        tk.Label(brand, image=mark, background=P.header_band, borderwidth=0).grid(row=0, column=1, sticky="sw",
+                                                                                 padx=(int(8 * k), 0))
+        self._brand_words(brand).grid(row=1, column=1, sticky="nw", padx=(int(8 * k), 0), pady=(int(6 * k), 0))
         cog = ttk.Button(band, image=IMG.get("icons/settings"), style="Icon.TButton", command=self._settings_dialog)
         cog.pack(side="right")
         Tooltip(cog, t("gui.settings.title"))
@@ -398,7 +406,7 @@ class App:
         self.language_picker.pack(side="right", padx=(0, int(12 * k)))
         self.theme_picker = ThemePicker(band, self)
         self.theme_picker.pack(side="right", padx=(0, int(12 * k)))
-        stripe = tk.Canvas(self.root, height=max(4, int(5 * k)), highlightthickness=0, borderwidth=0,
+        stripe = tk.Canvas(self.root, height=max(6, int(6 * k)), highlightthickness=0, borderwidth=0,
                            background=P.header_band)
         stripe.pack(side="top", fill="x")
         self.header_stripe = stripe
@@ -427,6 +435,29 @@ class App:
             self.detail.configure(text=t("gui.theme.after_run"))
             return
         self._apply_theme(name)
+
+    def _brand_words(self, parent) -> tk.Canvas:
+        """CUT · DUB · SUB as on the title screen: VT323 20 px with 3 px between the letters, in the text colour, with a
+        pink and a cyan 5 px square between the words (tk fonts have no letter spacing, so it is drawn)."""
+        k = self.scale
+        font = tkfont.Font(family=theme.TERMINAL_FONT, size=-int(20 * k))
+        gap, dot = int(3 * k), int(5 * k)
+        cyan = "#22e4ff" if P.name == "night" else "#22a6c9"
+        height = font.metrics("linespace")
+        c = tk.Canvas(parent, height=height, highlightthickness=0, borderwidth=0, background=P.header_band)
+        x = 0
+        for i, word in enumerate(("CUT", "DUB", "SUB")):
+            if i:
+                x += int(9 * k)
+                y = height // 2 - dot // 2
+                c.create_rectangle(x, y, x + dot, y + dot, fill=("#ff2e88", cyan)[i - 1], outline="")
+                x += dot + int(12 * k)
+            for ch in word:
+                c.create_text(x, height // 2, text=ch, font=font, fill=P.text, anchor="w")
+                x += font.measure(ch) + gap
+            x -= gap
+        c.configure(width=x)
+        return c
 
     # --- The app's language ----------------------------------------------------------------
 
@@ -504,7 +535,7 @@ class App:
         self.v_dir.grid(row=1, column=0, sticky="ew")
         self._wrap(self.v_name, card, 200)
         self._wrap(self.v_dir, card, 200)
-        self.v_btn = ttk.Button(card, text=t("gui.setup.pick_video"), width=14, command=self._pick_video)
+        self.v_btn = skin.IconButton(card, "choose-video", text=t("gui.setup.pick_video"), command=self._pick_video)
         self.v_btn.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
         ttk.Label(g1, text=t("gui.setup.spoken_language")).grid(row=1, column=0, sticky="w", pady=(14, 0))
         c_lang = ttk.Combobox(g1, textvariable=self.lang, values=[l.name for l in LANGUAGES], state="readonly", width=14)
@@ -527,7 +558,7 @@ class App:
         self.c_subs.grid(row=2, column=1, sticky="w", padx=8, pady=3)
         self.c_subs.bind("<<ComboboxSelected>>", lambda e: self._refresh())
         # Short checkbox labels; what happens otherwise is on a wrapped hint line under each (lined up with the text)
-        indent = int(20 * self.scale)
+        indent = int(30 * self.scale)   # under the label: indicator 16 + gap 12 + the check button's 2 px padding
         self.cb_redo = ttk.Checkbutton(g2, variable=self.redo, command=self._refresh, text=t("gui.setup.redo"))
         self.cb_redo.grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.redo_hint = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
@@ -549,7 +580,7 @@ class App:
         g3 = ttk.Frame(v, padding=(0, 6))
         g3.grid(row=2, column=0, sticky="ew")
         g3.columnconfigure(0, weight=1)
-        self.start_btn = ttk.Button(g3, text=t("gui.setup.start"), style="Accent.TButton", width=16, command=self._start)
+        self.start_btn = skin.IconButton(g3, "play", text=t("gui.setup.start"), style="Main.Accent.TButton", command=self._start)
         self.start_btn.grid(row=0, column=0, sticky="w", ipady=4)
         hint = ttk.Label(g3, text=t("gui.setup.start_hint"), style="Hint.TLabel", justify="left")
         hint.grid(row=1, column=0, sticky="ew", pady=(8, 0))
@@ -582,19 +613,24 @@ class App:
         self.status = ttk.Label(prog, text="")
         self.status.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
 
-        # One quiet line on a tinted strip: the big "Din tur" is in the Claude card, where the steps are
+        # The "your turn" band (frames/callout): DIN TUR in the pixel font, the sentence, and an arrow to the Claude card
         k = self.scale
-        self.callout = tk.Frame(v, background=P.callout_bg, padx=int(12 * k), pady=int(8 * k))
+        self.callout = ttk.Frame(v, style="Callout.TFrame", padding=(int(16 * k), int(10 * k), int(18 * k), int(12 * k)))
         self.callout.grid(row=5, column=0, sticky="ew", pady=(20, 0))
-        self.callout.columnconfigure(0, weight=1)
+        self.callout.columnconfigure(2, weight=1)
+        tk.Label(self.callout, image=IMG.get("icons/play-selected"), background=P.callout_bg,
+                 borderwidth=0).grid(row=0, column=0, sticky="w", padx=(0, int(6 * k)))
+        tk.Label(self.callout, text=t("gui.work.callout_tag"), background=P.callout_bg, foreground=P.callout_text,
+                 font=(theme.PIXEL_FONT, -int(13 * k)), borderwidth=0, padx=0, pady=0).grid(row=0, column=1, sticky="w")
         hint = tk.Label(self.callout, text=t("gui.work.your_turn_callout"), background=P.callout_bg,
                         foreground=P.callout_text, font="SunValleyBodyStrongFont", justify="left", anchor="w",
                         borderwidth=0, padx=0, pady=0)
-        hint.grid(row=0, column=0, sticky="w")
-        self.callout.bind("<Configure>", lambda e: hint.configure(wraplength=max(150, e.width - int(90 * k))))
-        self.arrow = tk.Canvas(self.callout, width=int(44 * k), height=int(20 * k), highlightthickness=0,
-                               background=P.callout_bg)
-        self.arrow.grid(row=0, column=1, sticky="e", padx=(10, 0))
+        hint.grid(row=0, column=2, sticky="w", padx=(int(12 * k), 0))
+        self.callout.bind("<Configure>", lambda e: hint.configure(wraplength=max(150, e.width - int(260 * k))))
+        self._arrow_img = tk.PhotoImage(master=self.root, file=str(theme.assets_dir() / "ui" / theme.THEMES[P.name]
+                                                                     / "icons" / "arrow-right-selected@2x.png"))
+        self.arrow = tk.Label(self.callout, image=self._arrow_img, background=P.callout_bg, borderwidth=0)
+        self.arrow.grid(row=0, column=3, sticky="e", padx=(10, 0))
         self.callout.grid_remove()
 
         self.detail = ttk.Label(v, text="", style="Hint.TLabel", justify="left")
@@ -603,9 +639,9 @@ class App:
 
         btns = ttk.Frame(v)
         btns.grid(row=7, column=0, sticky="w", pady=(18, 0))
-        self.pause_btn = ttk.Button(btns, text=t("gui.work.pause"), width=10, command=self._toggle_pause)
+        self.pause_btn = skin.IconButton(btns, "pause", text=t("gui.work.pause"), command=self._toggle_pause)
         self.pause_btn.pack(side="left")
-        self.cancel_btn = ttk.Button(btns, text=t("gui.cancel"), width=10, command=self._cancel)
+        self.cancel_btn = skin.IconButton(btns, "cancel", text=t("gui.cancel"), command=self._cancel)
         self.cancel_btn.pack(side="left", padx=10)
         self.pause_hint = ttk.Label(btns, text=t("gui.work.pause_hint"),
                                     style="Hint.TLabel")
@@ -635,10 +671,10 @@ class App:
         self._wrap(self.d_file, self.d_main)
         acts = ttk.Frame(self.d_main)
         acts.grid(row=1, column=0, sticky="w", pady=(10, 0))
-        self.d_play = ttk.Button(acts, text=t("gui.done.play"), style="Accent.TButton", width=14,
+        self.d_play = skin.IconButton(acts, "play", text=t("gui.done.play"), style="Main.Accent.TButton",
                                  command=lambda: self._open(self.d_target))
         self.d_play.pack(side="left")
-        ttk.Button(acts, text=t("gui.show_in_folder"), width=14,
+        skin.IconButton(acts, "show-in-folder", text=t("gui.show_in_folder"),
                    command=lambda: self._show_in_folder(self.d_target)).pack(side="left", padx=10)
 
         g = skin.Card(v, text=t("gui.done.group_files"), padding=12)
@@ -655,7 +691,7 @@ class App:
         nxt.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(14, 0))
         self.d_again = ttk.Button(nxt, text=t("gui.done.try_again"), style="Accent.TButton", command=self._start)
         self.d_same = ttk.Button(nxt, text=t("gui.done.same_video"), command=self._same_video)
-        self.d_new = ttk.Button(nxt, text=t("gui.done.new_video"), command=self._new_video)
+        self.d_new = skin.IconButton(nxt, "plus", text=t("gui.done.new_video"), command=self._new_video)
         self.d_log = ttk.Button(nxt, text=t("gui.open_log"), command=lambda: self._open(log_file()))
         self.d_next_hint = ttk.Label(nxt, text="", style="Hint.TLabel", justify="left")
         self._wrap(self.d_next_hint, nxt)
@@ -1028,16 +1064,29 @@ class App:
         self.files.delete(0, "end")
         names, self.claude_at = self._step_names(job)
         for child in self.steps_box.winfo_children():
-            child.destroy()
+            if child is not self.steps_box.title:   # the card's own title
+                child.destroy()
         self.step_rows = []
+        # A level map: the steps 40 px apart, joined by a dotted line between their icons (design review round 1,
+        # items 15-16); the level numbers in a fixed 34 px column, centred on the 24 px icon
+        k = self.scale
+        self.steps_box.columnconfigure(1, minsize=int(34 * k))
+        icon_w = IMG.get("icons/step-pending").width()
         for i, name in enumerate(names):
+            if i:
+                link = tk.Canvas(self.steps_box, width=icon_w, height=int(16 * k), highlightthickness=0,
+                                 borderwidth=0, background=P.card)
+                link.grid(row=2 * i - 1, column=0)
+                link.create_line(icon_w // 2, 0, icon_w // 2, int(16 * k), fill=P.step_pending_icon,
+                                 width=max(2, int(2 * k)), dash=(4, 4))
             icon = tk.Label(self.steps_box, background=P.card, borderwidth=0)
-            icon.grid(row=i, column=0, sticky="w", pady=4)
+            icon.grid(row=2 * i, column=0, sticky="w")
             tk.Label(self.steps_box, text=f"1-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0,
-                     font=(theme.PIXEL_FONT, 8)).grid(row=i, column=1, sticky="w", padx=(10, 0))
+                     font=(theme.PIXEL_FONT, -int(10 * k)), pady=0).grid(row=2 * i, column=1, sticky="w",
+                                                                          padx=(int(10 * k), 0), pady=(int(2 * k), 0))
             text = tk.Label(self.steps_box, text=name, foreground=P.step_pending, background=P.card,
                             font="SunValleyBodyFont", anchor="w", padx=0, pady=0, borderwidth=0)
-            text.grid(row=i, column=2, sticky="w", padx=(10, 0))
+            text.grid(row=2 * i, column=2, sticky="w", padx=(int(6 * k), 0))
             row = {"icon": icon, "text": text, "state": "todo"}
             self.step_rows.append(row)
             self._draw_icon(row)
@@ -1049,7 +1098,8 @@ class App:
         self.status.configure(text=t("gui.work.starting"))
         self.detail.configure(text="")
         self.callout.grid_remove()
-        self.pause_btn.configure(state="normal", text=t("gui.work.pause"))
+        self.pause_btn.icon = "pause"
+        self.pause_btn.configure(state="normal", text=t("gui.work.pause"), style="TButton")
         self.cancel_btn.configure(state="normal")
         self._running = True
         self._user_turn(False)   # the hint may be hidden from a run stopped during the user's turn
@@ -1154,15 +1204,9 @@ class App:
         self.root.after(40, self._animate)
 
     def _draw_arrow(self):
-        import math
-        c, k = self.arrow, self.scale
-        c.delete("all")
-        w, h = int(c.cget("width")), int(c.cget("height"))
-        dx = (math.sin(self._spin * 0.25) + 1) * 3 * k
-        y = h / 2
-        c.create_line(3 * k + dx, y, w - 10 * k + dx, y, fill=P.callout_text, width=2.5 * k, capstyle="round")
-        c.create_line(w - 17 * k + dx, y - 6 * k, w - 9 * k + dx, y, w - 17 * k + dx, y + 6 * k,
-                      fill=P.callout_text, width=2.5 * k, capstyle="round", joinstyle="round")
+        """The arrow in the band nudges towards the Claude card (about every 440 ms)."""
+        k = self.scale
+        self.arrow.grid_configure(padx=(int((10 + (4 if (self._spin // 11) % 2 else 0)) * k), 0))
 
     def _busy(self) -> bool:
         return self._running
@@ -1182,10 +1226,12 @@ class App:
             return
         if r.paused:
             r.resume()
+            self.pause_btn.icon = "pause"
             self.pause_btn.configure(text=t("gui.work.pause"))
             self.status.configure(text=self._status_before_pause)
         else:
             r.pause()
+            self.pause_btn.icon = "play"
             self.pause_btn.configure(text=t("gui.work.resume"), style="Accent.TButton")
             self._status_before_pause = self.status.cget("text")
             self.status.configure(text=t("gui.work.paused", resume=t("gui.work.resume")))
@@ -1429,7 +1475,6 @@ class App:
                                                 on_finish=self._translation_finished, mcp_job=self.mcp_job,
                                                 cut=cut, duration=duration)
                     self._tdialog.grid(row=0, column=0, sticky="nsew")
-                    skin.skin_cards(self.main)
                     self._user_turn(True)
                     if self.mcp_job:
                         self.status.configure(text=t("gui.work.claude_in_chat"))
@@ -1439,7 +1484,9 @@ class App:
                         self.status.configure(text=t("gui.work.waiting_for_you"))
                         self.callout.grid()
                         self._pulsing = True
+                        self.claude_box.configure(style="TurnA.TLabelframe")
                         self._call_attention()
+                    skin.skin_cards(self.main)   # after the your-turn style, so the panel takes that card's colour
                 elif kind in ("done", "cancelled", "error", "skipped"):
                     self._close_claude_panel()
                     self._close_review()
@@ -1730,16 +1777,23 @@ class App:
             pass
 
 
-class SegmentBar(tk.Canvas):
-    """The arcade progress bar: 20 segments in a framed trough, the last filled one highlighted. Takes the
-    Progressbar calls the app makes: configure(value=0..1000) and cget("value")."""
+class SegmentBar(ttk.Frame):
+    """The arcade progress bar: 20 segments, 22 px tall with 3 px between them, in the progress-trough frame with 4 px
+    inside it (design review round 1, item 17), the last filled one highlighted. Takes the Progressbar calls the app
+    makes: configure(value=0..1000) and cget("value")."""
     SEGMENTS = 20
 
     def __init__(self, parent, scale: float):
-        self.k = max(1, round(scale))
-        super().__init__(parent, height=22 * self.k, highlightthickness=0, borderwidth=0, background=P.window)
+        self.k = 2 if IMG.two else 1
+        bl, bt, br, bb = P.nine_slice("progress-trough", IMG.two)
+        pad = 4 * self.k
+        super().__init__(parent, style="Trough.TFrame", padding=(bl // 2 + pad, bt // 2 + pad, br // 2 + pad,
+                                                                 bb // 2 + pad))
+        self.canvas = tk.Canvas(self, height=22 * self.k, highlightthickness=0, borderwidth=0,
+                                background=P.progress_trough)
+        self.canvas.pack(fill="x")
         self._value = 0.0
-        self.bind("<Configure>", lambda e: self._draw())
+        self.canvas.bind("<Configure>", lambda e: self._draw())
 
     def configure(self, cnf=None, **kw):
         if "value" in kw:
@@ -1753,18 +1807,18 @@ class SegmentBar(tk.Canvas):
         return self._value if key == "value" else super().cget(key)
 
     def _draw(self):
-        self.delete("all")
-        k, w, h = self.k, self.winfo_width(), int(super().cget("height"))
+        c = self.canvas
+        c.delete("all")
+        k, w, h = self.k, c.winfo_width(), int(c.cget("height"))
         if w < 10:
             return
-        self.create_rectangle(0, 0, w - 1, h - 1, fill=P.progress_trough, outline=P.progress_border, width=2 * k)
-        pad, gap = 4 * k, 3 * k
-        seg = (w - 2 * pad - gap * (self.SEGMENTS - 1)) / self.SEGMENTS
+        gap = 3 * k
+        seg = (w - gap * (self.SEGMENTS - 1)) / self.SEGMENTS
         filled = int(round(self._value / 1000 * self.SEGMENTS))
         for i in range(filled):
-            x0 = pad + i * (seg + gap)
+            x0 = i * (seg + gap)
             colour = P.progress_fill_current if i == filled - 1 and filled < self.SEGMENTS else P.progress_fill
-            self.create_rectangle(x0, pad, x0 + seg, h - pad, fill=colour, outline="")
+            c.create_rectangle(x0, 0, x0 + seg, h, fill=colour, outline="")
 
 
 class SkillGuide(tk.Toplevel):
@@ -2069,8 +2123,12 @@ class ClaudePanel(ttk.Frame):
                ([t("gui.claude.task_translate", langs=join_and([x.singular for x in self.targets]))]
                 if self.targets else []) + \
                ([t("gui.claude.task_cut")] if cut else [])
-        self.head = ttk.Label(self, text=t("gui.claude.your_turn"), style="Big.TLabel", foreground=P.your_turn_title)
-        self.head.grid(row=0, column=0, sticky="w")
+        top = ttk.Frame(self)
+        top.grid(row=0, column=0, sticky="w")
+        self.head = ttk.Label(top, text=t("gui.claude.your_turn"), style="Big.TLabel", foreground=P.your_turn_title)
+        self.head.pack(side="left", anchor="s")
+        ttk.Label(top, text="PLAYER 1", style="Hint.TLabel", font=(theme.PIXEL_FONT, -int(10 * app.scale))).pack(
+            side="left", anchor="s", padx=(int(16 * app.scale), 0), pady=(0, int(4 * app.scale)))
         intro = ttk.Label(self, justify="left", text=t("gui.claude.intro", tasks=join_and(todo)))
         intro.grid(row=1, column=0, sticky="ew", pady=(2, 12))
         app._wrap(intro, self, 10)
@@ -2093,6 +2151,7 @@ class ClaudePanel(ttk.Frame):
             self._build_mcp_mode()
         else:
             self._build_file_mode()
+            self._spin_fsteps()
         self.after(700, self._tick)
 
     # --- Claude does it in the chat (job from the MCP server) ----------------------------------
@@ -2139,6 +2198,8 @@ class ClaudePanel(ttk.Frame):
         self.app.callout.grid()
         self.app._pulsing = True
         self._build_file_mode()
+        self._spin_fsteps()
+        skin.skin_cards(self.app.main)
 
     def _mcp_tick(self):
         d = jobs.root() / self.mcp_job
@@ -2184,7 +2245,7 @@ class ClaudePanel(ttk.Frame):
             row = ttk.Frame(b, padding=(0, 6))
             row.grid(row=i, column=0, sticky="ew")
             row.columnconfigure(1, weight=1)
-            icon = tk.Canvas(row, width=int(26 * k), height=int(26 * k), highlightthickness=0, background=P.card)
+            icon = tk.Label(row, image=IMG.get("icons/step-pending"), borderwidth=0, background=P.card)
             icon.grid(row=0, column=0, rowspan=2, sticky="nw", pady=(2, 0))
             head = ttk.Label(row, text=f"{title}", font="SunValleyBodyStrongFont")
             head.grid(row=0, column=1, sticky="w", padx=(10, 0))
@@ -2194,12 +2255,12 @@ class ClaudePanel(ttk.Frame):
             self.fsteps.append({"icon": icon, "title": head, "sub": s, "row": row, "state": "todo"})
         acts = ttk.Frame(self.fsteps[0]["row"])
         acts.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(8, 0))
-        self.copy_file_btn = ttk.Button(acts, text=t("gui.claude.copy_file"), command=self._copy_file, width=12)
+        self.copy_file_btn = skin.IconButton(acts, "copy", text=t("gui.claude.copy_file"), command=self._copy_file)
         self.copy_file_btn.pack(side="left")
-        ttk.Button(acts, text=t("gui.show_in_folder"), command=lambda: self.app._show_in_folder(self.work_file)).pack(side="left", padx=8)
+        skin.IconButton(acts, "show-in-folder", text=t("gui.show_in_folder"), command=lambda: self.app._show_in_folder(self.work_file)).pack(side="left", padx=8)
         acts3 = ttk.Frame(self.fsteps[2]["row"])
         acts3.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(8, 0))
-        ttk.Button(acts3, text=t("gui.claude.pick_answer"), command=self._pick_answer).pack(side="left")
+        skin.IconButton(acts3, "choose-video", text=t("gui.claude.pick_answer"), command=self._pick_answer).pack(side="left")
         # What the program is doing about step 3 right now (waiting, found a file, checking it)
         self.wait_lbl = ttk.Label(self.fsteps[2]["row"], text="", style="Hint.TLabel", justify="left")
         self.wait_lbl.grid(row=3, column=1, sticky="ew", padx=(10, 0), pady=(6, 0))
@@ -2221,29 +2282,24 @@ class ClaudePanel(ttk.Frame):
                 st["state"] = "failed"
             st["title"].configure(foreground=P.success if st["state"] == "done" else
                                   P.error if st["state"] == "failed" else
-                                  P.step_active if st["state"] == "active" else P.hint)
+                                  P.heading if st["state"] == "active" else P.hint)
             self._draw_fstep(st)
         self.copy_file_btn.configure(style="Accent.TButton" if active == 0 else "TButton")
 
-    def _draw_fstep(self, st: dict, angle: float = 0.0):
-        c, k = st["icon"], self.app.scale
-        c.delete("all")
-        s = int(c.cget("width"))
-        p = 3 * k
-        n = str(self.fsteps.index(st) + 1)
-        if st["state"] == "done":
-            c.create_oval(p, p, s - p, s - p, outline=P.success, fill=P.success)
-            c.create_line(s * 0.30, s * 0.52, s * 0.45, s * 0.66, s * 0.71, s * 0.37,
-                          fill="white", width=2 * k, capstyle="round", joinstyle="round")
-        elif st["state"] == "failed":
-            c.create_oval(p, p, s - p, s - p, outline=P.error, fill=P.error)
-            c.create_text(s / 2, s / 2, text="!", fill="white", font="SunValleyBodyStrongFont")
-        elif st["state"] == "active":
-            c.create_oval(p, p, s - p, s - p, outline=P.step_active, fill=P.step_active)
-            c.create_text(s / 2, s / 2, text=n, fill="white", font="SunValleyBodyStrongFont")
-        else:
-            c.create_oval(p, p, s - p, s - p, outline="#c4c4c4", width=1.5 * k)
-            c.create_text(s / 2, s / 2, text=n, fill=P.hint, font="SunValleyCaptionFont")
+    def _draw_fstep(self, st: dict, frame: int = 0):
+        """The sub-step's pixel icon, as in the step list: done, failed, the current one (animated) or not yet."""
+        name = {"done": "step-done", "failed": "step-error", "active": f"step-active-{frame % 6}"}.get(
+            st["state"], "step-pending")
+        st["icon"].configure(image=IMG.get(f"icons/{name}"))
+
+    def _spin_fsteps(self, frame: int = 0):
+        """About 120 ms a frame on the current sub-step, while the panel lives."""
+        if not self.winfo_exists():
+            return
+        for st in getattr(self, "fsteps", []):
+            if st["state"] == "active":
+                self._draw_fstep(st, frame)
+        self.after(120, lambda: self._spin_fsteps(frame + 1))
 
     def _copy_file(self):
         if copy_file_to_clipboard(self.work_file):

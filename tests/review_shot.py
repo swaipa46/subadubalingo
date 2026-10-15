@@ -1,10 +1,10 @@
 """The cut review on its own, for layout work: opens it for VIDEO with its "<navn> - danske undertekster.srt", the
 silent pauses and a few made-up Claude suggestions, and saves screenshots.
 
-  python tests/review_shot.py VIDEO OUTDIR [--wait]     (--wait: leave the window open to try it by hand)
+  python tests/review_shot.py VIDEO OUTDIR [--theme light|night] [--wait]   (--wait: leave the window open to try it
+  by hand)
 """
 import ctypes
-import ctypes.wintypes as wt
 import subprocess
 import sys
 import tempfile
@@ -14,8 +14,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 ctypes.windll.shcore.SetProcessDpiAwareness(1)
 import tkinter as tk
-
-from PIL import ImageGrab
 
 from subadubalingo import cutting, gui
 from subadubalingo.common import FFMPEG, LANG_BY_CODE, find_srt, read_srt
@@ -58,9 +56,7 @@ def take(name):
     root.attributes("-topmost", True)
     pump(0.8)
     hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
-    r = wt.RECT()
-    ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
-    _screen.grab((r.left, r.top, r.right, r.bottom)).save(out / name)
+    _screen.grab_window(hwnd).save(out / name)   # PrintWindow: also works while the screen is locked
     root.attributes("-topmost", False)
     print("saved", out / name)
 
