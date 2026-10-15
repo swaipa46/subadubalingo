@@ -1,3 +1,5 @@
+![SubaDubaLingo: CUT · DUB · SUB](assets/branding/title-screen.png)
+
 # SubaDubaLingo (tidligere Videosprog og Video undertekster)
 
 > **2.0.0 (15.10.2026): nyt navn og ét domænesprog.** Appen hedder SubaDubaLingo (*sub*titles, *dub*, *lingo*).
