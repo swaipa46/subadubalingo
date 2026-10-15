@@ -1,0 +1,11 @@
+.venv/
+bin/
+vendor-dl/
+build/
+dist/
+app/modeller/
+*.spec
+__pycache__/
+dist-new/
+dist-*/
+docs/ux-*/

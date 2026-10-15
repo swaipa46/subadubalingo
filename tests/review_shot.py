@@ -1,0 +1,74 @@
+"""The cut review on its own, for layout work: opens it for VIDEO with its "<navn> - danske undertekster.srt", the
+silent pauses and a few made-up Claude suggestions, and saves screenshots.
+
+  python tests/review_shot.py VIDEO OUTDIR [--wait]     (--wait: leave the window open to try it by hand)
+"""
+import ctypes
+import ctypes.wintypes as wt
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+ctypes.windll.shcore.SetProcessDpiAwareness(1)
+import tkinter as tk
+
+from PIL import ImageGrab
+
+from vu import cutting, gui
+from vu.common import FFMPEG, LANG_BY_NAME, read_srt, srt_name
+
+video, out = Path(sys.argv[1]), Path(sys.argv[2])
+out.mkdir(parents=True, exist_ok=True)
+cues = read_srt(srt_name(video, LANG_BY_NAME["Dansk"]))
+wav = Path(tempfile.mkdtemp()) / "a.wav"
+subprocess.run([str(FFMPEG()), "-v", "error", "-y", "-i", str(video), "-ac", "1", "-ar", "16000", str(wav)], check=True)
+env = cutting.envelope(wav)
+dur = int(len(env) * cutting.ENVELOPE_MS)
+claude_cuts, _ = cutting.parse_cut_lines(["1-3 start Folk kommer ind og tester lyd",
+                                          f"{len(cues) // 2} offtopic Snak om vejret",
+                                          f"{len(cues) // 2 + 6}-{len(cues) // 2 + 7} uklart Utydeligt, flere taler i munden på hinanden"],
+                                         cues, dur)
+sugg = cutting.combine_suggestions(cutting.find_pauses(cues, dur, env, min_ms=5000), claude_cuts)
+
+root = tk.Tk()
+app = gui.App(root)
+app.step_rows = []
+app._start_review(video, dur, cues, sugg, env)
+
+
+def pump(sec):
+    t = time.time()
+    while time.time() - t < sec:
+        root.update()
+        time.sleep(0.03)
+
+
+def take(name):
+    root.lift()
+    root.attributes("-topmost", True)
+    pump(0.8)
+    hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
+    r = wt.RECT()
+    ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
+    ImageGrab.grab(bbox=(r.left, r.top, r.right, r.bottom), all_screens=True).save(out / name)
+    root.attributes("-topmost", False)
+    print("saved", out / name)
+
+
+pump(1.5)
+take("r1.png")
+rv = app._review
+rv._select(rv.cuts[1])
+pump(3)
+take("r2.png")
+rv._toggle(rv.cuts[0])
+rv._zoom(0.5)
+pump(2)
+take("r3.png")
+if "--wait" in sys.argv:
+    root.mainloop()
+else:
+    root.destroy()

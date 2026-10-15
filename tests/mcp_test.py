@@ -1,0 +1,87 @@
+"""End-to-end test of the MCP server, acting as Claude: start a job, follow it with 'vent', translate through
+hent_tekst/gem_tekst (fake translation: prefix), follow to done.
+With --cut: also suggest cuts (foreslaa_klip), and when the user reviews them (review_cuts), keep the first cut
+and add one by time through godkend_klip, as if the user had said so in the chat.
+  python tests/mcp_test.py VIDEO [--speech svensk] [--subs norske] [--bad] [--cut] [--exe "dist/Videosprog/Videosprog.exe"]"""
+import json
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+root = Path(__file__).resolve().parent.parent
+video = sys.argv[1]
+
+
+def arg(name, default):
+    return sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
+
+
+cmd = [arg("--exe", ""), "--mcp"] if "--exe" in sys.argv else [sys.executable, str(root / "app" / "main.py"), "--mcp"]
+p = subprocess.Popen(cmd, stdin=subprocess.PIPE,
+                     stdout=subprocess.PIPE, cwd=str(root))
+rid = 0
+
+
+def call(method, params=None):
+    global rid
+    rid += 1
+    p.stdin.write((json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}}) + "\n").encode())
+    p.stdin.flush()
+    while True:
+        msg = json.loads(p.stdout.readline())
+        if msg.get("id") == rid:
+            return msg
+
+
+def tool(name, **args):
+    t0 = time.time()
+    r = call("tools/call", {"name": name, "arguments": args})["result"]
+    text = r["content"][0]["text"]
+    print(f"--- {name} ({time.time() - t0:.0f}s){' ERROR' if r.get('isError') else ''}\n{text[:600]}")
+    return text
+
+
+print(call("initialize", {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test"}})["result"]["serverInfo"])
+p.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+p.stdin.flush()
+print([t["name"] for t in call("tools/list")["result"]["tools"]])
+
+text = tool("start_video", video=video, tale=arg("--speech", "svensk"), undertekster=arg("--subs", "norske"),
+            talesprog="dansk", lyt_igen=True, klip="--cut" in sys.argv)
+job = re.search(r"Job (\S+):", text).group(1)
+for _ in range(200):
+    text = tool("vent", job_id=job)
+    if "Claudes tur" in text or "færdig" in text.split("\n")[0] or "fejl" in text:
+        break
+
+if "Claudes tur" in text:
+    first = tool("hent_tekst", job_id=job, fra=1, antal=150, **({} if "--no-skill" in sys.argv else {"skill": 3}))
+    srt = first.split("\n\n", 1)[1]
+    srt = srt.split("\n\nNæste:")[0]
+    codes = re.findall(r"aflever (?:den )?som '(\w\w)'", first)
+    print("codes:", codes)
+    for i, code in enumerate(codes):
+        if "--bad" in sys.argv and i == 0:
+            bad = re.sub(r"00:00:0(\d)", r"00:00:1\1", srt, count=1)
+            tool("gem_tekst", job_id=job, sprog=code, srt=bad)
+        out = re.sub(r"(-->[^\n]*\n)", lambda m: m.group(1) + ("" if i == 0 else f"{code.upper()}: "), srt)
+        tool("gem_tekst", job_id=job, sprog=code, srt=out, ordliste="Testingen => Testing" if i == 0 else "")
+    if "--cut" in sys.argv:
+        n = len(re.findall(r"-->", srt))
+        tool("foreslaa_klip", job_id=job, klip=f"1 start Folk kommer ind\n{max(1, n // 2)} offtopic Snak\nvrøvl")
+        tool("foreslaa_klip", job_id=job, klip="", faerdig=True)
+        for _ in range(20):
+            text = tool("vent", job_id=job)
+            if "gennemser" in text.split("\n")[0] or "fejl" in text:
+                break
+        tool("godkend_klip", job_id=job, behold=[1], tilfoej="0:05-0:07 upassende Navn nævnt", vent_paa_brugeren=True)
+        tool("godkend_klip", job_id=job)
+    for _ in range(100):
+        text = tool("vent", job_id=job)
+        if "færdig" in text.split("\n")[0] or "fejl" in text:
+            break
+tool("status")
+p.stdin.close()
+p.wait(timeout=10)

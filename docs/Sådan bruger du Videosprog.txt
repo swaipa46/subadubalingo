@@ -1,0 +1,155 @@
+VIDEOSPROG - undertekster og dubbing af videoer
+===============================================
+
+Programmet laver undertekster til videoer og kan dubbe dem til svensk, norsk,
+dansk eller engelsk med en computerstemme. Det kan også klippe ventetid,
+pauser og udsagn, der ikke skal med, ud af fx en Teams-optagelse. Alt sker på din egen pc. Videoen
+sendes ingen steder hen.
+
+Start programmet ved at dobbeltklikke på "Videosprog.exe" i mappen.
+Første gang tilbyder programmet at installere sig selv; tryk "Installér".
+Tip: højreklik på den og vælg "Fastgør til Start", så er den nem at finde.
+
+
+FØRSTE GANG
+-----------
+Første gang du trykker Start, siger programmet, at der mangler nogle filer
+(ca. 1,1 GB, og 63 MB pr. stemme til dub). Tryk "Hent automatisk".
+Virker det ikke, så klik på linkene, hent filerne og læg dem i modelmappen
+(knappen "Åbn modelmappe").
+
+Læg også Claude-skill'en ind i Claude (én gang). Programmet viser selv
+vinduet "Læg Claude-skill'en ind" med fire trin:
+1. Klik "Gem skill-filen". Den lægges i din Overførsler-mappe.
+2. Åbn Claude, og gå til Customize -> Skills.
+3. Slet den gamle "videosprog", hvis den er der.
+4. Klik "Upload skill", og vælg "videosprog-skill.zip".
+Klik så "Jeg har gjort det". Skill'en lærer Claude reglerne og EG's fagord
+(fx Membercare).
+
+
+SÅDAN LAVER DU EN VIDEO
+-----------------------
+1. Klik "Vælg video..." og vælg videoen.
+2. Vælg hvilket sprog der tales i videoen.
+3. Vælg hvad den nye video skal have:
+     Tale:          Original, eller et sprog den skal dubbes til
+     Undertekster:  Ingen, eller det sprog teksterne skal være på
+   Under valgene står der, hvilken fil du får.
+4. Tryk Start. Du kan arbejde videre med andet imens.
+
+Mens programmet arbejder, viser det trinene, og hvor langt det er nået.
+Når teksten er skrevet, kommer programmet frem, og panelet "Claude" til højre
+lyser op med "Din tur" (se CLAUDE nedenfor). Bagefter laver programmet selv
+resten, og når videoen er klar, står der "Færdig!" med knapper til at afspille
+den, vise den i mappen eller lave en ny.
+
+Eksempler:
+  Tale: Original,  Undertekster: Danske   -> videoen med danske tekster
+  Tale: Original,  Undertekster: Svenske  -> videoen med svenske tekster
+  Tale: Svensk,    Undertekster: Norske   -> svensk dub med norske tekster
+
+De nye filer kommer i samme mappe som videoen. Originalen bliver aldrig ændret.
+Teksten bliver gemt, så næste video fra samme optagelse (fx et andet sprog)
+går meget hurtigere. Er videoen ændret siden, laves teksten selv forfra.
+
+Det tager tid: på en almindelig bærbar kan det tage et par minutter pr. minut
+video. Programmet viser, hvor lang tid der er tilbage, og giver selv andre
+programmer forrang, så du kan arbejde videre. Bliver pc'en alligevel for
+langsom (fx i et Teams-møde), så tryk "Pause". Så holder programmet helt op
+med at bruge pc'en, og når du trykker "Fortsæt", arbejder det videre, hvor det
+slap. Luk ikke programmet, mens det arbejder - så skal det starte forfra.
+Mens det er din tur (Claude eller klippene), er "Pause" grå: programmet
+venter jo bare på dig.
+
+"Annullér" spørger først, om du vil stoppe. Bagefter står der, om noget
+blev gemt (fx de danske undertekster, så næste gang går hurtigere).
+
+
+CLAUDE
+------
+Claude retter fejlhørte ord (fx produktnavne) og oversætter til de sprog, den
+nye video skal have. Det sker med én fil frem og én fil tilbage:
+1. Klik "Kopiér fil" i Claude-kortet.
+2. Åbn en ny chat i Claude, indsæt (Ctrl+V) og send. (Kan du ikke indsætte
+   filen, så klik "Vis i mappe" og træk filen ind i Claude.)
+3. Claude laver en svarfil ("... - fra Claude.txt"). Klik på den i Claudes svar,
+   og tryk Download.
+4. Programmet finder selv filen i din Overførsler-mappe, tjekker den og
+   fortsætter. Der er intet at gemme eller flytte. Imens står der under
+   trin 3, at programmet venter på svarfilen, og hvor længe.
+
+Er svarfilen ikke i orden (fx hvis Claude ikke blev færdig), står der, hvad du
+skal gøre: klik "Kopiér besked til Claude", indsæt beskeden i samme chat, og
+hent den nye fil. (Den tekniske grund står med lille grå skrift under.) Driller det, kan du bruge "Brug kopiér/indsæt i dele i stedet".
+
+Programmet husker de ord, Claude retter, så de bliver rigtige næste gang.
+Engang imellem kan du give Claude de nye ord: Indstillinger -> "Gem
+Claude-skill...", og upload den gemte fil i Claude som beskrevet under
+FØRSTE GANG (slet den gamle skill først).
+
+
+RETTE FEJL I TEKSTEN
+--------------------
+Computeren hører ikke altid rigtigt, især ved navne og fagord.
+
+Hører den det samme ord forkert hver gang (fx et produktnavn), så skriv det i
+listen over rettelser: Indstillinger -> "Rediger rettelser". Én linje pr. ord,
+fx:   memberkær = Membercare
+Sæt så flueben i "Lyt videoen igennem forfra" og tryk Start.
+
+Enkelte fejl kan du rette direkte i tekstfilen (fx "... - danske undertekster.srt")
+i Notesblok. Ret kun teksten, ikke tallene og tidskoderne. Tryk så Start igen.
+
+Har du travlt, kan du under Indstillinger vælge "Hurtigst". Den er ca. 1,5
+gange hurtigere, men hører lidt flere ord forkert.
+
+
+KLIP VIDEOEN FØRST (fx en Teams-optagelse)
+------------------------------------------
+Sæt flueben i "Klip videoen først", før du trykker Start. Så finder
+programmet selv lange pauser, og Claude foreslår, hvad der skal klippes væk:
+ventetiden før mødet går i gang, afbrydelser, slutningen hvor optagelsen
+trækker ud, og ting der er upassende, off-topic eller ikke til at forstå.
+
+Når Claude er færdig, viser programmet en tidslinje med alle klip i farver.
+Intet bliver klippet, før du har sagt god for det:
+- Klip 1 er valgt fra starten. Klik på et klip for at se billedet lige før
+  og lige efter, og tryk
+  "Se overgangen" for at se, hvordan klippet bliver.
+- Træk i kanterne for at flytte et klip. Træk på et tomt sted for at lave
+  dit eget klip. Dobbeltklik på et klip (eller "Behold i videoen"), hvis
+  det skal blive i videoen alligevel.
+- Rul med musehjulet for at zoome ind (Shift + musehjul ruller til siden).
+- I listen: mellemrum beholder et klip eller klipper det væk igen, og Delete
+  sletter det.
+Tryk "Klip videoen", når du er tilfreds. Du får "... - klippet.mp4", og
+underteksterne og dubben laves til den klippede video. Vil du bare have
+videoen klippet, så vælg Tale: Original og Undertekster: Ingen.
+
+Laver du senere et andet sprog af samme video, genbruges den klippede video.
+Vil du klippe om, så sæt flueben i "Klip videoen forfra".
+
+
+BRUG PROGRAMMET FRA CLAUDE (valgfrit)
+-------------------------------------
+Du kan også bede Claude om det hele i en almindelig chat:
+1. Indstillinger -> "Forbind med Claude" (én gang). Luk Claude helt
+   (højreklik på Claude-ikonet ved uret -> Quit), og åbn Claude igen.
+2. Skriv fx til Claude:
+     Lav denne video på svensk med norske undertekster:
+     C:\Users\dig\Videos\webinar.mp4
+Claude starter programmet, fortæller hvor langt det er, retter og oversætter
+teksten selv og siger til, når videoen er færdig. Du kan følge med i
+programmet imens. Stopper Claude undervejs, så skriv "fortsæt".
+Skal videoen klippes, så skriv det, fx "Klip ventetiden og pauserne væk og
+lav danske undertekster". Når du ser klippene i programmet, kan du rette dem
+der eller sige det til Claude, fx "behold det ved 14:20".
+Vil du stoppe en video, så skriv "stop videoen" til Claude.
+Har du opdateret programmet, mens Claude var åben, så siger Claude det. Luk
+så Claude helt (Quit, som i trin 1), og åbn Claude igen.
+
+
+HVIS NOGET GÅR GALT
+-------------------
+Under Indstillinger er der en knap "Åbn logfil". Send den til Kasper.
