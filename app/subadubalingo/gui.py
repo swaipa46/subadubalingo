@@ -19,7 +19,7 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import claude, cutting, engine, jobs, textstate
+from . import autoupdate, claude, cutting, engine, jobs, textstate
 from . import i18n, skin, theme
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
@@ -69,6 +69,8 @@ class Settings:
         self.theme = "system"              # Udseende: "system" (follow Windows), "light" (Lys) or "night" (Nat)
         self.ui_language = ""              # Programmets sprog: da, sv, no or en ("" until picked: Windows' language)
         self.last_dir = str(Path.home() / "Videos")
+        self.check_updates = True          # look for a new version on GitHub at start (autoupdate.py)
+        self.update_checked = 0.0          # when it last asked (time.time()); at most once a day
         try:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
             self.__dict__.update(saved)
@@ -335,6 +337,7 @@ class App:
         root.after(150, self._animate)
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._self_check, daemon=True).start()
+        autoupdate.start(self)
         self._skill_guide = None
         self._skill_warning: tuple | None = None
         if "--from-claude" not in sys.argv and self.settings.skill_installed < claude.SKILL_VERSION:
@@ -387,6 +390,7 @@ class App:
         idle = ttk.Label(mid, justify="center", style="Hint.TLabel", text=t("gui.claude.idle"),
                          wraplength=int(360 * k))
         idle.pack()
+        autoupdate.build(self)   # the "new version is ready" band at the bottom, if there is one
 
     def _build_header(self):
         """The header band across the window: logo and CUT · DUB · SUB, then from the right Indstillinger (the cog),
@@ -2239,6 +2243,8 @@ class SettingsDialog(tk.Toplevel):
         foot = ttk.Frame(outer)
         foot.pack(fill="x", pady=(14, 0))
         ttk.Label(foot, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").pack(side="left")
+        self.check_updates = tk.BooleanVar(value=settings.check_updates)
+        ttk.Checkbutton(foot, text=t("autoupdate.setting"), variable=self.check_updates).pack(side="left", padx=(12, 0))
         b = ttk.Frame(foot)
         b.pack(side="right")
         ttk.Button(b, text=t("gui.cancel"), command=self.destroy).pack(side="left", padx=(0, 6))
@@ -2280,6 +2286,7 @@ class SettingsDialog(tk.Toplevel):
     def _save(self):
         self.s.whisper_model, self.s.use_gpu, self.s.keep_original_audio = self.model.get(), self.gpu.get(), self.keep.get()
         self.s.voice_mode = self.voice_mode.get()
+        self.s.check_updates = self.check_updates.get()
         self.s.save()
         look, code = self.look.get(), self.ui_language.get()
         self.destroy()

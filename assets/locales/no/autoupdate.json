@@ -1,0 +1,11 @@
+{
+ "autoupdate.tag": "LEVEL UP",
+ "autoupdate.ready": "Ny versjon {version} er klar · Start på nytt for å oppdatere",
+ "autoupdate.ready_busy": "Ny versjon {version} er klar · Du kan starte på nytt når videoen er ferdig",
+ "autoupdate.restart": "Start på nytt nå",
+ "autoupdate.later": "Senere",
+ "autoupdate.failed": "Oppdateringen kunne ikke fullføres: {error}",
+ "autoupdate.updated": "Oppdatert fra {old} til versjon {version}",
+ "autoupdate.ok": "OK",
+ "autoupdate.setting": "Søk etter oppdateringer"
+}

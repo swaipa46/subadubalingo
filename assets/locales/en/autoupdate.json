@@ -1,0 +1,11 @@
+{
+ "autoupdate.tag": "LEVEL UP",
+ "autoupdate.ready": "New version {version} is ready · Restart to update",
+ "autoupdate.ready_busy": "New version {version} is ready · You can restart when the video is done",
+ "autoupdate.restart": "Restart now",
+ "autoupdate.later": "Later",
+ "autoupdate.failed": "The update could not be completed: {error}",
+ "autoupdate.updated": "Updated from {old} to version {version}",
+ "autoupdate.ok": "OK",
+ "autoupdate.setting": "Check for updates"
+}
