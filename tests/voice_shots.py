@@ -46,11 +46,20 @@ def pump(win, sec):
         time.sleep(0.03)
 
 
-def shot(win, name):
-    pump(win, 0.6)
+def shot(win, name, settle=0.6):
+    pump(win, settle)
     hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
     _screen.grab_window(hwnd).save(out / f"voice-{name}.png")
     print("saved", out / f"voice-{name}.png")
+
+
+def until_part(win, btn, part):
+    """Pump until part of the sample has played (a loaded machine makes Tk slow, so not by a fixed time)."""
+    b = btn.bubble
+    while btn.state_name == "playing" and time.monotonic() - b._start < part * b._total:
+        win.update()
+        time.sleep(0.02)
+    assert btn.state_name == "playing", "the sample ended before the shot"
 
 
 root = tk.Tk()
@@ -73,6 +82,7 @@ shot(root, "setup")
 # One real click: only the Swedish voices on this machine are installed, so sample lisa and alma (the dub's own
 # voices), spoken by Piper into the temporary data folder
 lisa, alma = vp.SampleVoice("sv_SE-lisa-medium"), vp.SampleVoice("sv_SE-alma-medium")
+real_sample_voices = vp.sample_voices
 if engine.find_model("sv_SE-lisa-medium.onnx") and engine.find_model("sv_SE-alma-medium.onnx"):
     vp.sample_voices = lambda lang, mode: [lisa, alma]
     app.voice_btn.invoke()
@@ -82,11 +92,14 @@ if engine.find_model("sv_SE-lisa-medium.onnx") and engine.find_model("sv_SE-alma
         pump(root, 0.1)
     assert app.voice_btn.state_name == "playing" and played and played[0].name.startswith("pair-"), played
     print(f"sample made in {time.time() - t0:.1f} s: {played[0].name} ({vp.wav_seconds(played[0]):.1f} s)")
+    assert app.voice_btn.bubble.winfo_manager(), "the bubble shows while the sample plays"
+    until_part(root, app.voice_btn, 0.4)
+    shot(root, "setup-playing", 0.1)
 else:
-    app.voice_btn._show("playing")
-shot(root, "setup-playing")
-app.voice_btn.invoke()          # second click stops
-assert app.voice_btn.state_name == "idle"
+    print("no Swedish voices installed: no playing shots")
+if app.voice_btn.state_name == "playing":
+    app.voice_btn.invoke()      # second click stops
+assert app.voice_btn.state_name == "idle" and not app.voice_btn.bubble.winfo_manager()
 # A change of speech language back to the original hides the button
 app.speech.set(app._speech_items(app._lang())[0][1])
 app._refresh()
@@ -94,16 +107,25 @@ assert not app.voice_btn.winfo_manager()
 app.speech.set(gui.LANG_BY_CODE["sv"].name)
 app._refresh()
 
+vp.sample_voices = real_sample_voices
 dlg = gui.SettingsDialog(root, app.settings, on_theme=app.set_theme, on_language=app.set_language,
-                         voice_lang=app._preview_lang, get_models=app._get_voice_models)
+                         get_models=app._get_voice_models)
 area = _screen.other_work_area()
 if area:
     dlg.geometry(f"+{area[0] + 60}+{area[1] + 60}")
 shot(dlg, "settings")
-dlg.voice_btn._show("playing")
-shot(dlg, "settings-playing")
-dlg.voice_mode.set("one")       # another voice mode stops the sample
-assert dlg.voice_btn.state_name == "idle"
+vp.sample_voices = real_sample_voices          # the real voices in the rows' texts; the cached sample plays
+vp.needed_files = lambda voices: []
+vp.make_sample = lambda runner, lang, mode: played[0]
+sv_btn = dlg.voice_rows[[l.code for l in gui.LANGUAGES].index("sv")]
+if played:
+    sv_btn.invoke()             # from the cache now: plays at once
+    pump(dlg, 0.3)
+    assert sv_btn.state_name == "playing" and sv_btn.bubble.winfo_manager()
+    until_part(dlg, sv_btn, 0.5)
+    shot(dlg, "settings-playing", 0.1)
+    dlg.voice_mode.set("one")   # another voice mode stops the sample
+    assert sv_btn.state_name == "idle" and not sv_btn.bubble.winfo_manager()
 dlg.destroy()
 root.destroy()
 shutil.rmtree(tmp, ignore_errors=True)

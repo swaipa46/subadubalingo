@@ -1,10 +1,13 @@
 {
- "voice.sample": "Hej! Så här låter jag när jag dubbar din video på svenska.",
- "voice.listen": "Lyssna på rösten på {singular}",
- "voice.listen_none": "Välj nytt tal för att lyssna på rösten",
+ "voice.sample": "Hej! Så här låter jag på svenska.",
+ "voice.listen": "Hör rösten · {singular}, {voices}",
  "voice.stop": "Stoppa",
- "voice.title": "Lyssna på rösten",
+ "voice.title": "Hör rösten",
+ "voice.hint_before": "Tryck på",
+ "voice.hint_after": "för att höra en röst läsa en provmening.",
+ "voice.male": "man",
+ "voice.female": "kvinna",
+ "voice.and": "{a} och {b}",
  "voice.failed": "Provet kunde inte göras. Se loggen (Inställningar -> Öppna loggfil).",
- "voice.missing": "Rösten är inte hämtad än.",
- "voice.listen_short": "Lyssna"
+ "voice.missing": "Rösten är inte hämtad än."
 }

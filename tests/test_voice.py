@@ -15,6 +15,7 @@ import numpy as np
 
 from subadubalingo import common, engine
 from subadubalingo.common import LANG_BY_CODE, Runner
+from subadubalingo.i18n import t
 
 tmp = Path(tempfile.mkdtemp(prefix="sdl-voice-"))
 common._DATA_DIR = tmp / "data"          # never the real ~/.subadubalingo
@@ -48,6 +49,14 @@ for c in ("da", "sv", "no", "en"):     # the same keys in all four locale files
                           .read_text(encoding="utf-8")))
     assert keys == set(json.loads((Path(__file__).resolve().parent.parent / "assets" / "locales" / "da" /
                                    "voice.json").read_text(encoding="utf-8"))), c
+
+# --- What the rows in Indstillinger and the tooltip say ---------------------------------------------------------
+from subadubalingo import i18n  # noqa: E402
+assert vp.voice_name("sv_SE-lisa-medium") == "lisa" and vp.voice_name("odd") == "odd"
+assert vp.voices_text(sv, "one") == "nst"
+assert vp.voices_text(sv, "gender") == t("voice.and", a=f"nst ({t('voice.male')})", b=f"lisa ({t('voice.female')})")
+assert vp.voices_text(da, "gender") == "talesyntese"
+assert vp.fmt_time(0) == "0:00" and vp.fmt_time(4.9) == "0:04" and vp.fmt_time(65) == "1:05"
 
 # --- Cache key ------------------------------------------------------------------------------------------------
 k = vp.cache_key(V("sv_SE-nst-medium"), "Hej", None, 100)
@@ -139,6 +148,10 @@ try:
     raise AssertionError("no model, no sample")
 except engine.ToolError:
     pass
+
+# The bubble's level bars: loudness of 12 parts, the loudest 1.0
+lv = vp.levels(pair)
+assert len(lv) == 12 and max(lv) == 1.0 and min(lv) < 0.2, lv          # the gap between the voices is silent
 
 # join resamples a voice at another rate
 a, b = tmp / "a.wav", tmp / "b.wav"

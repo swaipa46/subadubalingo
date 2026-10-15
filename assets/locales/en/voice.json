@@ -1,10 +1,13 @@
 {
- "voice.sample": "Hi! This is how I sound when I dub your video in English.",
- "voice.listen": "Listen to the {singular} voice",
- "voice.listen_none": "Choose a new speech language to listen to the voice",
+ "voice.sample": "Hi! This is how I sound in English.",
+ "voice.listen": "Hear the voice · {singular}, {voices}",
  "voice.stop": "Stop",
- "voice.title": "Listen to the voice",
+ "voice.title": "Hear the voice",
+ "voice.hint_before": "Press",
+ "voice.hint_after": "to hear a voice read a sample sentence.",
+ "voice.male": "man",
+ "voice.female": "woman",
+ "voice.and": "{a} and {b}",
  "voice.failed": "The sample could not be made. See the log (Settings -> Open log file).",
- "voice.missing": "The voice has not been downloaded yet.",
- "voice.listen_short": "Listen"
+ "voice.missing": "The voice has not been downloaded yet."
 }

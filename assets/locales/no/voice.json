@@ -1,10 +1,13 @@
 {
- "voice.sample": "Hei! Slik høres jeg ut når jeg leser inn videoen din på norsk.",
- "voice.listen": "Lytt til stemmen på {singular}",
- "voice.listen_none": "Velg ny tale for å lytte til stemmen",
+ "voice.sample": "Hei! Slik høres jeg ut på norsk.",
+ "voice.listen": "Hør stemmen · {singular}, {voices}",
  "voice.stop": "Stopp",
- "voice.title": "Lytt til stemmen",
+ "voice.title": "Hør stemmen",
+ "voice.hint_before": "Trykk på",
+ "voice.hint_after": "for å høre en stemme lese en prøvesetning.",
+ "voice.male": "mann",
+ "voice.female": "kvinne",
+ "voice.and": "{a} og {b}",
  "voice.failed": "Prøven kunne ikke lages. Se loggen (Innstillinger -> Åpne loggfil).",
- "voice.missing": "Stemmen er ikke lastet ned ennå.",
- "voice.listen_short": "Lytt"
+ "voice.missing": "Stemmen er ikke lastet ned ennå."
 }

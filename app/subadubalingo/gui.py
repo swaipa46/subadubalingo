@@ -557,14 +557,16 @@ class App:
         self.cb_cut = ttk.Checkbutton(g2, variable=self.cut, command=self._cut_changed,
                                       text=t("gui.setup.cut_first"))
         self.cb_cut.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
-        ttk.Label(g2, text=t("gui.setup.speech")).grid(row=1, column=0, sticky="w")
+        self.speech_label = ttk.Label(g2, text=t("gui.setup.speech"))
+        self.speech_label.grid(row=1, column=0, sticky="w")
         speech_row = ttk.Frame(g2)
         speech_row.grid(row=1, column=1, sticky="w", padx=8, pady=3)
         self.c_speech = ttk.Combobox(speech_row, textvariable=self.speech, state="readonly", width=22)
-        self.c_speech.pack(side="left")
-        # Lyt til stemmen: shown only when a dub language is chosen (see _refresh)
+        self.c_speech.grid(row=0, column=0, sticky="w")
+        # Hør stemmen (voice_preview): the play button right of the combo, only with a dub language (_refresh), and
+        # the sample bubble under it while it plays
         self.voice_btn = voice_preview.PreviewButton(speech_row, self._speech_lang, lambda: self.settings.voice_mode,
-                                                     self._get_voice_models)
+                                                     self._get_voice_models, speech_row, self._show_voice_bubble)
         self.c_speech.bind("<<ComboboxSelected>>", lambda e: self._refresh())
         ttk.Label(g2, text=t("gui.setup.subtitles")).grid(row=2, column=0, sticky="w")
         self.c_subs = ttk.Combobox(g2, textvariable=self.subs, state="readonly", width=22,
@@ -913,9 +915,21 @@ class App:
             self.voice_btn.stop()
         self._voice_btn_lang = sp
         if sp and not self.voice_btn.winfo_manager():
-            self.voice_btn.pack(side="left", padx=(int(8 * self.scale), 0))
+            self.voice_btn.grid(row=0, column=1, sticky="w", padx=(int(8 * self.scale), 0))
         elif not sp:
-            self.voice_btn.pack_forget()
+            self.voice_btn.grid_remove()
+
+    def _show_voice_bubble(self, bubble):
+        """The sample bubble under Ny tale while it plays; "Tale:" stays level with the combo meanwhile."""
+        if bubble is None:
+            self.voice_btn.bubble.grid_remove()
+            self.speech_label.grid_configure(sticky="w", pady=0)
+            return
+        bubble.master.columnconfigure(2, weight=1)   # a wide bubble widens this column, not the combo's or the button's
+        bubble.grid(row=1, column=0, columnspan=3, sticky="w", pady=(int(8 * self.scale), int(4 * self.scale)))
+        self.c_speech.update_idletasks()
+        top = 3 + (self.c_speech.winfo_height() - self.speech_label.winfo_reqheight()) // 2
+        self.speech_label.grid_configure(sticky="nw", pady=(max(0, top), 0))
 
     def _get_voice_models(self, missing, parent=None) -> bool:
         """Fetch the voices a sample needs (the same dialog as before a run)."""
@@ -1973,11 +1987,7 @@ class App:
 
     def _settings_dialog(self):
         SettingsDialog(self.root, self.settings, on_theme=self.set_theme, on_language=self.set_language,
-                       voice_lang=self._preview_lang, get_models=self._get_voice_models)
-
-    def _preview_lang(self) -> Language:
-        """The language Indstillinger's play button samples: the chosen dub language, else the app's language."""
-        return self._speech_lang() or LANG_BY_CODE.get(i18n.current()) or LANGUAGES[0]
+                       get_models=self._get_voice_models)
 
     # --- The Claude skill's version ---------------------------------------------------------
 
@@ -2218,7 +2228,7 @@ class SkillGuide(tk.Toplevel):
 class SettingsDialog(tk.Toplevel):
     """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles, then text and voices."""
 
-    def __init__(self, parent, settings: Settings, on_theme=None, on_language=None, voice_lang=None, get_models=None):
+    def __init__(self, parent, settings: Settings, on_theme=None, on_language=None, get_models=None):
         super().__init__(parent)
         self.withdraw()
         self.title(t("gui.settings.title"))
@@ -2251,19 +2261,13 @@ class SettingsDialog(tk.Toplevel):
         dubopts = ttk.Frame(f)
         dubopts.grid(row=5, column=0, sticky="w")
         ttk.Checkbutton(dubopts, text=t("gui.settings.keep_audio"), variable=self.keep).pack(anchor="w")
-        voices_row = ttk.Frame(dubopts)
-        voices_row.pack(anchor="w", fill="x", pady=(8, 0))
-        ttk.Label(voices_row, text=t("gui.settings.voices")).pack(side="left")
-        if voice_lang:   # Lyt til stemmen: the chosen voice mode, in the dub language chosen in the main window
-            self.voice_btn = voice_preview.PreviewButton(
-                voices_row, voice_lang, self.voice_mode.get,
-                (lambda missing: get_models(missing, self)) if get_models else None,
-                label=lambda: t("voice.listen", singular=voice_lang().singular))
-            self.voice_btn.pack(side="left", padx=(8, 0))
-            self.voice_mode.trace_add("write", lambda *a: self.voice_btn.stop())
+        ttk.Label(dubopts, text=t("gui.settings.voices")).pack(anchor="w", pady=(8, 0))
         for value in ("person", "gender", "one"):
             ttk.Radiobutton(dubopts, text=t(f"gui.settings.voice_{value}"), value=value,
                             variable=self.voice_mode).pack(anchor="w", padx=12)
+        # Hør stemmen: one row per dub language with the voices the chosen mode uses and a play button
+        self.voice_rows = voice_preview.settings_rows(dubopts, self.voice_mode,
+                                                      (lambda m: get_models(m, self)) if get_models else None)
         links = ttk.Frame(f)
         links.grid(row=6, column=0, sticky="w", pady=(12, 0))
         ttk.Button(links, text=t("gui.open_model_dir"), command=lambda: self._open(model_dirs()[0])).pack(side="left")
