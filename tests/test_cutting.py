@@ -24,8 +24,12 @@ DUR = 180_000
 
 cuts, bad = cutting.parse_cut_lines(["1-2 start Folk kommer ind", "5 offtopic Katten", "blok 8: slut - snak efter",
                                      "2:20-2:45 upassende Navn nævnt", "nonsens", "99 uklart"], cues, DUR)
-assert [c.kind for c in cuts] == ["start", "offtopic", "slut", "upassende"], cuts
+assert [c.kind for c in cuts] == ["start", "offtopic", "end", "inappropriate"], cuts
 assert bad == ["nonsens", "99 uklart"], bad
+# The English kinds of skill version 4
+en, bad_en = cutting.parse_cut_lines(["1-2 start People joining", "blocks 5 to 6 unclear Crosstalk", "8 end Chatter",
+                                      "2:20-2:45 inappropriate Name mentioned", "none"], cues, DUR)
+assert [c.kind for c in en] == ["start", "unclear", "end", "inappropriate"] and not bad_en, (en, bad_en)
 assert cuts[0].start == 0 and cuts[0].end == 35_000, cuts[0]
 assert cuts[1].start == 69_800 and cuts[1].end == 72_000, cuts[1]          # from just before block 5 to its end
 assert cuts[2].end == DUR, cuts[2]                                          # last block: to the end of the video
@@ -34,13 +38,13 @@ print("parse ok")
 
 pauses = cutting.find_pauses(cues, DUR, None)
 assert [(p.kind, p.start, p.end) for p in pauses] == [("start", 0, 29_250), ("pause", 35_750, 59_250),
-                                                     ("pause", 75_750, 129_250), ("slut", 141_750, DUR)], pauses
+                                                     ("pause", 75_750, 129_250), ("end", 141_750, DUR)], pauses
 both = cutting.combine_suggestions(pauses, cuts[:3])
-assert [c.kind for c in both] == ["start", "pause", "offtopic", "pause", "slut"], [c.kind for c in both]
+assert [c.kind for c in both] == ["start", "pause", "offtopic", "pause", "end"], [c.kind for c in both]
 print("pauses ok")
 
 ranges = cutting.active([cutting.Cut(0, 35_000, "start"), cutting.Cut(69_800, 72_000, "offtopic"),
-                         cutting.Cut(71_000, 72_100, "manuel"), cutting.Cut(100_000, 110_000, "pause", on=False)], DUR)
+                         cutting.Cut(71_000, 72_100, "manual"), cutting.Cut(100_000, 110_000, "pause", on=False)], DUR)
 assert ranges == [(0, 35_000), (69_800, 72_100)], ranges
 assert cutting.map_time(60_000, ranges) == 25_000
 assert cutting.map_time(72_500, ranges) == 72_500 - 35_000 - 2_300

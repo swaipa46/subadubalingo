@@ -3,19 +3,19 @@ Start menu and desktop shortcuts and Claude desktop's MCP entry at the installed
 
 One folder per version, so an update never touches a folder something runs from (v1.9.10):
 
-    %LOCALAPPDATA%\\Programs\\Videosprog\\
-        1.9.9\\Videosprog.exe     Claude may still run the old MCP server from here; it says "restart Claude"
-        1.9.10\\Videosprog.exe    new
-        current.txt              "1.9.10"
+    %LOCALAPPDATA%\\Programs\\SubaDubaLingo\\
+        2.0.0\\SubaDubaLingo.exe   Claude may still run the old MCP server from here; it says "restart Claude"
+        2.0.1\\SubaDubaLingo.exe   new
+        current.txt                 "2.0.1"
 
 Before, an update renamed the one folder while Claude's MCP server ran from it; PyInstaller reopens the exe for each
 first import, so the old server read the new exe at old offsets (zlib error -3). Old version folders are removed
-once nothing runs from them (at every start); the current and the previous one stay. The flat layout up to v1.9.9
-(exe directly in Programs\\Videosprog) is removed the same way.
+once nothing runs from them (at every start); the current and the previous one stay. The installations under
+the app's earlier names (Programs\\Videosprog up to v1.9, Programs\\Video undertekster before v1.7) are removed
+the same way, and their shortcuts and Claude's entry are moved over.
 
 Installing into AppData is fine here: the user starts the exe from Explorer, not from inside Claude (MSIX), so the
-copy lands in the real folder. Data lives in %USERPROFILE%\\.videosprog and survives updates. An installation from
-before the rename (Programs\\Video undertekster) is removed.
+copy lands in the real folder. Data lives in %USERPROFILE%\\.subadubalingo and survives updates.
 """
 from __future__ import annotations
 
@@ -34,11 +34,14 @@ from .common import APP_NAME, APP_VERSION, NO_WINDOW, app_dir, data_dir, log
 
 EXE_NAME = f"{APP_NAME}.exe"
 INSTALL_FOLDER = APP_NAME
-OLD_FOLDER = "Video undertekster"   # before the rename to Videosprog (v1.7)
-OLD_SHORTCUTS = ("Video undertekster.lnk",)
+OLD_FOLDERS = ("Videosprog", "Video undertekster")   # the app's earlier names (v1.7-1.9, before v1.7)
+OLD_SHORTCUTS = tuple(f"{n}.lnk" for n in OLD_FOLDERS)
+OLD_MCP_NAMES = ("videosprog", "video-undertekster")
+MCP_NAME = "subadubalingo"
 CURRENT = "current.txt"
 VERSION_DIR = re.compile(r"^\d+(\.\d+)+$")
 FLAT_ITEMS = (EXE_NAME, "_internal", "version.txt")   # the layout up to v1.9.9
+MODEL_FOLDERS = ("models", "modeller")   # next to the exe in the zip (modeller before v2.0)
 
 
 def install_dir() -> Path:
@@ -47,8 +50,8 @@ def install_dir() -> Path:
     return Path(base) / "Programs" / INSTALL_FOLDER
 
 
-def old_install_dir() -> Path:
-    return install_dir().with_name(OLD_FOLDER)
+def old_install_dirs() -> list[Path]:
+    return [install_dir().with_name(n) for n in OLD_FOLDERS]
 
 
 def _read(path: Path) -> str | None:
@@ -59,8 +62,15 @@ def _read(path: Path) -> str | None:
 
 
 def installed_version() -> str | None:
-    return (_read(install_dir() / CURRENT) or _read(install_dir() / "version.txt")
-            or _read(old_install_dir() / "version.txt"))
+    for d in [install_dir()] + old_install_dirs():
+        v = _read(d / CURRENT) or _read(d / "version.txt")
+        if v:
+            return v
+    return None
+
+
+def installed_under_old_name() -> bool:
+    return not _read(install_dir() / CURRENT) and any(d.is_dir() for d in old_install_dirs())
 
 
 def current_exe() -> Path | None:
@@ -154,15 +164,16 @@ def _shortcut_dirs() -> list[Path]:
 
 SHORTCUTS_PS = r"""
 $sh = New-Object -ComObject WScript.Shell
-$base = $env:VU_BASE.ToLower().TrimEnd('\') + '\'
-foreach ($f in ($env:VU_MAKE -split '\|' | Where-Object { $_ })) {
-    $s = $sh.CreateShortcut($f); $s.TargetPath = $env:VU_TARGET; $s.Save()
+$bases = $env:SDL_BASES -split '\|' | Where-Object { $_ } | ForEach-Object { $_.ToLower().TrimEnd('\') + '\' }
+foreach ($f in ($env:SDL_MAKE -split '\|' | Where-Object { $_ })) {
+    $s = $sh.CreateShortcut($f); $s.TargetPath = $env:SDL_TARGET; $s.Save()
 }
-foreach ($d in ($env:VU_DIRS -split '\|' | Where-Object { $_ })) {
+foreach ($d in ($env:SDL_DIRS -split '\|' | Where-Object { $_ })) {
     foreach ($l in Get-ChildItem -LiteralPath $d -Filter *.lnk) {
         $s = $sh.CreateShortcut($l.FullName)
-        if ($s.TargetPath.ToLower().StartsWith($base)) {
-            $s.TargetPath = $env:VU_TARGET; $s.WorkingDirectory = $env:VU_DIR; $s.IconLocation = $env:VU_TARGET
+        $t = $s.TargetPath.ToLower()
+        if ($bases | Where-Object { $t.StartsWith($_) }) {
+            $s.TargetPath = $env:SDL_TARGET; $s.WorkingDirectory = $env:SDL_DIR; $s.IconLocation = $env:SDL_TARGET
             $s.Save()
         }
     }
@@ -172,37 +183,41 @@ foreach ($d in ($env:VU_DIRS -split '\|' | Where-Object { $_ })) {
 
 def _update_shortcuts(exe: Path):
     """Create the Start menu and desktop shortcuts, and point every shortcut into the installation (also ones
-    pinned to the taskbar) at the new exe, so they keep working when the old version folder is removed."""
+    pinned to the taskbar, also from under an earlier name) at the new exe, so they keep working when the old
+    folder is removed. A pin keeps its old label; that is Windows' business."""
     dirs = [d for d in _shortcut_dirs() if d.is_dir()]
     makers = [d for d in _shortcut_dirs()[:2] if d.is_dir()]
     for d in makers:
         for old_name in OLD_SHORTCUTS:
             (d / old_name).unlink(missing_ok=True)
-    env = dict(os.environ, VU_BASE=str(install_dir()), VU_TARGET=str(exe), VU_DIR=str(exe.parent),
-               VU_MAKE="|".join(str(d / f"{APP_NAME}.lnk") for d in makers), VU_DIRS="|".join(map(str, dirs)))
+    env = dict(os.environ, SDL_BASES="|".join(map(str, [install_dir()] + old_install_dirs())), SDL_TARGET=str(exe),
+               SDL_DIR=str(exe.parent), SDL_MAKE="|".join(str(d / f"{APP_NAME}.lnk") for d in makers),
+               SDL_DIRS="|".join(map(str, dirs)))
     r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", SHORTCUTS_PS], env=env,
                        capture_output=True, timeout=60, creationflags=NO_WINDOW)
     if r.returncode:
         log.warning("shortcuts: %s", r.stderr.decode("utf-8", "replace")[:500])
 
 
-def _point_claude_at(exe: Path, add_if_missing: bool) -> bool:
-    """Update (or add) the MCP entry in Claude desktop's config to the installed exe."""
+def point_claude_at(exe: Path, args: list[str] | None = None, add_if_missing: bool = True) -> bool:
+    """Update (or add) the MCP entry in Claude desktop's config to `exe`, replacing the entries under the app's
+    earlier names. Keeps every other server, and a backup of the file next to it."""
     cfg = Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))) / "Claude" / "claude_desktop_config.json"
     data = {}
     if cfg.exists():
         raw = cfg.read_text(encoding="utf-8-sig")
         data = json.loads(raw) if raw.strip() else {}
     servers = data.setdefault("mcpServers", {})
-    had = "videosprog" in servers or "video-undertekster" in servers
+    had = any(n in servers for n in (MCP_NAME,) + OLD_MCP_NAMES)
     if not had and not add_if_missing:
         return False
     if not cfg.parent.exists():
         return False  # Claude desktop is not installed
     if cfg.exists():
-        shutil.copyfile(cfg, cfg.with_name(cfg.name + ".videosprog.bak"))
-    servers.pop("video-undertekster", None)   # the name before the rename
-    servers["videosprog"] = {"command": str(exe), "args": ["--mcp"]}
+        shutil.copyfile(cfg, cfg.with_name(cfg.name + f".{MCP_NAME}.bak"))
+    for old in OLD_MCP_NAMES:
+        servers.pop(old, None)
+    servers[MCP_NAME] = {"command": str(exe), "args": args or ["--mcp"]}
     tmp = cfg.with_name(cfg.name + ".tmp")
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(cfg)
@@ -231,7 +246,7 @@ def cleanup() -> list[str]:
             p = base / name
             shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
         removed.append("flat")
-    for old in (base.with_name(base.name + ".old"), old_install_dir()):
+    for old in [base.with_name(base.name + ".old")] + old_install_dirs():
         if old.exists() and not running_from(old, images):
             shutil.rmtree(old, ignore_errors=True)
             removed.append(old.name)
@@ -253,11 +268,10 @@ def install(connect_claude: bool) -> Path:
         shutil.rmtree(dst)
     staging = base / f"{APP_VERSION}.new"
     shutil.rmtree(staging, ignore_errors=True)
-    # Models next to the exe move to the data folder, so they are not copied with every update
-    models = src / "modeller"
-    # Skip only the top-level models folder; everything else is needed (_internal\base_library.zip is Python's
-    # standard library - leaving out *.zip everywhere broke the installed exe in v1.7.1).
-    shutil.copytree(src, staging, ignore=lambda d, names: ["modeller"] if Path(d) == src else [])
+    # Skip only the top-level models folder (models next to the exe move to the data folder, so they are not
+    # copied with every update); everything else is needed (_internal\base_library.zip is Python's standard
+    # library - leaving out *.zip everywhere broke the installed exe in v1.7.1).
+    shutil.copytree(src, staging, ignore=lambda d, names: list(MODEL_FOLDERS) if Path(d) == src else [])
     (staging / "version.txt").write_text(APP_VERSION, encoding="utf-8")
     for need in ((EXE_NAME,), ("_internal", "base_library.zip")):
         if (src.joinpath(*need)).exists() and not staging.joinpath(*need).exists():
@@ -267,21 +281,30 @@ def install(connect_claude: bool) -> Path:
     tmp = base / (CURRENT + ".tmp")
     tmp.write_text(APP_VERSION, encoding="utf-8")
     tmp.replace(base / CURRENT)
-    if models.is_dir():
-        target = data_dir() / "modeller"
-        target.mkdir(parents=True, exist_ok=True)
-        for f in models.iterdir():
-            if f.is_file() and not (target / f.name).exists():
-                shutil.copy2(f, target / f.name)
+    for models in (src / m for m in MODEL_FOLDERS):
+        if models.is_dir():
+            target = data_dir() / "models"
+            target.mkdir(parents=True, exist_ok=True)
+            for f in models.iterdir():
+                if f.is_file() and not (target / f.name).exists():
+                    shutil.copy2(f, target / f.name)
     exe = dst / EXE_NAME
     try:
         _update_shortcuts(exe)
     except Exception:
         log.exception("shortcuts failed")
     try:
-        _point_claude_at(exe, add_if_missing=connect_claude)
+        point_claude_at(exe, add_if_missing=connect_claude)
     except Exception:
         log.exception("could not update Claude's config")
+    # A server Claude still runs from a versioned folder under the earlier name (v1.9.10) reads current.txt next
+    # to its folder: naming this version there makes it say "restart Claude" instead of serving an empty inbox.
+    for old in old_install_dirs():
+        if (old / CURRENT).exists():
+            try:
+                (old / CURRENT).write_text(APP_VERSION, encoding="utf-8")
+            except OSError:
+                pass
     log.info("installed %s to %s", APP_VERSION, dst)
     try:
         cleanup()
@@ -311,6 +334,11 @@ def offer_install() -> bool:
     if have == APP_VERSION:
         title, text, btn = (f"{APP_NAME} er allerede installeret",
                             "Denne version er allerede installeret. Vil du starte den installerede?", "Start den installerede")
+    elif have and installed_under_old_name():
+        title, text, btn = (f"Opdatér til {APP_NAME} {APP_VERSION}?",
+                            f"Videosprog hedder nu {APP_NAME}. Version {have} er installeret. Vil du opdatere?\n"
+                            "Dine indstillinger, ordliste og hentede filer bliver bevaret, og genvejene bliver flyttet.",
+                            "Opdatér")
     elif have:
         title, text, btn = (f"Opdatér til version {APP_VERSION}?",
                             f"Version {have} er installeret. Vil du opdatere den til {APP_VERSION}?\n"

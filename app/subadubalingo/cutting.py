@@ -18,24 +18,31 @@ import numpy as np
 
 from .common import FFMPEG, Cue, Runner, ToolError, log
 
-# key: (label shown to the user, strong colour, light fill)
+# Cut kinds (the domain's words; Claude writes them in its suggestions). key: (label shown to the user, strong
+# colour, light fill)
 KINDS = {
     "start": ("Før mødet går i gang", "#5c2e91", "#efe6f8"),
     "pause": ("Pause", "#486991", "#e3ebf4"),
-    "slut": ("Efter mødet", "#5c2e91", "#efe6f8"),
-    "upassende": ("Upassende", "#c42b1c", "#fde7e9"),
+    "end": ("Efter mødet", "#5c2e91", "#efe6f8"),
+    "inappropriate": ("Upassende", "#c42b1c", "#fde7e9"),
     "offtopic": ("Off-topic", "#9d5d00", "#fff4ce"),
-    "uklart": ("Uklart", "#00666d", "#ddf1ef"),
-    "manuel": ("Dit eget klip", "#0f6cbd", "#e1effa"),
+    "unclear": ("Uklart", "#00666d", "#ddf1ef"),
+    "manual": ("Dit eget klip", "#0f6cbd", "#e1effa"),
 }
+# Also the Danish words the skill used before v2.0 (skill version 3), and what Claude writes when it improvises
 KIND_ALIASES = {
-    "start": "start", "før": "start", "foer": "start", "inden": "start", "intro": "start", "venter": "start",
-    "pause": "pause", "afbrydelse": "pause", "stille": "pause", "stilhed": "pause",
-    "slut": "slut", "efter": "slut", "afslutning": "slut",
-    "upassende": "upassende", "privat": "upassende", "følsomt": "upassende", "foelsomt": "upassende",
-    "offtopic": "offtopic", "off-topic": "offtopic", "fjol": "offtopic", "udenfor": "offtopic", "snak": "offtopic",
-    "uklart": "uklart", "uforståeligt": "uklart", "utydeligt": "uklart", "uforstaaeligt": "uklart",
-    "manuel": "manuel", "andet": "manuel",
+    "start": "start", "before": "start", "intro": "start", "waiting": "start",
+    "før": "start", "foer": "start", "inden": "start", "venter": "start",
+    "pause": "pause", "break": "pause", "interruption": "pause", "silence": "pause",
+    "afbrydelse": "pause", "stille": "pause", "stilhed": "pause",
+    "end": "end", "after": "end", "outro": "end", "slut": "end", "efter": "end", "afslutning": "end",
+    "inappropriate": "inappropriate", "private": "inappropriate", "sensitive": "inappropriate",
+    "upassende": "inappropriate", "privat": "inappropriate", "følsomt": "inappropriate", "foelsomt": "inappropriate",
+    "offtopic": "offtopic", "off-topic": "offtopic", "chatter": "offtopic",
+    "fjol": "offtopic", "udenfor": "offtopic", "snak": "offtopic",
+    "unclear": "unclear", "inaudible": "unclear", "unintelligible": "unclear",
+    "uklart": "unclear", "uforståeligt": "unclear", "utydeligt": "unclear", "uforstaaeligt": "unclear",
+    "manual": "manual", "other": "manual", "manuel": "manual", "andet": "manual",
 }
 
 MIN_PAUSE_MS = 20_000   # silence this long (between blocks) is suggested as a pause
@@ -63,7 +70,7 @@ class Cut:
 
     @staticmethod
     def from_json(d: dict) -> "Cut":
-        return Cut(int(d["start"]), int(d["end"]), d.get("kind", "manuel"), d.get("reason", ""), bool(d.get("on", True)),
+        return Cut(int(d["start"]), int(d["end"]), KIND_ALIASES.get(d.get("kind", ""), "manual"), d.get("reason", ""), bool(d.get("on", True)),
                    d.get("source", "claude"), tuple(d["blocks"]) if d.get("blocks") else None)
 
 
@@ -99,7 +106,7 @@ def block_range(cues: list[Cue], a: int, b: int, duration: int, kind: str) -> tu
 
 CLOCK_RE = r"(?:\d+:)?\d{1,2}:\d{2}(?:[.,]\d+)?"
 LINE_RE = re.compile(
-    rf"^\s*[-*•]?\s*(?:blok(?:ke)?\s*)?(?P<range>{CLOCK_RE}\s*(?:-|–|til)\s*{CLOCK_RE}|\d+\s*(?:(?:-|–|til)\s*\d+)?)"
+    rf"^\s*[-*•]?\s*(?:(?:blok(?:ke)?|blocks?)\s*)?(?P<range>{CLOCK_RE}\s*(?:-|–|til|to)\s*{CLOCK_RE}|\d+\s*(?:(?:-|–|til|to)\s*\d+)?)"
     r"\s*[:|,]?\s*(?P<kind>[A-Za-zæøåÆØÅ-]+)?\s*[:|,–-]?\s*(?P<reason>.*)$", re.I)
 
 
@@ -116,7 +123,7 @@ def parse_cut_lines(lines: list[str], cues: list[Cue], duration: int, source: st
     cuts, bad = [], []
     for raw in lines:
         line = raw.strip()
-        if not line or line.lower() in ("ingen", "intet", "(ingen)", "-"):
+        if not line or line.lower() in ("none", "(none)", "ingen", "intet", "(ingen)", "-"):
             continue
         m = LINE_RE.match(line)
         if not m:
@@ -129,9 +136,9 @@ def parse_cut_lines(lines: list[str], cues: list[Cue], duration: int, source: st
         if kind is None:
             # No known category: the word belongs to the reason
             reason = f"{m.group('kind') or ''} {reason}".strip()
-            kind = "manuel" if source == "user" else "offtopic"
+            kind = "manual" if source == "user" else "offtopic"
         if ":" in rng:
-            a_txt, b_txt = re.split(r"\s*(?:-|–|til)\s*", rng, maxsplit=1)
+            a_txt, b_txt = re.split(r"\s*(?:-|–|til|to)\s*", rng, maxsplit=1)
             start, end = sorted((parse_clock(a_txt), parse_clock(b_txt)))
             blocks = None
         else:
@@ -184,7 +191,7 @@ def find_pauses(cues: list[Cue], duration: int, env: np.ndarray | None, min_ms: 
     for c in cues:
         gaps.append((prev_end, c.start, "start" if prev_end == 0 and not gaps else "pause"))
         prev_end = max(prev_end, c.end)
-    gaps.append((prev_end, duration, "slut" if cues else "pause"))
+    gaps.append((prev_end, duration, "end" if cues else "pause"))
     for a, b, kind in gaps:
         if b - a < min_ms:
             continue
@@ -194,9 +201,9 @@ def find_pauses(cues: list[Cue], duration: int, env: np.ndarray | None, min_ms: 
             if len(seg) and seg.mean() < 0.8:
                 continue
         start = 0 if kind == "start" else a + PAUSE_MARGIN_MS
-        end = duration if kind == "slut" else b - PAUSE_MARGIN_MS
+        end = duration if kind == "end" else b - PAUSE_MARGIN_MS
         what = {"start": f"Ingen tale de første {fmt_length(end)}",
-                "slut": f"Ingen tale de sidste {fmt_length(end - start)}"}.get(kind, f"Ingen tale i {fmt_length(b - a)}")
+                "end": f"Ingen tale de sidste {fmt_length(end - start)}"}.get(kind, f"Ingen tale i {fmt_length(b - a)}")
         out.append(Cut(start, end, kind, what, True, "auto"))
     return out
 

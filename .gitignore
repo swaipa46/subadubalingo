@@ -9,3 +9,4 @@ __pycache__/
 dist-new/
 dist-*/
 docs/ux-*/
+app/models/

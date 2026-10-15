@@ -18,7 +18,7 @@ TEXT_VERSION = 3
 
 
 def _file() -> Path:
-    return data_dir() / "tekster.json"
+    return data_dir() / "text_state.json"
 
 
 def _load() -> dict:

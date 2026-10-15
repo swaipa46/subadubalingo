@@ -1673,10 +1673,10 @@ class SkillGuide(tk.Toplevel):
         self.resizable(False, False)
         n = claude.SKILL_VERSION
         intro = {
-            "first": "Claude skal have Videosprog-skill'en, så den kender reglerne og EG's fagord. Det gør du én gang.",
+            "first": f"Claude skal have {APP_NAME}-skill'en, så den kender reglerne og EG's fagord. Det gør du én gang.",
             "update": f"Denne version af {APP_NAME} kommer med en ny Claude-skill. Den skal lægges ind i "
                       "Claude én gang, så Claude kender de nye regler.",
-            "missing": "Claude arbejdede uden Videosprog-skill'en i den sidste runde. Det gik, men med skill'en kender "
+            "missing": f"Claude arbejdede uden {APP_NAME}-skill'en i den sidste runde. Det gik, men med skill'en kender "
                        "Claude reglerne og EG's fagord bedre.",
             "old": f"Claude brugte en ældre udgave af skill'en (version {have}) i den sidste runde. Den nyeste er "
                    f"version {n}.",
@@ -1688,10 +1688,12 @@ class SkillGuide(tk.Toplevel):
         ttk.Label(f, text=intro, wraplength=wrap, justify="left").pack(anchor="w", pady=(6, 12))
         steps = ["Klik \"Gem skill-filen\". Den lægges i din Overførsler-mappe.",
                  "Åbn Claude, og gå til Customize -> Skills.",
-                 "Slet den gamle \"videosprog\", hvis den er der.",
-                 "Klik \"Upload skill\", og vælg \"videosprog-skill.zip\"."]
+                 "Slet de gamle: " + " og ".join(f"\"{n}\"" for n in (claude.SKILL_NAME,) + claude.OLD_SKILL_NAMES)
+                 + ", hvis de er der.",
+                 f"Klik \"Upload skill\", og vælg \"{claude.SKILL_NAME}-skill.zip\"."]
         # The delete step stays on "first" too: skill_installed 0 means unknown, not absent (installed through
-        # Settings, "Senere", or before tracking), and uploading over an existing "videosprog" is what it prevents.
+        # Settings, "Senere", or before tracking), and uploading over an existing one is what it prevents. The skill
+        # under the app's earlier name would otherwise answer next to the new one.
         for i, step in enumerate(steps, 1):
             ttk.Label(f, text=f"{i}.  {step}", wraplength=wrap, justify="left").pack(anchor="w", pady=2)
         self.status = ttk.Label(f, text="", style="Hint.TLabel", wraplength=wrap, justify="left")
@@ -2032,7 +2034,7 @@ class ClaudePanel(ttk.Frame):
             bar.configure(value=n)
             lab.configure(text=f"{n} af {len(self.cues)}")
         if self.mcp_cut_lbl is not None:
-            k = jobs.read_json(d / "parts" / "klip.json", {}) or {}
+            k = jobs.read_json(d / "parts" / "cuts.json", {}) or {}
             n = len(k.get("lines") or [])
             self.mcp_cut_lbl.configure(text=f"Klipforslag: {n} modtaget" + (" (færdig)" if k.get("done") else ""))
         done = jobs.read_json(d / "complete.json")
@@ -2255,7 +2257,7 @@ class ClaudePanel(ttk.Frame):
                 text = ""
             if text and text != self._seen_clip and "-->" in text and "===" in text:
                 self._seen_clip = text
-                have, words, msg = claude.check_file_answer(self.cues, self.codes, text + "\n=== slut ===", self.cut)
+                have, words, msg = claude.check_file_answer(self.cues, self.codes, text + "\n=== end ===", self.cut)
                 if msg is None:
                     self.words = list(words)
                     self.app.cut_lines = claude.answer_cuts(text) or []
@@ -2462,29 +2464,19 @@ class ClaudePanel(ttk.Frame):
 
 def connect_claude_desktop() -> Path:
     """Add this program as an MCP server in Claude desktop's config (keeps everything else, backs the file up)."""
-    import json as _json
+    from .installer import point_claude_at
+    if getattr(sys, "frozen", False):
+        exe, args = Path(sys.executable), ["--mcp"]
+    else:
+        exe, args = Path(sys.executable), [str(Path(__file__).resolve().parent.parent / "main.py"), "--mcp"]
     cfg = Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))) / "Claude" / "claude_desktop_config.json"
     cfg.parent.mkdir(parents=True, exist_ok=True)
-    data = {}
-    if cfg.exists():
-        raw = cfg.read_text(encoding="utf-8-sig")
-        data = _json.loads(raw) if raw.strip() else {}
-        shutil.copyfile(cfg, cfg.with_name(cfg.name + ".videosprog.bak"))
-    if getattr(sys, "frozen", False):
-        entry = {"command": sys.executable, "args": ["--mcp"]}
-    else:
-        entry = {"command": sys.executable, "args": [str(Path(__file__).resolve().parent.parent / "main.py"), "--mcp"]}
-    servers = data.setdefault("mcpServers", {})
-    servers.pop("video-undertekster", None)   # the name before the rename
-    servers["videosprog"] = entry
-    tmp = cfg.with_name(cfg.name + ".tmp")
-    tmp.write_text(_json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(cfg)
-    log.info("connected to Claude desktop: %s -> %s", cfg, entry)
+    point_claude_at(exe, args)
+    log.info("connected to Claude desktop: %s -> %s %s", cfg, exe, args)
     return cfg
 
 
-SINGLE_INSTANCE = "Local\\Videosprog.SingleInstance"
+SINGLE_INSTANCE = f"Local\\{APP_NAME}.SingleInstance"
 
 
 def already_running() -> bool:
@@ -2494,7 +2486,7 @@ def already_running() -> bool:
         main.mutex = k32.CreateMutexW(None, False, SINGLE_INSTANCE)
         if k32.GetLastError() != 183:  # ERROR_ALREADY_EXISTS
             return False
-        # By window class too: a message box or a Claude window titled "Videosprog" must not match
+        # By window class too: a message box or a Claude window titled like the app must not match
         u32.FindWindowW.restype = ctypes.c_void_p
         hwnd = u32.FindWindowW("TkTopLevel", APP_NAME)
         if hwnd:
@@ -2526,8 +2518,9 @@ def main():
         return
     log.info("start %s %s", APP_NAME, APP_VERSION)
     from .installer import cleanup, running_installed
-    if running_installed():   # old version folders nothing runs from any more
-        threading.Thread(target=lambda: _safe(cleanup), daemon=True).start()
+    from .common import adopt_previous_models
+    if running_installed():   # old version folders nothing runs from any more, models left under an earlier name
+        threading.Thread(target=lambda: (_safe(cleanup), _safe(adopt_previous_models)), daemon=True).start()
     root = tk.Tk()
     App(root)
     root.mainloop()

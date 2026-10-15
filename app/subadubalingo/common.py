@@ -12,9 +12,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-APP_NAME = "Videosprog"
+APP_NAME = "SubaDubaLingo"
 APP_TAGLINE = "Undertekster og dubbing af videoer"
-APP_VERSION = "1.9.10"
+APP_VERSION = "2.0.0"
 
 # --- Paths -------------------------------------------------------------------
 
@@ -33,63 +33,104 @@ def bin_dir() -> Path:
 
 
 def legacy_data_dir() -> Path:
+    """Before v1.7: %LOCALAPPDATA%\\VideoUndertekster (settings and models)."""
     return Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "VideoUndertekster"
 
+
+def previous_data_dirs() -> list[Path]:
+    """The data folder under the app's earlier names, newest first: Videosprog (v1.7-1.9), Video undertekster."""
+    return [Path.home() / ".videosprog", Path.home() / ".video-undertekster"]
+
+
+# Files in the data folder that had Danish names before v2.0
+RENAMED = {"rettelser.txt": "corrections.txt", "tekster.json": "text_state.json", "modeller": "models"}
+SMALL_FILES = ("settings.json", "corrections.txt", "text_state.json")
 
 _DATA_DIR: Path | None = None
 
 
+def _old_name(name: str) -> str:
+    return next((old for old, new in RENAMED.items() if new == name), name)
+
+
+def _rename_items(d: Path):
+    for old, new in RENAMED.items():
+        if (d / old).exists() and not (d / new).exists():
+            try:
+                (d / old).rename(d / new)
+            except OSError:
+                pass
+
+
 def data_dir() -> Path:
-    """%USERPROFILE%\\.videosprog (hidden), not AppData: Claude desktop is an MSIX app, and everything a
+    """%USERPROFILE%\\.subadubalingo (hidden), not AppData: Claude desktop is an MSIX app, and everything a
     process it starts (our MCP server, and the app when the server starts it) writes under AppData lands in
     Claude's own package folder instead. The app started by the user would then not see Claude's jobs, settings or
-    downloaded models. The user profile root is not redirected."""
+    downloaded models. The user profile root is not redirected.
+
+    The first start after a rename moves the previous folder here (same drive, so instant, models included). If
+    it is in use (Claude still runs the old MCP server, which keeps its log open), the small files are copied
+    and the models stay where they are until a later start (adopt_previous_models)."""
     global _DATA_DIR
     if _DATA_DIR is not None:
         return _DATA_DIR
-    d = Path.home() / ".videosprog"
-    previous = previous_data_dir()
-    if not d.exists() and previous.is_dir():
-        try:
-            previous.rename(d)   # same drive, so instant, models included
-        except OSError:
-            pass  # in use (e.g. Claude still runs the old MCP server): copy the small files below instead
-    new = not d.exists()
-    d.mkdir(parents=True, exist_ok=True)
-    if new and previous.is_dir():
-        for name in ("settings.json", "rettelser.txt", "tekster.json"):
+    d = Path.home() / ".subadubalingo"
+    if not d.exists():
+        previous = next((x for x in previous_data_dirs() if x.is_dir()), None)
+        if previous:
             try:
-                if (previous / name).is_file():
-                    (d / name).write_bytes((previous / name).read_bytes())
+                previous.rename(d)
             except OSError:
-                pass
-        new = False  # models are still found in the previous folder (model_dirs)
-    if new:
+                pass   # in use: the small files are copied below
+    created = not d.exists()
+    d.mkdir(parents=True, exist_ok=True)
+    if created:
         try:
             ctypes.windll.kernel32.SetFileAttributesW(str(d), 0x2)  # hidden, keeps the profile folder tidy
         except Exception:
             pass
-        old = legacy_data_dir()
-        if old.is_dir():  # move settings, word list and text state from versions before 1.7 (models stay there)
-            for name in ("settings.json", "rettelser.txt", "tekster.json", "log.txt"):
+    _rename_items(d)
+    # Small files the folder lacks come from the previous folders (newest first), also when it already existed
+    # (an earlier start that found nothing, e.g. run from the zip first), and from before v1.7
+    for previous in previous_data_dirs() + [legacy_data_dir()]:
+        for name in SMALL_FILES:
+            src = next((f for f in (previous / name, previous / _old_name(name)) if f.is_file()), None)
+            if src and not (d / name).exists():
                 try:
-                    if (old / name).is_file():
-                        (d / name).write_bytes((old / name).read_bytes())
+                    (d / name).write_bytes(src.read_bytes())
                 except OSError:
                     pass
     _DATA_DIR = d
     return d
 
 
+def adopt_previous_models() -> list[str]:
+    """Move model files left in a previous data folder (it was in use at the rename) into ours, and remove that
+    folder. Cheap: a rename on the same drive. Called at start, in the background. The rest of the old folder
+    (old jobs and log, a few KB) is left alone."""
+    target = data_dir() / "models"
+    moved = []
+    for previous in previous_data_dirs():
+        for folder in (previous / "modeller", previous / "models"):
+            if not folder.is_dir():
+                continue
+            target.mkdir(parents=True, exist_ok=True)
+            for f in folder.iterdir():
+                try:
+                    if f.is_file() and not (target / f.name).exists():
+                        f.rename(target / f.name)
+                        moved.append(f.name)
+                except OSError:
+                    pass
+    return moved
+
+
 def model_dirs() -> list[Path]:
     """Where models are looked for, in order. The first is where downloads go."""
-    return [data_dir() / "modeller", app_dir() / "modeller", previous_data_dir() / "modeller",
-            legacy_data_dir() / "modeller"]
-
-
-def previous_data_dir() -> Path:
-    """The data folder's name in v1.7, before the rename to Videosprog."""
-    return Path.home() / ".video-undertekster"
+    out = [data_dir() / "models", app_dir() / "models", app_dir() / "modeller"]
+    for previous in previous_data_dirs():
+        out += [previous / "modeller", previous / "models"]
+    return out + [legacy_data_dir() / "modeller"]
 
 
 WHISPER = lambda: bin_dir() / "whisper" / "whisper-cli.exe"

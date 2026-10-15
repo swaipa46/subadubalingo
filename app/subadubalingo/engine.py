@@ -93,7 +93,7 @@ def download(mf: ModelFile, progress: Callable[[float, str], None], runner: Runn
     dest = dest_dir / mf.filename
     part = dest.with_name(dest.name + ".part")
     log.info("download %s", mf.url)
-    req = urllib.request.Request(mf.url, headers={"User-Agent": "Videosprog/1.0"})
+    req = urllib.request.Request(mf.url, headers={"User-Agent": "SubaDubaLingo/2"})
     with urllib.request.urlopen(req, timeout=60) as r, open(part, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
         done = 0
@@ -373,7 +373,7 @@ rebatkode = rabatkode
 
 def corrections_file() -> Path:
     from .common import data_dir
-    f = data_dir() / "rettelser.txt"
+    f = data_dir() / "corrections.txt"
     if not f.exists():
         try:
             f.write_text(DEFAULT_CORRECTIONS, encoding="utf-8")

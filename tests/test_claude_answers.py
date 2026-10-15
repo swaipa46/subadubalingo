@@ -14,6 +14,7 @@ codes = ["da", "sv", "no"]
 srt = lambda c: format_srt(c).rstrip()
 
 cases = {
+    "English protocol (skill 4)": f"```\n=== da ===\n{srt(da)}\n\n=== sv ===\n{srt(sv)}\n\n=== no ===\n{srt(no)}\n\n=== words ===\nmemberkær => Membercare\n```",
     "one block with markers": f"```\n=== da ===\n{srt(da)}\n\n=== sv ===\n{srt(sv)}\n\n=== no ===\n{srt(no)}\n\n=== ordliste ===\nmemberkær => Membercare\n```",
     "one block, copied without fences": f"=== da ===\n{srt(da)}\n\n=== sv ===\n{srt(sv)}\n\n=== no ===\n{srt(no)}\n\n=== ordliste ===\nmemberkær => Membercare",
     "labelled fences (old skill)": f"```srt-da\n{srt(da)}\n```\n\n```srt-sv\n{srt(sv)}\n```\n\n```srt-no\n{srt(no)}\n```\n\n```ordliste\nmemberkær => Membercare\n```",
@@ -54,8 +55,22 @@ have, _, msg = claude.check_answer(part, codes, f"=== da ===\n{srt(da)}\n=== sv 
 good = msg is not None and "Svensk" in msg
 ok &= good
 print(("OK  " if good else "FAIL"), "truncated |", msg)
+# The answer file: the new protocol and the Danish one of the app's earlier name are both read
+for header, cuts, end in ((claude.ANSWER_HEADER, "cuts", "end"), ("VIDEOSPROG-SVAR", "klip", "slut")):
+    text = (f"{header} id=job1 skill=4\n=== da ===\n{srt(da)}\n=== sv ===\n{srt(sv)}\n=== no ===\n{srt(no)}\n"
+            f"=== {cuts} ===\n1-2 start Folk kommer ind\n=== words ===\nmemberkær => Membercare\n=== {end} ===\n")
+    have, words, msg = claude.check_file_answer(part, codes, text, cut=True)
+    good = (msg is None and claude.answer_id(text) == "job1" and claude.answer_cuts(text) == ["1-2 start Folk kommer ind"]
+            and words == [("memberkær", "Membercare")])
+    ok &= good
+    print(("OK  " if good else "FAIL"), f"answer file {header} |", msg)
+_, _, msg = claude.check_file_answer(part, codes, f"{claude.ANSWER_HEADER} id=j\n=== da ===\n{srt(da)}\n=== sv ===\n{srt(sv)}\n=== no ===\n{srt(no)}\n")
+good = msg is not None and "end" in msg
+ok &= good
+print(("OK  " if good else "FAIL"), "answer file without === end === |", msg)
 # The skill text and the number the program expects must agree
-assert f"skill={claude.SKILL_VERSION}" in claude.SKILL_MD and f"Skill-version: {claude.SKILL_VERSION}" in claude.SKILL_MD
+assert f"skill={claude.SKILL_VERSION}" in claude.SKILL_MD and f"Skill version: {claude.SKILL_VERSION}" in claude.SKILL_MD
+assert f"name: {claude.SKILL_NAME}" in claude.SKILL_MD
 assert claude.answer_skill(f"{claude.ANSWER_HEADER} id=x skill={claude.SKILL_VERSION}\n") == claude.SKILL_VERSION
 assert claude.answer_skill(f"{claude.ANSWER_HEADER} id=x\n") is None
 print("OK   skill version")

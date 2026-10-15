@@ -2,9 +2,13 @@
 
 One round per part of the video: Claude corrects the subtitles in the spoken language (product names and
 other known words), translates them to the languages the new video needs, and lists words it corrected.
-Those words are saved to rettelser.txt, so the next transcription gets them right and the next prompt
-carries them along. The `videosprog` skill holds the same rules and the word list for claude.ai;
+Those words are saved to corrections.txt, so the next transcription gets them right and the next prompt
+carries them along. The `subadubalingo` skill holds the same rules and the word list for claude.ai;
 the prompt works on its own too, in case the skill is not installed or not picked up.
+
+The protocol (headers, section markers, cut kinds) and the prompts are English, the domain language
+(docs/glossary.md); Claude answers the user in Danish. Answers in the Danish protocol of skill version 3 and
+earlier (=== ordliste ===, === klip ===, === slut ===, VIDEOSPROG-SVAR) are still read.
 """
 from __future__ import annotations
 
@@ -14,15 +18,16 @@ import re
 import zipfile
 from pathlib import Path
 
-from .common import Cue, Language, LANGUAGES, format_srt, log, parse_srt_text
+from .common import APP_NAME, Cue, Language, LANGUAGES, format_srt, log, parse_srt_text
 from . import engine
 
-SKILL_NAME = "videosprog"
+SKILL_NAME = "subadubalingo"
+OLD_SKILL_NAMES = ("videosprog",)   # the skill under the app's earlier name; the guide says to delete it
 # Bump when SKILL_MD (or what the program expects from Claude) changes. The program knows which skill version it
 # ships with: after an update it guides the user to upload the new skill, and Claude reports the version it has
 # (answer file header "skill=N", or hent_tekst(skill=N)), so a forgotten update is caught too.
-# 1 = before klip (v1.8), 2 = klip (v1.9.0-1.9.2), 3 = version stamp.
-SKILL_VERSION = 3
+# 1 = before cutting (v1.8), 2 = cutting (v1.9.0-1.9.2), 3 = version stamp, 4 = SubaDubaLingo, English protocol.
+SKILL_VERSION = 4
 LANG_BY_CODE = {l.code: l for l in LANGUAGES}
 
 # --- Parts ------------------------------------------------------------------------------
@@ -38,10 +43,10 @@ def split_parts(cues: list[Cue], n_languages: int) -> list[list[Cue]]:
     size = math.ceil(len(cues) / n)
     return [cues[i:i + size] for i in range(0, len(cues), size)]
 
-# --- Word list (shared with rettelser.txt) ------------------------------------------------
+# --- Word list (shared with corrections.txt) ------------------------------------------------
 
 def word_rules() -> list[tuple[str, str]]:
-    """(wrong, right) pairs from rettelser.txt."""
+    """(wrong, right) pairs from corrections.txt."""
     try:
         lines = engine.corrections_file().read_text(encoding="utf-8-sig").splitlines()
     except OSError:
@@ -61,7 +66,7 @@ def known_words() -> list[str]:
 
 
 def add_words(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    """Append new (wrong, right) pairs to rettelser.txt; returns the ones that were new."""
+    """Append new (wrong, right) pairs to corrections.txt; returns the ones that were new."""
     have = {w.lower() for w, _ in word_rules()}
     new = [(w, r) for w, r in pairs if w.lower() not in have and w.lower() != r.lower()]
     if new:
@@ -77,77 +82,82 @@ def add_words(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
 # --- Prompt ---------------------------------------------------------------------------------
 #
 # Claude answers in ONE code block, with a marker line before each language:
-#     === da ===   (corrected text in the spoken language)
-#     === sv ===   (translations)
-#     === ordliste ===   (forkert => rigtigt)
+#     === da ===      (corrected text in the spoken language)
+#     === sv ===      (translations)
+#     === words ===   (wrong => right)
 # One block means one copy, whichever copy button the user uses (the block's or the whole answer's).
 
-CUT_TASK = "foreslå, hvad der skal klippes væk"
+NAMES_EN = {"da": "Danish", "sv": "Swedish", "no": "Norwegian", "en": "English"}
+CUT_TASK = "suggest what to cut out"
 CUT_RULES = [
-    "Klip: foreslå blokke, der skal klippes ud af videoen (en optagelse af et Teams-møde/webinar):",
-    "  start = før mødet reelt går i gang (folk kommer ind, lydtest, \"kan I høre mig\"),",
-    "  pause = afbrydelser og ventetid undervejs, slut = efter mødet er slut (snak, \"er den slukket?\"),",
-    "  upassende = noget, der ikke skal gemmes (private ting, navne på kunder/kolleger i en sårbar sammenhæng, "
-    "grove udtryk), offtopic = fjol og snak uden for emnet, uklart = noget, der ikke kan forstås, heller ikke i "
-    "sammenhængen.",
-    "  Én linje pr. klip: <første blok>-<sidste blok> <kategori> <kort begrundelse>, fx \"1-14 start Folk kommer "
-    "ind og tester lyd\". Klip hele blokke, og vær forsigtig: klip kun det, der tydeligt ikke hører til. Lange "
-    "stille pauser finder programmet selv. Brugeren gennemser alle klip, før der klippes.",
+    "Cuts: suggest blocks to cut out of the video (a recording of a Teams meeting or webinar). Kinds:",
+    "  start = before the meeting really begins (people joining, sound checks, \"can you hear me\"),",
+    "  pause = interruptions and waiting along the way, end = after the meeting is over (chatter, \"is it off?\"),",
+    "  inappropriate = what should not be kept (private matters, customers or colleagues mentioned in a "
+    "vulnerable context, crude language), offtopic = fooling around and talk off the subject, unclear = what "
+    "cannot be understood, not even in context.",
+    "  One line per cut: <first block>-<last block> <kind> <short reason>, e.g. \"1-14 start People join and test "
+    "the sound\". Cut whole blocks, and be careful: only cut what clearly does not belong. The app finds long "
+    "silent pauses itself. The user reviews every cut before anything is cut. Write the reason in Danish (the user "
+    "reads it).",
 ]
+
+
+def _tasks(src: Language, proofread: bool, targets: list[Language], cut: bool) -> list[str]:
+    tasks = []
+    if proofread:
+        tasks.append(f"correct the {NAMES_EN[src.code]} subtitles (misheard words, especially names and product terms)")
+    if targets:
+        tasks.append("translate them to " + " and ".join(NAMES_EN[t.code] for t in targets))
+    if cut:
+        tasks.append(CUT_TASK)
+    return tasks
 
 
 def prompt(src: Language, proofread: bool, targets: list[Language], part: list[Cue], first_number: int,
            idx: int, n_parts: int, cut: bool = False) -> str:
-    tasks = []
-    order = []
-    if proofread:
-        tasks.append(f"ret de {src.plural} undertekster (fejlhørte ord, især navne og fagord)")
-        order.append(src.code)
-    if targets:
-        tasks.append("oversæt dem til " + " og ".join(t.name.lower() for t in targets))
-        order += [t.code for t in targets]
-    if cut:
-        tasks.append(CUT_TASK)
-    part_note = f"Del {idx + 1} af {n_parts} (blok {first_number}-{first_number + len(part) - 1}). " if n_parts > 1 else ""
+    order = ([src.code] if proofread else []) + [t.code for t in targets]
+    part_note = (f"Part {idx + 1} of {n_parts} (blocks {first_number}-{first_number + len(part) - 1}). "
+                 if n_parts > 1 else "")
     words = known_words()
     rules = word_rules()
     lines = [
-        f"Brug skill'en {SKILL_NAME}, hvis du har den.",
+        f"Use the {SKILL_NAME} skill if you have it.",
         "",
-        f"Undertekster fra programmet Videosprog. {part_note}Opgave: " + ", og ".join(tasks) + ".",
+        f"Subtitles from the app {APP_NAME}. {part_note}Task: " + ", and ".join(_tasks(src, proofread, targets, cut)) + ".",
         "",
-        "Regler:",
-        "- Behold nummerering og tidskoder præcis. Samme antal blokke; slå ikke blokke sammen og del dem ikke.",
-        "- Højst 2 linjer pr. blok og ca. 42 tegn pr. linje. Naturligt talesprog, som man ville sige det højt.",
-        "- Navne på produkter og skærmbilleder staves som i ordlisten og oversættes ikke.",
-        "- Svar direkte i chatten (ingen filer, ingen kode), med ALT i ÉN kodeblok. Før hvert sprog en linje med "
-        "=== og sprogkoden, i denne rækkefølge: " + ", ".join(f"=== {c} ===" for c in order) + ".",
+        "Rules:",
+        "- Keep the numbering and time codes exactly. The same number of blocks; do not merge or split blocks.",
+        "- At most 2 lines per block and about 42 characters per line. Natural spoken language, as one would say it.",
+        "- Product and screen names are spelled as in the word list and not translated.",
+        "- Answer directly in the chat (no files, no code), with EVERYTHING in ONE code block. Before each language "
+        "a line with === and the language code, in this order: " + ", ".join(f"=== {c} ===" for c in order) + ".",
     ]
     if cut:
-        lines += ["- Derefter i samme kodeblok en linje === klip === med dine klipforslag til denne del (ingen linjer, "
-                  "hvis der ikke er noget). Numrene er bloknumrene ovenfor."] + ["  " + r for r in CUT_RULES]
+        lines += ["- Then, in the same code block, a line === cuts === with your cut suggestions for this part (no "
+                  "lines if there are none). The numbers are the block numbers above."] + ["  " + r for r in CUT_RULES]
     lines += [
-        "- Sidst i samme kodeblok: en linje === ordliste === og derefter de fejlhørte ord, du har rettet, én pr. linje: "
-        "forkert => rigtigt. Ingen linjer efter, hvis der ikke var nogen.",
-        "- Ingen tekst før eller efter kodeblokken.",
+        "- Last in the same code block: a line === words === and then the misheard words you corrected, one per "
+        "line: wrong => right. No lines after it if there were none.",
+        "- No text before or after the code block.",
         "",
-        "Eksempel på formatet:",
+        "Example of the format:",
         "```",
         f"=== {order[0]} ===",
         "1",
         "00:00:01,000 --> 00:00:03,000",
         "Tekst",
         "",
-    ] + (["=== klip ===", "1-3 start Folk kommer ind og tester lyd", ""] if cut else []) + [
-        "=== ordliste ===",
+    ] + (["=== cuts ===", "1-3 start Folk kommer ind og tester lyd", ""] if cut else []) + [
+        "=== words ===",
         "memberkær => Membercare",
         "```",
     ]
     if words:
-        lines += ["", "Ordliste (kendte ord): " + ", ".join(words)]
+        lines += ["", "Word list (known words): " + ", ".join(words)]
     if rules:
-        lines += ["Typiske fejlhøringer: " + "; ".join(f"{w} => {r}" for w, r in rules[:60])]
-    lines += ["", f"Underteksterne ({src.name.lower()}):", "```", format_srt(part, first_number).rstrip(), "```"]
+        lines += ["Typical mishearings: " + "; ".join(f"{w} => {r}" for w, r in rules[:60])]
+    lines += ["", f"The subtitles ({NAMES_EN[src.code]}):", "```", format_srt(part, first_number).rstrip(), "```"]
     return "\n".join(lines) + "\n"
 
 # --- Answer -----------------------------------------------------------------------------------
@@ -155,7 +165,9 @@ def prompt(src: Language, proofread: bool, targets: list[Language], part: list[C
 _NAMES = {"da": ["da", "dansk", "danske"], "sv": ["sv", "svensk", "svenske", "svenska"],
           "no": ["no", "nb", "norsk", "norske"], "en": ["en", "engelsk", "engelske", "english"]}
 _LABEL = {alias: code for code, names in _NAMES.items() for alias in names}
-_LABEL.update({"ordliste": "ordliste", "rettelser": "ordliste", "ord": "ordliste", "slut": "slut", "klip": "klip"})
+# Section names, also the Danish ones of skill version 3 and earlier
+_LABEL.update({"words": "words", "corrections": "words", "ordliste": "words", "rettelser": "words", "ord": "words",
+               "cuts": "cuts", "klip": "cuts", "end": "end", "slut": "end"})
 # A marker line: "=== sv ===", "### Svensk", "**srt-sv**", "Svensk:" ... (alone on its line)
 MARKER_RE = re.compile(r"^[ \t>#*=_-]*(?:srt[-_ ])?([A-Za-zæøåÆØÅ]+)[ \t]*(?:\([^)]*\))?[ \t:*=#_-]*$")
 # The format the prompt asks for ("=== sv ==="): a marker wherever it stands.
@@ -171,7 +183,7 @@ def _label(line: str) -> str | None:
 
 
 def _sections(text: str) -> dict[str, list[str]]:
-    """The answer's lines per section: language codes, "ordliste", "klip", "slut"."""
+    """The answer's lines per section: language codes, "words", "cuts", "end"."""
     sections: dict[str, list[str]] = {}
     current = None
     # A marker must start a paragraph, so a subtitle line that just says "Norsk" is not taken for one.
@@ -203,20 +215,20 @@ def parse_answer(text: str) -> tuple[dict[str, list[Cue]], list[tuple[str, str]]
     sections = _sections(text)
     by_lang = {}
     for code, lines in sections.items():
-        if code in ("ordliste", "slut", "klip"):
+        if code in ("words", "end", "cuts"):
             continue
         cues = parse_srt_text("\n".join(lines))
         if cues:
             by_lang[code] = cues
-    return by_lang, parse_words(sections.get("ordliste", []))
+    return by_lang, parse_words(sections.get("words", []))
 
 
 def answer_cuts(text: str) -> list[str] | None:
-    """The lines of the answer's === klip === section (cut suggestions), or None when it has none."""
+    """The lines of the answer's === cuts === section (cut suggestions), or None when it has none."""
     sections = _sections(text)
-    if "klip" not in sections:
+    if "cuts" not in sections:
         return None
-    return [l.strip() for l in sections["klip"] if l.strip()]
+    return [l.strip() for l in sections["cuts"] if l.strip()]
 
 
 def parse_words(lines: list[str]) -> list[tuple[str, str]]:
@@ -270,46 +282,39 @@ def check_answer(part: list[Cue], codes: list[str], text: str, have: dict | None
 # "<video> - fra Claude.txt" in a fixed template, which the user downloads. The program watches the Downloads
 # folder for a file whose first line has the same id, checks it and carries on.
 
-TASK_HEADER = "VIDEOSPROG-OPGAVE"
-ANSWER_HEADER = "VIDEOSPROG-SVAR"
-OLD_ANSWER_HEADER = "VIDEO-UNDERTEKSTER-SVAR"   # files from before the rename
+TASK_HEADER = "SUBADUBALINGO-TASK"
+ANSWER_HEADER = "SUBADUBALINGO-ANSWER"
+OLD_ANSWER_HEADERS = ("VIDEOSPROG-SVAR", "VIDEO-UNDERTEKSTER-SVAR")   # files under the app's earlier names
 
 
 def work_file_text(src: Language, proofread: bool, targets: list[Language], cues: list[Cue], job_id: str,
                    answer_name: str, cut: bool = False) -> str:
     order = ([src.code] if proofread else []) + [t.code for t in targets]
-    tasks = []
-    if proofread:
-        tasks.append(f"ret de {src.plural} undertekster (fejlhørte ord, især navne og fagord)")
-    if targets:
-        tasks.append("oversæt dem til " + " og ".join(t.name.lower() for t in targets))
-    if cut:
-        tasks.append(CUT_TASK)
     words = known_words()
     rules = word_rules()
     lines = [
-        f"{TASK_HEADER} id={job_id} sprog={','.join(order)} blokke={len(cues)}" + (" klip=ja" if cut else ""),
+        f"{TASK_HEADER} id={job_id} languages={','.join(order)} blocks={len(cues)}" + (" cut=yes" if cut else ""),
         "",
-        f"Til Claude: brug skill'en {SKILL_NAME}. Opgave: " + ", og ".join(tasks) + ".",
-        f"Lav svarfilen \"{answer_name}\" som en fil, brugeren kan hente, efter skabelonen i skill'en:",
-        f"første linje \"{ANSWER_HEADER} id={job_id} skill=<versionsnummeret fra skill'en>\", derefter " + ", ".join(f"=== {c} ===" for c in order)
-        + " med alle " + str(len(cues)) + " blokke hver, "
-        + ("så === klip === med dine klipforslag, " if cut else "")
-        + "så === ordliste === og til sidst === slut ===.",
-        "Behold nummerering og tidskoder præcis. Skriv ikke underteksterne i chatten.",
+        f"To Claude: use the {SKILL_NAME} skill. Task: " + ", and ".join(_tasks(src, proofread, targets, cut)) + ".",
+        f"Make the answer file \"{answer_name}\" as a file the user can download, following the template in the skill:",
+        f"first line \"{ANSWER_HEADER} id={job_id} skill=<the version number from the skill>\", then "
+        + ", ".join(f"=== {c} ===" for c in order) + " with all " + str(len(cues)) + " blocks each, "
+        + ("then === cuts === with your cut suggestions, " if cut else "")
+        + "then === words === and finally === end ===.",
+        "Keep the numbering and time codes exactly. Do not write the subtitles in the chat. Talk to the user in Danish.",
     ]
     if cut:
         lines += [""] + CUT_RULES
     if words:
-        lines += ["", "Ordliste (kendte ord): " + ", ".join(words)]
+        lines += ["", "Word list (known words): " + ", ".join(words)]
     if rules:
-        lines += ["Typiske fejlhøringer: " + "; ".join(f"{w} => {r}" for w, r in rules[:80])]
+        lines += ["Typical mishearings: " + "; ".join(f"{w} => {r}" for w, r in rules[:80])]
     lines += ["", f"=== {src.code} ===", format_srt(cues).rstrip(), ""]
     return "\n".join(lines) + "\n"
 
 
 def answer_skill(text: str) -> int | None:
-    """The skill version Claude wrote in the answer file's first line ("skill=3"), or None (no skill, or an old one)."""
+    """The skill version Claude wrote in the answer file's first line ("skill=4"), or None (no skill, or an old one)."""
     first = text.lstrip("\ufeff").split("\n", 1)[0]
     m = re.search(r"\bskill=(\d+)", first)
     return int(m.group(1)) if m else None
@@ -318,7 +323,7 @@ def answer_skill(text: str) -> int | None:
 def answer_id(text: str) -> str | None:
     """The job id from an answer file's first line, or None if it is not an answer file."""
     first = text.lstrip("﻿").split("\n", 1)[0].strip()
-    m = re.match(rf"(?:{ANSWER_HEADER}|{OLD_ANSWER_HEADER})\s+id=(\S+)", first)
+    m = re.match(rf"(?:{'|'.join((ANSWER_HEADER,) + OLD_ANSWER_HEADERS)})\s+id=(\S+)", first)
     return m.group(1) if m else None
 
 
@@ -327,144 +332,148 @@ def check_file_answer(cues: list[Cue], codes: list[str], text: str, cut: bool = 
     """Check a whole answer file: every language complete, the cut section when asked for, and the end marker."""
     have, words, msg = check_answer(cues, codes, text)
     if msg is None and cut and answer_cuts(text) is None:
-        msg = "Svarfilen mangler afsnittet === klip === med klipforslag (det må gerne være tomt)."
-    if msg is None and not re.search(r"^={2,}\s*slut\s*={2,}\s*$", text, re.M | re.I):
-        msg = "Svarfilen slutter ikke med === slut ===, så den er nok ikke blevet skrevet færdig."
+        msg = "Svarfilen mangler afsnittet === cuts === med klipforslag (det må gerne være tomt)."
+    if msg is None and not re.search(r"^={2,}\s*(?:end|slut)\s*={2,}\s*$", text, re.M | re.I):
+        msg = "Svarfilen slutter ikke med === end ===, så den er nok ikke blevet skrevet færdig."
     return have, words, msg
 
 
 def followup_text(answer_name: str, msg: str, cut: bool = False) -> str:
-    """A message the user can paste to Claude when the answer file was incomplete."""
-    return (f"Svarfilen var ikke i orden: {msg}\n"
-            f"Lav venligst \"{answer_name}\" igen, komplet efter skabelonen i skill'en {SKILL_NAME} "
-            f"(alle sprog, alle blokke, {'=== klip ===, ' if cut else ''}=== slut === til sidst).")
+    """A message the user can paste to Claude when the answer file was incomplete (msg is the app's Danish text)."""
+    return (f"The answer file was not right. The app says (in Danish): {msg}\n"
+            f"Please make \"{answer_name}\" again, complete and following the template in the {SKILL_NAME} skill "
+            f"(every language, every block, {'=== cuts ===, ' if cut else ''}=== end === last). Answer me in Danish.")
 
 # --- The skill ------------------------------------------------------------------------------------
 
 SKILL_MD = """---
-name: videosprog
-description: Retter og oversætter undertekster fra programmet "Videosprog" (tidligere "Video undertekster") mellem dansk, svensk, norsk og engelsk, foreslår klip i optagelser af Teams-møder og webinarer (ventetid, pauser, upassende eller uklare udsagn) og lærer EG-fagord som Membercare. Brug den, når brugeren vil have undertekster eller dub af en video eller vil have en optagelse klippet (fx "lav denne video på svensk med norske undertekster", "klip ventetiden væk"), når værktøjerne fra Videosprog (start_video, vent, hent_tekst, gem_tekst) er tilgængelige, når brugeren sender en fil "... - til Claude.txt" (første linje VIDEOSPROG-OPGAVE), eller indsætter undertekster fra Videosprog.
+name: subadubalingo
+description: Corrects and translates subtitles from the Windows app "SubaDubaLingo" (formerly "Videosprog") between Danish, Swedish, Norwegian and English, suggests cuts in recordings of Teams meetings and webinars (waiting, breaks, inappropriate or unclear passages) and learns product terms such as Membercare. Use it when the user wants subtitles or a dub of a video or wants a recording cut (e.g. "lav denne video på svensk med norske undertekster", "klip ventetiden væk"), when the SubaDubaLingo tools (start_video, wait, get_text, save_text) are available, when the user sends a file "... - til Claude.txt" (first line SUBADUBALINGO-TASK or VIDEOSPROG-OPGAVE), or pastes subtitles from SubaDubaLingo.
 ---
 
-# Video-oversættelse
+# SubaDubaLingo: subtitles, dubs and cuts
 
-**Skill-version: 3.** Programmet spørger efter dette nummer for at se, om brugeren har den nyeste skill: skriv
-det i svarfilens første linje (`skill=3`) og send det med i `hent_tekst` (`skill: 3`).
+**Skill version: 4.** The app asks for this number to see whether the user has the newest skill: write it in the
+answer file's first line (`skill=4`) and pass it to `get_text` (`skill: 4`).
 
-Brugeren laver undertekster og dub af videoer i programmet "Videosprog" (tidligere "Video undertekster"). Programmet
-skriver teksten med talegenkendelse, og du retter og oversætter den. Programmet læser dit svar
-maskinelt, så formatet skal følges præcist.
+The user makes subtitles and dubs of videos in the app SubaDubaLingo. The app writes the text with speech
+recognition; you correct and translate it. The app reads your answer by machine, so follow the format exactly.
+**Talk to the user in Danish** (they are not technical); everything for the app follows the format below.
 
-## Opgaven
-Gør det, opgaven siger (sprogkoder: da, sv, no, en):
-- **Ret** teksten på originalsproget: fejlhørte ord, især navne, produkter og skærmbilleder (se
-  ordlisten nedenfor og ordlisten i opgaven). Ret ikke talesprog til skriftsprog, og ændr ikke indholdet.
-- **Oversæt** til de sprog, opgaven nævner. Naturligt talesprog, som en svensker/nordmand ville sige det.
-  Produktnavne og navne på skærmbilleder oversættes ikke.
-- Samme nummerering og præcis samme tidskoder som i originalen. Samme antal blokke; slå aldrig blokke
-  sammen og del dem ikke, heller ikke midt i en sætning. Højst 2 linjer pr. blok, ca. 42 tegn pr. linje.
-- **Foreslå klip**, når opgaven beder om det (`klip=ja`, eller "foreslå, hvad der skal klippes væk"). Videoen er
-  typisk en optagelse af et Teams-møde eller webinar. Foreslå hele blokke, én linje pr. klip:
-  `<første blok>-<sidste blok> <kategori> <kort begrundelse>`, fx `1-14 start Folk kommer ind og tester lyd`.
-  Kategorier:
-  - `start`: før mødet reelt går i gang (folk kommer ind, lydtest, "kan I høre mig?", "vi venter lige på et par stykker")
-  - `pause`: afbrydelser og ventetid undervejs ("to sekunder, min skærm frøs")
-  - `slut`: efter mødet er slut ("tak for i dag" og alt derefter, "er optagelsen slukket?")
-  - `upassende`: noget, der ikke skal gemmes for altid: private forhold, kunder eller kolleger omtalt i en
-    sårbar sammenhæng, grove udtryk
-  - `offtopic`: fjol og snak, der ikke handler om emnet
-  - `uklart`: noget, der ikke kan forstås, heller ikke i sammenhængen
-  Vær forsigtig: klip kun det, der tydeligt ikke hører til, og aldrig midt i en forklaring, der fortsætter.
-  Lange stille pauser finder programmet selv. Brugeren ser alle klip på en tidslinje og godkender dem, før der
-  klippes. Tidskoderne beholdes uændret; programmet flytter dem selv efter klipningen.
+## The task
+Do what the task says (language codes: da, sv, no, en):
+- **Correct** the text in the spoken language: misheard words, especially names, products and screen names (see
+  the word list below and the one in the task). Do not turn spoken language into written language, and do not
+  change the content.
+- **Translate** to the languages the task names. Natural spoken language, as a Swede/Norwegian would say it.
+  Product names and screen names are not translated.
+- The same numbering and exactly the same time codes as the original. The same number of blocks; never merge
+  blocks and do not split them, not even mid-sentence. At most 2 lines per block, about 42 characters per line.
+- **Suggest cuts** when the task asks for it (`cut=yes`, or "suggest what to cut out"). The video is usually a
+  recording of a Teams meeting or webinar. Suggest whole blocks, one line per cut:
+  `<first block>-<last block> <kind> <short reason>`, e.g. `1-14 start Folk kommer ind og tester lyd` (the reason
+  in Danish: the user reads it). Kinds:
+  - `start`: before the meeting really begins (people joining, sound checks, "kan I høre mig?", "vi venter lige")
+  - `pause`: interruptions and waiting along the way ("to sekunder, min skærm frøs")
+  - `end`: after the meeting is over ("tak for i dag" and everything after, "er optagelsen slukket?")
+  - `inappropriate`: what should not be kept forever: private matters, customers or colleagues mentioned in a
+    vulnerable context, crude language
+  - `offtopic`: fooling around and talk that is not about the subject
+  - `unclear`: what cannot be understood, not even in context
+  Be careful: only cut what clearly does not belong, and never in the middle of an explanation that goes on.
+  The app finds long silent pauses itself. The user sees every cut on a timeline and approves them before
+  anything is cut. Keep the time codes unchanged; the app moves them after cutting.
 
-## Hvis du har værktøjerne fra Videosprog (det bedste)
-Har du værktøjerne `start_video`, `vent`, `status`, `hent_tekst` og `gem_tekst`, så klar det hele i chatten:
-1. Brugeren skriver fx "lav denne video på svensk med norske undertekster: C:\\...\\video.mp4". Kald
-   `start_video` (video, tale, undertekster, evt. talesprog). Kender du ikke stien, så brug `find_videoer`
-   eller spørg. Vil brugeren have videoen klippet først (fx "klip ventetiden og pauserne væk", "fjern det,
-   der ikke skal med"), så sæt `klip` til true. Kun klip, uden nye sprog: `tale` original og `undertekster` ingen.
-2. Kald `vent` igen og igen. Skriv en kort linje til brugeren ved hver 10 % (fx "40 % - lytter videoen
-   igennem"). Programmet kan være en time om at lytte; bliv ved, og er du blevet afbrudt, så samler `status`
-   op igen.
-3. Når jobbet er i `claude_turn`: hent teksten med `hent_tekst` i bidder (ca. 120 blokke, og altid med
-   `skill: 3`), ret og oversæt
-   efter reglerne ovenfor, og aflever hvert sprog med `gem_tekst` (samme numre og tidskoder). Svaret siger,
-   hvad der mangler eller er forkert; ret det. Rettede fejlhørte ord sendes med i `ordliste`
-   (`forkert => rigtigt`). Skal videoen klippes, så læs hele teksten og aflever dine klipforslag med
-   `foreslaa_klip` (bloknumre som ovenfor; `faerdig` true til sidst, også hvis du ikke har nogen forslag).
-   Når klipforslagene og alle sprog er afleveret, viser programmet klippene for brugeren på en tidslinje
-   (`review_cuts`). Fortæl kort, hvad du har foreslået at klippe (tid og hvorfor). Brugeren kan rette i
-   programmet eller sige det til dig: "behold det ved 14:20" -> `godkend_klip` med `behold` = klippets nummer;
-   "klip også 22:10-22:40" -> `godkend_klip` med `tilfoej`. `godkend_klip` uden `vent_paa_brugeren` klipper med det
-   samme, så spørg brugeren, om klippene er i orden, før du godkender.
-4. Når alt er afleveret, laver programmet resten. Kald `vent` til "færdig", og fortæl brugeren navnet på den
-   nye video, og at den kan afspilles i programmet.
+## If you have the SubaDubaLingo tools (the best way)
+With the tools `start_video`, `wait`, `status`, `get_text`, `save_text`, `suggest_cuts`, `approve_cuts`, `cancel`
+and `find_videos`, do it all in the chat:
+1. The user writes e.g. "lav denne video på svensk med norske undertekster: C:\\...\\video.mp4". Call
+   `start_video` (video, speech, subtitles, maybe spoken_language). If you do not know the path, use
+   `find_videos` or ask. If the user wants the video cut first (e.g. "klip ventetiden og pauserne væk", "fjern
+   det, der ikke skal med"), set `cut` to true. Only cutting, no new languages: `speech` original and `subtitles`
+   none.
+2. Call `wait` again and again. Write a short line to the user at every 10 % (e.g. "40 % - lytter videoen
+   igennem"). Listening can take an hour; keep going, and if you were interrupted, `status` picks it up again.
+3. When the job is in `claude_turn`: fetch the text with `get_text` in chunks (about 120 blocks, and always with
+   `skill: 4`), correct and translate by the rules above, and hand each language back with `save_text` (same
+   numbers and time codes). The answer says what is missing or wrong; fix it. Pass corrected misheard words in
+   `words` (`wrong => right`). If the video is to be cut, read the whole text and hand in your suggestions with
+   `suggest_cuts` (block numbers as above; `done` true at the end, also when you have none).
+   When the cut suggestions and every language are in, the app shows the cuts to the user on a timeline
+   (`review_cuts`). Tell the user briefly what you suggested cutting (time and why). The user can change it in
+   the app or tell you: "behold det ved 14:20" -> `approve_cuts` with `keep` = the cut's number; "klip også
+   22:10-22:40" -> `approve_cuts` with `add`. `approve_cuts` without `wait_for_user` cuts at once, so ask the user
+   whether the cuts are right before you approve.
+4. When everything is in, the app does the rest. Call `wait` until "done", and tell the user the name of the new
+   video and that it can be played from the app.
+If the user wants to stop, or a job hangs and blocks the app, use `cancel` (ask first).
 
-## A. Brugeren sender en fil "... - til Claude.txt"
-Første linje er `VIDEOSPROG-OPGAVE id=<id> sprog=<koder> blokke=<antal>`.
+## A. The user sends a file "... - til Claude.txt"
+The first line is `SUBADUBALINGO-TASK id=<id> languages=<codes> blocks=<count>` (older versions of the app:
+`VIDEOSPROG-OPGAVE id=<id> sprog=<codes> blokke=<count>`, answer those with `VIDEOSPROG-SVAR` and the Danish
+section names `=== klip ===`, `=== ordliste ===`, `=== slut ===`).
 
-1. Læs filen med kode. Underteksterne står efter linjen `=== <originalsprog> ===`.
-2. Lav svarfilen med præcis det navn, opgaven angiver (`... - fra Claude.txt`), som en fil brugeren kan
-   hente. Arbejd i bidder: ret og oversæt højst ca. 100 blokke ad gangen, og skriv (append) hver bid til
-   filen med kode, til alle blokke er med. Skriv ikke underteksterne i chatten.
-3. Skabelon for svarfilen:
+1. Read the file with code. The subtitles follow the line `=== <spoken language> ===`.
+2. Make the answer file with exactly the name the task gives (`... - fra Claude.txt`), as a file the user can
+   download. Work in chunks: correct and translate at most about 100 blocks at a time, and append each chunk to
+   the file with code until every block is in. Do not write the subtitles in the chat.
+3. Template for the answer file:
 
 ```
-VIDEOSPROG-SVAR id=<samme id som i opgaven> skill=3
+SUBADUBALINGO-ANSWER id=<the same id as in the task> skill=4
 === da ===
 1
 00:00:01,000 --> 00:00:03,500
 Velkommen til webinaret om Membercare.
 
-(... alle blokke ...)
+(... every block ...)
 === sv ===
 1
 00:00:01,000 --> 00:00:03,500
 Välkommen till webbinariet om Membercare.
 
-(... alle blokke ...)
-=== klip ===
+(... every block ...)
+=== cuts ===
 1-14 start Folk kommer ind og tester lyd
 212-218 offtopic Snak om vejret
-=== ordliste ===
+=== words ===
 memberkær => Membercare
-=== slut ===
+=== end ===
 ```
 
-   - Én sektion pr. sprog i den rækkefølge, `sprog=` angiver. Originalsproget med (rettet), hvis det står
-     i `sprog=`.
-   - `=== klip ===` kun når første linje har `klip=ja`: dine klipforslag, se "Foreslå klip" ovenfor (tom, hvis
-     der ikke er noget at klippe).
-   - `=== ordliste ===`: de fejlhørte ord, du har rettet, én pr. linje `forkert => rigtigt`. Programmet
-     husker dem og retter dem selv næste gang.
-   - `=== slut ===` som sidste linje viser programmet, at filen er færdig.
-4. Tjek med kode, at hver sektion har præcis `blokke=` blokke med de samme tidskoder som originalen. Ret
-   det, hvis ikke.
-5. Svar i chatten med én kort sætning: at filen er klar, og at brugeren skal klikke på den og hente den
-   (Download). Programmet finder den selv i Overførsler-mappen.
+   - One section per language in the order `languages=` gives. The spoken language too (corrected) when it is
+     in `languages=`.
+   - `=== cuts ===` only when the first line has `cut=yes`: your cut suggestions, see "Suggest cuts" above
+     (empty if there is nothing to cut).
+   - `=== words ===`: the misheard words you corrected, one per line `wrong => right`. The app remembers them
+     and corrects them itself next time.
+   - `=== end ===` as the last line tells the app the file is complete.
+4. Check with code that each section has exactly `blocks=` blocks with the same time codes as the original. Fix
+   it if not.
+5. Answer in the chat with one short sentence in Danish: the file is ready, and the user should click it and
+   download it (Download). The app finds it in the Downloads folder by itself.
 
-## B. Brugeren indsætter undertekster direkte i chatten (reserve)
-Beskeden har en opgave og en kodeblok med underteksterne, evt. "Del x af y".
-- Svar direkte i chatten, uden filer og kode, med ALT i ÉN kodeblok: en linje `=== <kode> ===` før hvert
-  sprog i den angivne rækkefølge, derefter `=== ordliste ===` med rettede ord. Ingen tekst før eller efter.
+## B. The user pastes subtitles directly into the chat (fallback)
+The message has a task and a code block with the subtitles, maybe "Part x of y".
+- Answer directly in the chat, without files or code, with EVERYTHING in ONE code block: a line
+  `=== <code> ===` before each language in the given order, then `=== words ===` with corrected words. No text
+  before or after.
 
-## Ordliste
-Se [ordliste.md](ordliste.md). Ordene staves præcis sådan på alle sprog.
+## Word list
+See [words.md](words.md). These words are spelled exactly like this in every language.
 """
-
 
 def skill_zip(dest: Path) -> Path:
     """Write the skill (with the current word list) as a zip for Claude > Settings > Skills > Upload."""
     words = known_words()
     rules = word_rules()
-    ordliste = ["# Ordliste", "", "Kendte ord (staves sådan på alle sprog):", ""]
-    ordliste += [f"- {w}" for w in words] or ["- Membercare"]
-    ordliste += ["", "Typiske fejlhøringer fra talegenkendelsen:", ""]
-    ordliste += [f"- {w} => {r}" for w, r in rules]
+    word_list = ["# Word list", "", "Known words (spelled exactly like this in every language):", ""]
+    word_list += [f"- {w}" for w in words] or ["- Membercare"]
+    word_list += ["", "Typical mishearings by the speech recognition:", ""]
+    word_list += [f"- {w} => {r}" for w, r in rules]
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr(f"{SKILL_NAME}/SKILL.md", SKILL_MD)
-        z.writestr(f"{SKILL_NAME}/ordliste.md", "\n".join(ordliste) + "\n")
+        z.writestr(f"{SKILL_NAME}/words.md", "\n".join(word_list) + "\n")
     dest.write_bytes(buf.getvalue())
     return dest

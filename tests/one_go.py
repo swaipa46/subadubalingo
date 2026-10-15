@@ -80,9 +80,9 @@ def fake_answer(codes, src_code, cues, first=1, header=None, end=True, cut=False
         blocks.append(f"=== {code} ===\n" + format_srt(fixed, first))
     text = ("" if header is None else header + "\n") + "\n".join(blocks)
     if cut:
-        text += "=== klip ===\n" + "".join(l + "\n" for l in fake_cuts(n_total or len(cues), first, len(cues)))
-    text += "=== ordliste ===\nTestingen => Testing\n"
-    return text + ("=== slut ===\n" if end else "")
+        text += "=== cuts ===\n" + "".join(l + "\n" for l in fake_cuts(n_total or len(cues), first, len(cues)))
+    text += "=== words ===\nTestingen => Testing\n"
+    return text + ("=== end ===\n" if end else "")
 
 
 def fake_claude_file(d: gui.ClaudePanel):

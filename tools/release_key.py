@@ -1,5 +1,6 @@
 """The release signing key (Ed25519). The private key never leaves this pc unencrypted: it is stored with
-Windows DPAPI (only this Windows user can decrypt it) in %USERPROFILE%\\.videosprog-release\\signing-key.dpapi.
+Windows DPAPI (only this Windows user can decrypt it) in %USERPROFILE%\\.subadubalingo-release\\signing-key.dpapi
+(the folder was .videosprog-release before the rename; it is moved on first use).
 
     python tools/release_key.py new          make the key; prints the public key for app/subadubalingo/update.py and writes a
                                              one-time backup file to move into a password manager
@@ -22,7 +23,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 from subadubalingo import ed25519  # noqa: E402
 from subadubalingo.update import manifest_bytes  # noqa: E402
 
-KEY_DIR = Path.home() / ".videosprog-release"
+KEY_DIR = Path.home() / ".subadubalingo-release"
+OLD_KEY_DIR = Path.home() / ".videosprog-release"
+if not KEY_DIR.exists() and OLD_KEY_DIR.is_dir():
+    OLD_KEY_DIR.rename(KEY_DIR)
 KEY_FILE = KEY_DIR / "signing-key.dpapi"
 BACKUP_FILE = KEY_DIR / "BACKUP-signing-key.txt"
 
@@ -36,7 +40,7 @@ def _dpapi(data: bytes, protect: bool) -> bytes:
     buf = ctypes.create_string_buffer(data, len(data))
     blob_in, blob_out = _Blob(len(data), ctypes.cast(buf, ctypes.POINTER(ctypes.c_char))), _Blob()
     fn = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
-    ok = fn(ctypes.byref(blob_in), "Videosprog release key" if protect else None, None, None, None, 0,
+    ok = fn(ctypes.byref(blob_in), "SubaDubaLingo release key" if protect else None, None, None, None, 0,
             ctypes.byref(blob_out))
     if not ok:
         raise OSError(f"DPAPI failed ({ctypes.GetLastError()})")
@@ -65,7 +69,7 @@ def main(argv):
         secret = secrets.token_bytes(32)
         _save(secret)
         BACKUP_FILE.write_text(
-            "Videosprog release signing key (Ed25519, private). Put this in your password manager, then delete "
+            "SubaDubaLingo release signing key (Ed25519, private). Put this in your password manager, then delete "
             "this file.\nWithout it, a new pc cannot publish updates the installed copies accept.\n\n"
             f"{secret.hex()}\n", encoding="utf-8")
         print(f"Key made and stored with DPAPI: {KEY_FILE}")

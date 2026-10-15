@@ -1,6 +1,6 @@
 """An update installed while Claude runs the MCP server: start OLD_DIR's exe as server from a copy, swap the copy's
 folder for NEW_DIR the way installer.install() does (rename, then the new folder in place), and call hent_tekst.
-Before v1.9.9 that gave zlib error -3; now the server must say to restart Claude.
+Before v1.9.9 that gave zlib error -3; now the server must say to restart Claude. Kept for that history (OLD_DIR/NEW_DIR are builds of one name).
   python tests/update_test.py OLD_DIR NEW_DIR JOB_ID [--expect zlib|restart]"""
 import json
 import shutil
@@ -15,7 +15,7 @@ base = Path(tempfile.mkdtemp(prefix="sdl-update-"))
 inst = base / "Videosprog"
 print("copying", old_dir)
 shutil.copytree(old_dir, inst, ignore=lambda d, n: ["modeller"] if Path(d) == old_dir else [])
-p = subprocess.Popen([str(inst / "Videosprog.exe"), "--mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+p = subprocess.Popen([str(next(inst.glob("*.exe"))), "--mcp"], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
 rid = 0
 
 

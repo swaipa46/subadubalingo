@@ -5,7 +5,7 @@ uden at gå i stykker, mens Claude kører MCP-serveren (se zlib-fejlen 15.10.202
 
 ## 1. Hvor ligger udgivelserne?
 
-**Besluttet 15.10.2026:** som GitHub Releases i det offentlige repo `swaipa46/videosprog`, hvor koden også
+**Besluttet 15.10.2026:** som GitHub Releases i det offentlige repo `swaipa46/subadubalingo`, hvor koden også
 ligger. Det kræver ingen login, ingen SharePoint og ingen opsætning hos brugeren. Manifestet signeres med ed25519
 (`app/subadubalingo/ed25519.py`, testet mod RFC 8032). Overvejelserne herunder er bevaret.
 

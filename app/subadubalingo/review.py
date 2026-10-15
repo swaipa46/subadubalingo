@@ -378,7 +378,7 @@ class CutReview(ttk.Frame):
         elif d["mode"] == "new" and d["moved"]:
             a, b = sorted((self._snap(d["t0"]), t))
             if d["cut"] is None:
-                d["cut"] = Cut(a, max(b, a + 1), "manuel", "Dit eget klip", True, "user")
+                d["cut"] = Cut(a, max(b, a + 1), "manual", "Dit eget klip", True, "user")
                 self.cuts.append(d["cut"])
                 self.sel = d["cut"]
             d["cut"].start, d["cut"].end = a, max(b, a + 1)

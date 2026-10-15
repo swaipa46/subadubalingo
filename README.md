@@ -1,4 +1,28 @@
-# Videosprog (tidligere Video undertekster)
+# SubaDubaLingo (tidligere Videosprog og Video undertekster)
+
+> **2.0.0 (15.10.2026): nyt navn og ét domænesprog.** Appen hedder SubaDubaLingo (*sub*titles, *dub*, *lingo*).
+> - **Engelsk domænesprog:** kode, MCP-værktøjer, protokollen til Claude (overskrifter, sektioner, klip-typer), skill
+>   og prompts. Ordliste: [docs/glossary.md](docs/glossary.md).
+> - **Dansk:** brugerfladen, outputfilerne ved siden af videoen og brugervejledningen.
+> - **Nye navne:**
+>   - Python-pakken `vu` hedder `subadubalingo`.
+>   - Datamappen er `~/.subadubalingo`, med filerne `corrections.txt`, `text_state.json` og `models/`.
+>   - Programmet installeres i `Programs\SubaDubaLingo\<version>`.
+>   - Claude-konfigurationen og skill'en hedder `subadubalingo`; skill'en er version 4.
+>   - Svarfilen begynder med `SUBADUBALINGO-ANSWER` og bruger sektionerne `=== words/cuts/end ===`.
+>   - MCP-værktøjerne hedder `start_video`, `wait`, `status`, `get_text`, `save_text`, `suggest_cuts`,
+>     `approve_cuts`, `cancel` og `find_videos`.
+>   - Klip-typerne er `start`, `pause`, `end`, `inappropriate`, `offtopic`, `unclear` og `manual`.
+> - **Overgang (testet i sandkasse med `tests/install_test.py dist-1.9.10/Videosprog dist-2.0.0/SubaDubaLingo`):**
+>   - Datamappen omdøbes, og er den i brug, kopieres de små filer, og modellerne flyttes ved en senere start.
+>   - Genveje og fastgjorte ikoner peges om, og Claudes `videosprog`-indgang erstattes.
+>   - En kørende 1.9.10-server beder om genstart af Claude.
+>   - `Programs\Videosprog` fjernes, når intet kører fra den.
+>   - Gamle danske svarfiler og klip-ord læses stadig.
+>   - Skill-guiden beder om at slette den gamle skill "videosprog".
+>
+> Afsnittene herunder er skrevet før 2.0 og bruger de gamle navne, hvor de beskriver historik.
+
 
 Windows-program til ikke-tekniske brugere: undertekster (.srt og indbrændt) og dub med syntetisk stemme,
 alt lokalt. Brugeren vælger kun video, talesprog, ny tale og nye undertekster; programmet genbruger eller laver selv
@@ -23,17 +47,18 @@ lærte ord. Claude-tjekket tekst huskes i `claude-tjekket.json`, så den ikke se
   - Piper 2023.11.14-2 (`--json-input`, én kørsel for alle blokke; for lange blokke indtales igen med
     `--length_scale` i trin af 0,1 op til 1,5x).
   - ffmpeg 9.0.2 essentials fra gyan.dev (libass, libx264, Quick Sync). Indbrænding prøver `h264_qsv` først.
-- Data (indstillinger, rettelser, tekststatus, jobs, log) ligger i `%USERPROFILE%\.videosprog` (skjult), ikke i
+- Data (indstillinger, rettelser, tekststatus, jobs, log) ligger i `%USERPROFILE%\.subadubalingo` (skjult), ikke i
   AppData: Claude desktop er MSIX, og alt hvad dens børneprocesser (MCP-serveren og appen startet af den) skriver
-  under AppData, havner i Claudes pakkemappe. Modeller hentes til `...\.videosprog\modeller`; `modeller\` ved
-  exe'en og den gamle `%LOCALAPPDATA%\VideoUndertekster\modeller` bruges også.
+  under AppData, havner i Claudes pakkemappe. Modeller hentes til `...\.subadubalingo\models`; `models\` ved
+  exe'en og modelmapperne under de tidligere navne bruges også, indtil de er flyttet.
 
 ## Claude-chat via MCP (v1.7)
-`Videosprog.exe --mcp` er en MCP-server (JSON-RPC over stdio, `app/subadubalingo/mcp_server.py`, ingen ekstra pakker).
+`SubaDubaLingo.exe --mcp` er en MCP-server (JSON-RPC over stdio, `app/subadubalingo/mcp_server.py`, ingen ekstra pakker).
 Indstillinger -> "Forbind med Claude" skriver den ind i `%APPDATA%\Claude\claude_desktop_config.json` (backup ved
-siden af). Værktøjer: `start_video` (starter appen, hvis den ikke kører), `vent` (lang-poll: svarer ved hver 10 %,
-Claudes tur, pause, fejl, færdig, ellers efter 45 s), `status`, `hent_tekst`, `gem_tekst` (validerer tidskoder med
-det samme), `find_videoer`, `foreslaa_klip`, `godkend_klip`, `annuller`. Appen og serveren deler jobs via filer (`app/subadubalingo/jobs.py`); kun appen skriver status.
+siden af). Værktøjer: `start_video` (starter appen, hvis den ikke kører), `wait` (lang-poll: svarer ved hver 10 %,
+Claudes tur, pause, fejl, færdig, ellers efter 45 s), `status`, `get_text`, `save_text` (validerer tidskoder med
+det samme), `find_videos`, `suggest_cuts`, `approve_cuts` og `cancel` (hed `vent`, `hent_tekst`, `gem_tekst`,
+`find_videoer`, `foreslaa_klip`, `godkend_klip` og `annuller` før 2.0). Appen og serveren deler jobs via filer (`app/subadubalingo/jobs.py`); kun appen skriver status.
 Claude-kortet viser "Claude arbejder" med en bjælke pr. sprog. Virker i Claude Chat (lokale MCP-servere er tilladt i
 EG-org); Cowork er ikke testet. Test: `tests/mcp_test.py` spiller Claude.
 - **`annuller` (v1.9.9):** stopper et job (standard: det, appen arbejder på). MCP-serveren skriver
@@ -97,7 +122,7 @@ EG-org); Cowork er ikke testet. Test: `tests/mcp_test.py` spiller Claude.
 ```
 python -m venv .venv; .venv\Scripts\pip install pyinstaller numpy
 .\fetch-tools.ps1
-.\build.ps1        # -> dist\Videosprog\ og dist\Videosprog <version>.zip
+.\build.ps1        # -> dist\SubaDubaLingo\ og dist\SubaDubaLingo <version>.zip
 ```
 Tests: `tests/smoke.py` (motoren uden GUI), `tests/gui_flow.py` (App-objektet med alle fire valg),
 `tests/pause_test.py` (pause fryser whisper, luk under pause dræber den).
@@ -131,8 +156,11 @@ Klip 5:00-6:00 af superbrugerwebinaret (60 s lyd):
   melder det, hvis et værktøj blokeres.
 - Test fra en Claude desktop-session: alt, hvad sessionen skriver under `%LOCALAPPDATA%`, havner i
   `%LOCALAPPDATA%\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\` (MSIX), så modeller, log og indstillinger
-  derfra ses ikke af en exe, man selv starter. Læg testmodeller i `dist\Videosprog\modeller\`
-  (forsvinder ved næste build) eller `app\modeller\` (kørsel fra kilde).
+  derfra ses ikke af en exe, man selv starter. Læg testmodeller i `dist\SubaDubaLingo\models\`
+  (forsvinder ved næste build) eller `app\models\` (kørsel fra kilde).
+- Kørsel fra kilde (også testene) bruger den rigtige profil: første import af `subadubalingo.common` laver
+  `~/.subadubalingo` og kopierer indstillinger og ordliste fra `~/.videosprog` (sket på Kaspers pc 15.10.2026, hvor
+  omdøbningen fejlede, fordi Claudes gamle MCP-servere holdt loggen åben; `~/.videosprog` er urørt).
 - Ingen drag-and-drop (tkinter kræver tkdnd); brug "Vælg video...".
 - Brugerflade (v1.9.8, gennemgang 14.10.2026): alle dialoger åbner
   midt over appen (`place_over`, inden for skærmens arbejdsområde, `work_area`); beskedbokse har altid et

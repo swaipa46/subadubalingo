@@ -1,4 +1,4 @@
-"""Jobs shared between the app and the MCP server (Claude), through files under data_dir()/jobs (%USERPROFILE%\\.videosprog\\jobs).
+"""Jobs shared between the app and the MCP server (Claude), through files under data_dir()/jobs (%USERPROFILE%\\.subadubalingo\\jobs).
 
     jobs/inbox/<id>.json           a request from Claude: video, languages (the app picks it up when it is free)
     jobs/<id>/job.json             the request, once the app has taken it
@@ -6,7 +6,7 @@
     jobs/<id>/source.json          the text in the spoken language (blocks), when it is Claude's turn
     jobs/<id>/task.json            what Claude must do: codes, block count, words
     jobs/<id>/parts/<code>.json    blocks Claude has delivered so far (written by the MCP server)
-    jobs/<id>/parts/klip.json      cut suggestions Claude has delivered (lines, and whether it is done)
+    jobs/<id>/parts/cuts.json      cut suggestions Claude has delivered (lines, and whether it is done)
     jobs/<id>/complete.json        all languages (and cut suggestions) complete: the app carries on with these
     jobs/<id>/cuts.json            written by the app while the user reviews the cuts: the current list
     jobs/<id>/cut_decision.json    written by the MCP server: cuts to keep/add, and whether to cut now
@@ -22,16 +22,16 @@ from pathlib import Path
 
 from .common import Cue, data_dir, log
 
-STATES = {
-    "queued": "venter på at appen tager den",
-    "running": "arbejder",
-    "claude_turn": "Claudes tur: ret og oversæt teksten",
-    "review_cuts": "brugeren gennemser klippene i appen",
-    "paused": "sat på pause i appen",
-    "done": "færdig",
-    "error": "stoppet med en fejl",
-    "cancelled": "annulleret i appen",
-    "busy": "appen er optaget af en anden video",
+STATES = {   # told to Claude by the MCP server
+    "queued": "waiting for the app to take it",
+    "running": "working",
+    "claude_turn": "Claude's turn: correct and translate the text",
+    "review_cuts": "the user is reviewing the cuts in the app",
+    "paused": "paused in the app",
+    "done": "done",
+    "error": "stopped with an error",
+    "cancelled": "cancelled",
+    "busy": "the app is busy with another video",
 }
 
 

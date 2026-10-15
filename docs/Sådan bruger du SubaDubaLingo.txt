@@ -1,12 +1,16 @@
-VIDEOSPROG - undertekster og dubbing af videoer
-===============================================
+SUBADUBALINGO - undertekster og dubbing af videoer
+==================================================
+(Programmet hed Videosprog indtil version 2.0.)
 
 Programmet laver undertekster til videoer og kan dubbe dem til svensk, norsk,
 dansk eller engelsk med en computerstemme. Det kan også klippe ventetid,
 pauser og udsagn, der ikke skal med, ud af fx en Teams-optagelse. Alt sker på din egen pc. Videoen
 sendes ingen steder hen.
 
-Start programmet ved at dobbeltklikke på "Videosprog.exe" i mappen.
+Start programmet ved at dobbeltklikke på "SubaDubaLingo.exe" i mappen.
+Har du Videosprog i forvejen, tilbyder den at opdatere: tryk "Opdatér". Dine
+indstillinger og ord bliver bevaret, og genvejene bliver flyttet. Er Claude
+åben, så luk Claude helt bagefter og åbn den igen.
 Første gang tilbyder programmet at installere sig selv; tryk "Installér".
 Tip: højreklik på den og vælg "Fastgør til Start", så er den nem at finde.
 
@@ -22,8 +26,8 @@ Læg også Claude-skill'en ind i Claude (én gang). Programmet viser selv
 vinduet "Læg Claude-skill'en ind" med fire trin:
 1. Klik "Gem skill-filen". Den lægges i din Overførsler-mappe.
 2. Åbn Claude, og gå til Customize -> Skills.
-3. Slet den gamle "videosprog", hvis den er der.
-4. Klik "Upload skill", og vælg "videosprog-skill.zip".
+3. Slet de gamle "subadubalingo" og "videosprog", hvis de er der.
+4. Klik "Upload skill", og vælg "subadubalingo-skill.zip".
 Klik så "Jeg har gjort det". Skill'en lærer Claude reglerne og EG's fagord
 (fx Membercare).
 

@@ -72,7 +72,7 @@ for code in d.codes:
     prefix = "" if code == d.src.code else f"{code.upper()}: "
     blocks.append(f"=== {code} ===\n" + format_srt([engine.Cue(c.start, c.end, prefix + c.text) for c in src]))
 (downloads / d.answer_name).write_text(f"{claude.ANSWER_HEADER} id={job}\n" + "\n".join(blocks)
-                                       + "=== ordliste ===\n=== slut ===\n", encoding="utf-8")
+                                       + "=== words ===\n=== end ===\n", encoding="utf-8")
 pump(1.3)
 take("5-claude-found.png")
 while app._busy():
