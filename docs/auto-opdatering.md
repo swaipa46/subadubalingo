@@ -7,7 +7,7 @@ uden at gå i stykker, mens Claude kører MCP-serveren (se zlib-fejlen 15.10.202
 
 **Besluttet 15.10.2026:** som GitHub Releases i det offentlige repo `swaipa46/videosprog`, hvor koden også
 ligger. Det kræver ingen login, ingen SharePoint og ingen opsætning hos brugeren. Manifestet signeres med ed25519
-(`app/vu/ed25519.py`, testet mod RFC 8032). Overvejelserne herunder er bevaret.
+(`app/subadubalingo/ed25519.py`, testet mod RFC 8032). Overvejelserne herunder er bevaret.
 
 Appen skal kunne læse et lille manifest og zip-filen uden at brugeren logger ind. Det er den eneste del, der ikke
 kan løses i koden.
@@ -94,6 +94,6 @@ opdateringer sker det oftere, fordi Claude næsten altid kører. Løsningen er a
 1. Kasper vælger, hvor udgivelserne skal ligge, og om der skal signeres med ed25519 eller Authenticode.
 2. ~~Versionsmapper og `current.txt` i installer.py, inkl. overgang og oprydning.~~ Færdig i v1.9.10
    (`tests/install_test.py`). `Videosprog.exe --install` er klar til at blive kaldt af opdateringen.
-3. Manifest, download og verifikation (`vu/update.py`), og test mod en lokal mappe.
+3. Manifest, download og verifikation (`subadubalingo/update.py`), og test mod en lokal mappe.
 4. Banner og indstillinger i GUI'en.
 5. `publish.ps1`.

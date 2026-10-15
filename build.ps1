@@ -5,7 +5,7 @@ param([string]$Out = 'dist')
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 $name = 'Videosprog'
-$version = (Select-String -Path app\vu\common.py -Pattern 'APP_VERSION = "(.+)"').Matches[0].Groups[1].Value
+$version = (Select-String -Path app\subadubalingo\common.py -Pattern 'APP_VERSION = "(.+)"').Matches[0].Groups[1].Value
 foreach ($t in 'bin\whisper\whisper-cli.exe', 'bin\piper\piper.exe', 'bin\ffmpeg\ffmpeg.exe') {
     if (-not (Test-Path $t)) { throw "Missing $t - run fetch-tools.ps1 first" }
 }

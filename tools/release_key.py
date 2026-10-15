@@ -1,13 +1,13 @@
 """The release signing key (Ed25519). The private key never leaves this pc unencrypted: it is stored with
 Windows DPAPI (only this Windows user can decrypt it) in %USERPROFILE%\\.videosprog-release\\signing-key.dpapi.
 
-    python tools/release_key.py new          make the key; prints the public key for app/vu/update.py and writes a
+    python tools/release_key.py new          make the key; prints the public key for app/subadubalingo/update.py and writes a
                                              one-time backup file to move into a password manager
     python tools/release_key.py public       print the public key
     python tools/release_key.py restore      read the 64 hex characters from the backup (typed, not echoed)
     python tools/release_key.py sign FILE    sign a manifest (JSON): adds "signature" over the other fields
 
-The app checks the signature with app/vu/ed25519.py; manifest_bytes() is the exact text that is signed."""
+The app checks the signature with app/subadubalingo/ed25519.py; manifest_bytes() is the exact text that is signed."""
 from __future__ import annotations
 
 import ctypes
@@ -19,8 +19,8 @@ from ctypes import wintypes
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
-from vu import ed25519  # noqa: E402
-from vu.update import manifest_bytes  # noqa: E402
+from subadubalingo import ed25519  # noqa: E402
+from subadubalingo.update import manifest_bytes  # noqa: E402
 
 KEY_DIR = Path.home() / ".videosprog-release"
 KEY_FILE = KEY_DIR / "signing-key.dpapi"

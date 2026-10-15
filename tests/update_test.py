@@ -11,7 +11,7 @@ from pathlib import Path
 
 old_dir, new_dir, job = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
 expect = sys.argv[sys.argv.index("--expect") + 1] if "--expect" in sys.argv else "restart"
-base = Path(tempfile.mkdtemp(prefix="vu-update-"))
+base = Path(tempfile.mkdtemp(prefix="sdl-update-"))
 inst = base / "Videosprog"
 print("copying", old_dir)
 shutil.copytree(old_dir, inst, ignore=lambda d, n: ["modeller"] if Path(d) == old_dir else [])

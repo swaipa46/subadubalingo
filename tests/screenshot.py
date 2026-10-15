@@ -15,12 +15,12 @@ from tkinter import messagebox
 
 from PIL import ImageGrab
 
-from vu import claude, engine, gui
-from vu.common import format_srt, read_srt
+from subadubalingo import claude, engine, gui
+from subadubalingo.common import format_srt, read_srt
 
 messagebox.askyesno = lambda *a, **k: True
 messagebox.showinfo = messagebox.showerror = messagebox.showwarning = lambda *a, **k: None
-downloads = Path(tempfile.mkdtemp(prefix="vu-downloads-"))
+downloads = Path(tempfile.mkdtemp(prefix="sdl-downloads-"))
 gui.downloads_dir = lambda: downloads
 out = Path(sys.argv[2])
 ctypes.windll.shcore.SetProcessDpiAwareness(1)

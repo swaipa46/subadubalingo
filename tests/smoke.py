@@ -2,8 +2,8 @@
 import sys, time, tempfile, shutil, argparse
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
-from vu import engine
-from vu.common import LANG_BY_NAME, Runner, srt_name, burned_name, dub_name, guess_srt_language, read_srt, write_srt
+from subadubalingo import engine
+from subadubalingo.common import LANG_BY_NAME, Runner, srt_name, burned_name, dub_name, guess_srt_language, read_srt, write_srt
 
 ap = argparse.ArgumentParser()
 ap.add_argument("video"); ap.add_argument("--lang", default="Dansk"); ap.add_argument("--gpu", action="store_true")

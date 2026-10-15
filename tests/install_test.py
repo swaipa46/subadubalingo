@@ -20,11 +20,11 @@ from pathlib import Path
 
 root = Path(__file__).resolve().parent.parent
 old_dir, new_dir = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
-T = Path(tempfile.mkdtemp(prefix="vu-install-"))
+T = Path(tempfile.mkdtemp(prefix="sdl-install-"))
 env = dict(os.environ, LOCALAPPDATA=str(T / "la"), APPDATA=str(T / "ad"), USERPROFILE=str(T / "home"))
 os.environ.update({k: env[k] for k in ("LOCALAPPDATA", "APPDATA", "USERPROFILE")})
 sys.path.insert(0, str(root / "app"))
-from vu import installer  # noqa: E402  (after the environment, so install_dir() is the sandbox)
+from subadubalingo import installer  # noqa: E402  (after the environment, so install_dir() is the sandbox)
 
 base = installer.install_dir()
 start_menu, desktop, taskbar = installer._shortcut_dirs()

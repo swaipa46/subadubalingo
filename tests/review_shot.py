@@ -17,8 +17,8 @@ import tkinter as tk
 
 from PIL import ImageGrab
 
-from vu import cutting, gui
-from vu.common import FFMPEG, LANG_BY_NAME, read_srt, srt_name
+from subadubalingo import cutting, gui
+from subadubalingo.common import FFMPEG, LANG_BY_NAME, read_srt, srt_name
 
 video, out = Path(sys.argv[1]), Path(sys.argv[2])
 out.mkdir(parents=True, exist_ok=True)

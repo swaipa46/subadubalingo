@@ -43,7 +43,7 @@ class CutReview(ttk.Frame):
         self.drag: dict | None = None
         self.hover_t: int | None = None
         self.runner = Runner()
-        self.tmp = Path(tempfile.mkdtemp(prefix="vu-review-"))
+        self.tmp = Path(tempfile.mkdtemp(prefix="sdl-review-"))
         self.q: queue.Queue = queue.Queue()
         self._img_gen = 0
         self._images: list = []

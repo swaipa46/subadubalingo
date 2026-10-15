@@ -13,8 +13,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 import numpy as np
 
-from vu import cutting, engine
-from vu.common import Cue, Runner
+from subadubalingo import cutting, engine
+from subadubalingo.common import Cue, Runner
 
 cues = [Cue(30_000, 32_000, "Kan I høre mig?"), Cue(33_000, 35_000, "Vi venter lige lidt."),
         Cue(60_000, 63_000, "Velkommen til webinaret."), Cue(63_500, 66_000, "I dag om Membercare."),
@@ -53,7 +53,7 @@ print("remap ok")
 
 if len(sys.argv) > 1:
     video = Path(sys.argv[1])
-    work = Path(tempfile.mkdtemp(prefix="vu-cut-"))
+    work = Path(tempfile.mkdtemp(prefix="sdl-cut-"))
     runner = Runner()
     info = engine.probe(runner, video)
 
@@ -76,6 +76,6 @@ if len(sys.argv) > 1:
     cutting.frame_png(runner, out, 5_100, b, 320)
     import zlib
     print("frames written:", a.exists(), b.exists())
-    shutil.copy(out, Path(tempfile.gettempdir()) / "vu-klippet-test.mp4")
-    print("kept for viewing:", Path(tempfile.gettempdir()) / "vu-klippet-test.mp4")
+    shutil.copy(out, Path(tempfile.gettempdir()) / "sdl-cut-test.mp4")
+    print("kept for viewing:", Path(tempfile.gettempdir()) / "sdl-cut-test.mp4")
 print("all ok")

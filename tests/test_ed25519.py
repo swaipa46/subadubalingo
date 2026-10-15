@@ -1,10 +1,10 @@
-"""vu/ed25519.py against the test vectors of RFC 8032 section 7.1, plus tampering.
+"""subadubalingo/ed25519.py against the test vectors of RFC 8032 section 7.1, plus tampering.
   python tests/test_ed25519.py"""
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
-from vu import ed25519  # noqa: E402
+from subadubalingo import ed25519  # noqa: E402
 
 VECTORS = [  # secret, public, message, signature (RFC 8032, 7.1, tests 1-3)
     ("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60",

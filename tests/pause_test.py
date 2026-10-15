@@ -4,7 +4,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 import tkinter as tk
 from tkinter import messagebox
-from vu import gui
+from subadubalingo import gui
 messagebox.askyesno = lambda *a, **k: True
 for n in ("showwarning", "showerror", "showinfo"):
     setattr(messagebox, n, lambda *a, **k: print("MSG", a))

@@ -169,7 +169,7 @@ def log_file() -> Path:
 
 
 def setup_logging() -> logging.Logger:
-    log = logging.getLogger("vu")
+    log = logging.getLogger("subadubalingo")
     if not log.handlers:
         log.setLevel(logging.INFO)
         f = log_file()

@@ -3,8 +3,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
-from vu import claude
-from vu.common import Cue, format_srt
+from subadubalingo import claude
+from subadubalingo.common import Cue, format_srt
 
 part = [Cue(1000, 3000, "Velkommen til memberkær."), Cue(3100, 5000, "Det er nyt.")]
 da = [Cue(c.start, c.end, c.text.replace("memberkær", "Membercare")) for c in part]

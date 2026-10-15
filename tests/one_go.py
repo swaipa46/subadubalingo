@@ -22,14 +22,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 import tkinter as tk
 from tkinter import messagebox
 
-from vu import claude, cutting, engine, gui
-from vu.common import format_srt, read_srt
+from subadubalingo import claude, cutting, engine, gui
+from subadubalingo.common import format_srt, read_srt
 
 said = []
 for name in ("showwarning", "showerror", "showinfo"):
     setattr(messagebox, name, lambda *a, n=name, **k: said.append((n, a[1] if len(a) > 1 else a)))
 messagebox.askyesno = lambda *a, **k: True
-downloads = Path(tempfile.mkdtemp(prefix="vu-downloads-"))
+downloads = Path(tempfile.mkdtemp(prefix="sdl-downloads-"))
 gui.downloads_dir = lambda: downloads
 
 

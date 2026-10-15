@@ -4,7 +4,7 @@ Windows-program til ikke-tekniske brugere: undertekster (.srt og indbrændt) og 
 alt lokalt. Brugeren vælger kun video, talesprog, ny tale og nye undertekster; programmet genbruger eller laver selv
 det, der mangler, og brugeren flytter aldrig .srt-filer.
 
-Claude er altid i loopet ("halvt-halvt", brugeren har Claude Chat/Cowork, ikke Code): `vu/claude.py` laver en prompt
+Claude er altid i loopet ("halvt-halvt", brugeren har Claude Chat/Cowork, ikke Code): `subadubalingo/claude.py` laver en prompt
 pr. del (70-100 blokke), brugeren kopierer den til Claude og svaret tilbage. Ét svar indeholder den rettede tekst på
 talesproget (```srt-da), oversættelserne (```srt-sv osv.) og en ```ordliste med rettede ord. Programmet
 validerer blokke og tidskoder, gemmer filerne og føjer ordene til `rettelser.txt`, så de rettes allerede i næste
@@ -13,10 +13,10 @@ zip i release-mappen (`tools/make_skill.py`); Indstillinger -> "Gem Claude-skill
 lærte ord. Claude-tjekket tekst huskes i `claude-tjekket.json`, så den ikke sendes igen.
 
 ## Opbygning
-- `app/vu/gui.py` - tkinter-GUI på dansk med Windows 11-tema (sv-ttk); to kolonner, Claude-panel til højre; arbejdet kører i en tråd, pause/fortsæt/annullér; kun ét vindue ad gangen.
-- `app/vu/textstate.py` - fingeraftryk (størrelse + ændringstid) og tekstversion pr. .srt, så en ændret video eller en tekst fra en version med kendt fejl laves forfra.
-- `app/vu/engine.py` - transskription, indbrænding, dub, modeller, Claude-prompt og validering.
-- `app/vu/common.py` - stier, sprog, filnavne, log, procesafvikling (pause = NtSuspendProcess), SRT.
+- `app/subadubalingo/gui.py` - tkinter-GUI på dansk med Windows 11-tema (sv-ttk); to kolonner, Claude-panel til højre; arbejdet kører i en tråd, pause/fortsæt/annullér; kun ét vindue ad gangen.
+- `app/subadubalingo/textstate.py` - fingeraftryk (størrelse + ændringstid) og tekstversion pr. .srt, så en ændret video eller en tekst fra en version med kendt fejl laves forfra.
+- `app/subadubalingo/engine.py` - transskription, indbrænding, dub, modeller, Claude-prompt og validering.
+- `app/subadubalingo/common.py` - stier, sprog, filnavne, log, procesafvikling (pause = NtSuspendProcess), SRT.
 - `bin/` (ikke i git, hentes med `fetch-tools.ps1`):
   - whisper.cpp **Vulkan-build** fra SubtitleEdit/support-files (whispercpp-194). Kører også på CPU med `-ng`, og
     programmet falder selv tilbage til CPU, hvis GPU-kørslen fejler. Silero VAD følger med og bruges.
@@ -29,11 +29,11 @@ lærte ord. Claude-tjekket tekst huskes i `claude-tjekket.json`, så den ikke se
   exe'en og den gamle `%LOCALAPPDATA%\VideoUndertekster\modeller` bruges også.
 
 ## Claude-chat via MCP (v1.7)
-`Videosprog.exe --mcp` er en MCP-server (JSON-RPC over stdio, `app/vu/mcp_server.py`, ingen ekstra pakker).
+`Videosprog.exe --mcp` er en MCP-server (JSON-RPC over stdio, `app/subadubalingo/mcp_server.py`, ingen ekstra pakker).
 Indstillinger -> "Forbind med Claude" skriver den ind i `%APPDATA%\Claude\claude_desktop_config.json` (backup ved
 siden af). Værktøjer: `start_video` (starter appen, hvis den ikke kører), `vent` (lang-poll: svarer ved hver 10 %,
 Claudes tur, pause, fejl, færdig, ellers efter 45 s), `status`, `hent_tekst`, `gem_tekst` (validerer tidskoder med
-det samme), `find_videoer`, `foreslaa_klip`, `godkend_klip`, `annuller`. Appen og serveren deler jobs via filer (`app/vu/jobs.py`); kun appen skriver status.
+det samme), `find_videoer`, `foreslaa_klip`, `godkend_klip`, `annuller`. Appen og serveren deler jobs via filer (`app/subadubalingo/jobs.py`); kun appen skriver status.
 Claude-kortet viser "Claude arbejder" med en bjælke pr. sprog. Virker i Claude Chat (lokale MCP-servere er tilladt i
 EG-org); Cowork er ikke testet. Test: `tests/mcp_test.py` spiller Claude.
 - **`annuller` (v1.9.9):** stopper et job (standard: det, appen arbejder på). MCP-serveren skriver
@@ -69,12 +69,12 @@ EG-org); Cowork er ikke testet. Test: `tests/mcp_test.py` spiller Claude.
 
 ## Klip før undertekster og dub (v1.9)
 "Klip videoen først" (og `start_video(klip=true)`) tilføjer trinene Claude foreslår klip -> brugeren gennemser dem
--> klipper videoen, før dub/indbrænding. `app/vu/cutting.py`:
+-> klipper videoen, før dub/indbrænding. `app/subadubalingo/cutting.py`:
 - **Forslag:** lange stille stykker (mindst 20 s mellem blokke og mest stille ifølge lydkurven, 250 ms opløsning)
   og Claudes linjer `<blok>-<blok> <kategori> <grund>` (start, pause, slut, upassende, offtopic, uklart; også
   `mm:ss-mm:ss`). Claude klipper i hele blokke, fordi den kun ser teksten. Svaret får et afsnit `=== klip ===`;
   via MCP bruges `foreslaa_klip` (og `godkend_klip` under gennemsynet).
-- **Gennemsyn:** `app/vu/review.py`, en tidslinje i venstre kolonne med lydkurve, taleblokke og farvede klip.
+- **Gennemsyn:** `app/subadubalingo/review.py`, en tidslinje i venstre kolonne med lydkurve, taleblokke og farvede klip.
   Man kan trække i kanterne (med snap til blokgrænser), trække nye klip, dobbeltklikke for at beholde et klip og
   zoome med musehjulet. Til hvert klip vises billeder før og efter, og "Se overgangen" laver et klip på 2x4 s til
   standardafspilleren. Ved MCP-jobs spejles listen til `jobs/<id>/cuts.json`, og `cut_decision.json` kommer fra Claude.
@@ -144,6 +144,6 @@ Klip 5:00-6:00 af superbrugerwebinaret (60 s lyd):
   færdig-visningen får hele bredden. I klipgennemgangen får tidslinjen den ekstra højde, og klip 1 er valgt.
   Trin 2 i Claude-kortet bliver først grønt, når en svarfil dukker op. Anden start finder vinduet på
   klassen `TkTopLevel` (installationsvinduet har samme klasse og titel, men lever kun før appen starter).
-- Én stemme pr. person (v1.9.7, standard, `vu/speakers.py`): stemmeaftryk pr. sætning (sherpa-onnx, WeSpeaker ResNet34, 26 MB, hentes som de andre modeller; kun sætninger >= 3 s), average-linkage-klynger (cosinus 0,66), og to klynger med centroid >= 0,75 og under 8 Hz forskel i stemmeleje slås sammen (præsentatoren kom ellers ud som to personer). Køn efter stemmeleje; stemmerne deles ud efter taletid: sprogets egne stemmer først, derefter de samme flyttet ±2,5/4,5 halvtone (ffmpeg asetrate+atempo). Webinaret: Jesper nst, værten nst -2,5, Peter nst +2,5, Helle lisa, Marianne alma. Indstillinger: én stemme pr. person / mand-kvinde / samme stemme.
-- Mand/kvinde i dubben (v1.9.6, `engine.GENDER_VOICES`, `vu/pitch.py`): stemmelejet i den originale tale måles pr. sætning (autokorrelation, numpy). Under 160 Hz = mand, over 175 Hz = kvinde, ellers samme som sætningen før; enkeltstående skift glattes ud. Svensk nst (~80 Hz) og lisa (~186 Hz), engelsk ryan og lessac. Dansk og norsk har kun én stemme i Piper 1.2 (no_NO-nvcc kræver en nyere Piper). Webinaret: 230 sætninger mand, 21 kvinde (Marianne og Helle ramt rigtigt; mindst én tvivlsom ved 12:46). Kan slås fra i Indstillinger.
+- Én stemme pr. person (v1.9.7, standard, `subadubalingo/speakers.py`): stemmeaftryk pr. sætning (sherpa-onnx, WeSpeaker ResNet34, 26 MB, hentes som de andre modeller; kun sætninger >= 3 s), average-linkage-klynger (cosinus 0,66), og to klynger med centroid >= 0,75 og under 8 Hz forskel i stemmeleje slås sammen (præsentatoren kom ellers ud som to personer). Køn efter stemmeleje; stemmerne deles ud efter taletid: sprogets egne stemmer først, derefter de samme flyttet ±2,5/4,5 halvtone (ffmpeg asetrate+atempo). Webinaret: Jesper nst, værten nst -2,5, Peter nst +2,5, Helle lisa, Marianne alma. Indstillinger: én stemme pr. person / mand-kvinde / samme stemme.
+- Mand/kvinde i dubben (v1.9.6, `engine.GENDER_VOICES`, `subadubalingo/pitch.py`): stemmelejet i den originale tale måles pr. sætning (autokorrelation, numpy). Under 160 Hz = mand, over 175 Hz = kvinde, ellers samme som sætningen før; enkeltstående skift glattes ud. Svensk nst (~80 Hz) og lisa (~186 Hz), engelsk ryan og lessac. Dansk og norsk har kun én stemme i Piper 1.2 (no_NO-nvcc kræver en nyere Piper). Webinaret: 230 sætninger mand, 21 kvinde (Marianne og Helle ramt rigtigt; mindst én tvivlsom ved 12:46). Kan slås fra i Indstillinger.
 - Dubben indtales i hele sætninger (v1.9.5, `engine.sentences`): blokke samles til . ? ! eller en pause > 0,7 s i originalen, og hver sætning indtales igen i det tempo, der gør den lige så lang som originalen (0,87x-1,5x, Pipers length_scale i trin af 0,02). Før kom stemmen før tid og ventede midt i sætningen; svensk dub af webinaret, første 10 min: 16 af 75 sætninger havde en pause > 0,6 s midt i, nu 0. Sætninger, der ikke kan nå det selv ved 1,5x, skubber de næste lidt (17 af 251 på webinaret startede mere end 0,5 s for sent).

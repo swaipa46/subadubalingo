@@ -1184,7 +1184,7 @@ class App:
         elif subs:
             steps += [("Brænder undertekster ind", 6)]
         prog = engine.Progress(lambda o, s, d: post(("progress", o, s, d, prog.step)), steps, runner)
-        work = Path(tempfile.mkdtemp(prefix="vu-"))
+        work = Path(tempfile.mkdtemp(prefix="sdl-"))
         log.info("JOB video=%s lang=%s speech=%s subs=%s transcribe=%s check=%s translate=%s cut=%s reused_cut=%s", v,
                  lang.code, speech and speech.code, subs and subs.code, job["transcribe"], job["check"],
                  [t.code for t in job["translate"]], cut, job["cut_reused"])
