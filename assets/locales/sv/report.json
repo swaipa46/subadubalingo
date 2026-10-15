@@ -1,0 +1,22 @@
+{
+ "report.button": "Skicka felrapport",
+ "report.title": "Skicka felrapport",
+ "report.intro": "Programmet lägger en zip-fil i Hämtade filer och öppnar ett mejl som du skickar själv. Bifoga zip-filen i mejlet.",
+ "report.included": "Det här skickas med",
+ "report.item_log": "Loggfilen (vad programmet har gjort)",
+ "report.item_settings": "Dina inställningar",
+ "report.item_versions": "Programmets version och Windows-versionen",
+ "report.item_job": "Status för den senaste körningen och klippen (utan text)",
+ "report.never": "Aldrig videor, ljud eller undertexter",
+ "report.private": "Din användarmapp och ditt användarnamn döljs i filerna.",
+ "report.comment": "Din kommentar",
+ "report.comment_hint": "Vad gjorde du, och vad hände? (kan utelämnas)",
+ "report.make": "Skapa mejlet",
+ "report.close": "Stäng",
+ "report.done": "\"{file}\" ligger i Hämtade filer (Utforskaren visar den). Bifoga den i mejlet och skicka det.",
+ "report.failed": "Det gick inte: {error}",
+ "report.zip_name": "{app} felrapport {date}",
+ "report.mail_subject": "Felrapport från {app} {version}",
+ "report.mail_no_comment": "(ingen kommentar)",
+ "report.mail_attach": "Bifoga filen \"{file}\" från Hämtade filer (Utforskaren visar den)."
+}

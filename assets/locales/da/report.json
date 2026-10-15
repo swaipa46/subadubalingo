@@ -1,0 +1,22 @@
+{
+ "report.button": "Send fejlrapport",
+ "report.title": "Send fejlrapport",
+ "report.intro": "Programmet lægger en zip-fil i Overførsler og åbner en mail, du selv sender. Vedhæft zip-filen i mailen.",
+ "report.included": "Det kommer med",
+ "report.item_log": "Logfilen (hvad programmet har gjort)",
+ "report.item_settings": "Dine indstillinger",
+ "report.item_versions": "Programmets version og Windows-versionen",
+ "report.item_job": "Status for den seneste kørsel og klippene (uden tekst)",
+ "report.never": "Aldrig videoer, lyd eller undertekster",
+ "report.private": "Din brugermappe og dit brugernavn skjules i filerne.",
+ "report.comment": "Din kommentar",
+ "report.comment_hint": "Hvad gjorde du, og hvad skete der? (kan udelades)",
+ "report.make": "Lav mailen",
+ "report.close": "Luk",
+ "report.done": "\"{file}\" ligger i Overførsler (Stifinder viser den). Vedhæft den i mailen, og send den.",
+ "report.failed": "Det lykkedes ikke: {error}",
+ "report.zip_name": "{app} fejlrapport {date}",
+ "report.mail_subject": "Fejlrapport fra {app} {version}",
+ "report.mail_no_comment": "(ingen kommentar)",
+ "report.mail_attach": "Vedhæft filen \"{file}\" fra Overførsler (Stifinder viser den)."
+}

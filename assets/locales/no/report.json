@@ -1,0 +1,22 @@
+{
+ "report.button": "Send feilrapport",
+ "report.title": "Send feilrapport",
+ "report.intro": "Programmet legger en zip-fil i Nedlastinger og åpner en e-post som du sender selv. Legg ved zip-filen i e-posten.",
+ "report.included": "Dette blir med",
+ "report.item_log": "Loggfilen (hva programmet har gjort)",
+ "report.item_settings": "Innstillingene dine",
+ "report.item_versions": "Programmets versjon og Windows-versjonen",
+ "report.item_job": "Status for den siste kjøringen og klippene (uten tekst)",
+ "report.never": "Aldri videoer, lyd eller undertekster",
+ "report.private": "Brukermappen og brukernavnet ditt skjules i filene.",
+ "report.comment": "Din kommentar",
+ "report.comment_hint": "Hva gjorde du, og hva skjedde? (kan utelates)",
+ "report.make": "Lag e-posten",
+ "report.close": "Lukk",
+ "report.done": "\"{file}\" ligger i Nedlastinger (Filutforsker viser den). Legg den ved i e-posten, og send den.",
+ "report.failed": "Det lyktes ikke: {error}",
+ "report.zip_name": "{app} feilrapport {date}",
+ "report.mail_subject": "Feilrapport fra {app} {version}",
+ "report.mail_no_comment": "(ingen kommentar)",
+ "report.mail_attach": "Legg ved filen \"{file}\" fra Nedlastinger (Filutforsker viser den)."
+}
