@@ -374,10 +374,19 @@ class App:
         self.claude_box.rowconfigure(0, weight=1)
         self.claude_idle = ttk.Frame(self.claude_box)
         self.claude_idle.grid(row=0, column=0, sticky="nsew")
-        idle = ttk.Label(self.claude_idle, justify="left", style="Hint.TLabel",
-                         text=t("gui.claude.idle"))
-        idle.pack(anchor="nw", fill="x")
-        self._wrap(idle, self.claude_idle, 10)
+        # While Claude waits: the app icon in the middle of the card, PLAYER 2 KLAR, and what will happen
+        # (design review round 2, item 11)
+        k = self.scale
+        mid = ttk.Frame(self.claude_idle)
+        mid.place(relx=0.5, rely=0.45, anchor="center")
+        self._idle_icon = tk.PhotoImage(master=self.root, file=str(branding_dir() / (
+            "icon-128.png" if IMG.two else "icon-64.png")))
+        ttk.Label(mid, image=self._idle_icon).pack()
+        ttk.Label(mid, text=t("gui.claude.player2").upper(), style="Hint.TLabel",
+                  font=(theme.PIXEL_FONT, -int(12 * k))).pack(pady=(int(14 * k), int(12 * k)))
+        idle = ttk.Label(mid, justify="center", style="Hint.TLabel", text=t("gui.claude.idle"),
+                         wraplength=int(360 * k))
+        idle.pack()
 
     def _build_header(self):
         """The header band across the window: logo and CUT · DUB · SUB, then from the right Indstillinger (the cog),
@@ -570,18 +579,31 @@ class App:
         self.recut_hint.grid(row=6, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
         self._wrap(self.recut_hint, g2, 40 + indent)
         self._recut_forced = False   # ticked by the program because the video is listened to again
-        self.plan_result = ttk.Label(g2, text="", font="SunValleyBodyStrongFont", justify="left")
-        self.plan_result.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(12, 0))
-        self._wrap(self.plan_result, g2, 40)
+        # What the user gets, under a dashed line: a small DU FÅR, then the file name (design review round 2, item 10)
+        k = self.scale
+        self.plan_row = ttk.Frame(g2)
+        self.plan_row.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(int(14 * k), 0))
+        self.plan_row.columnconfigure(1, weight=1)
+        line = tk.Canvas(self.plan_row, height=max(2, int(2 * k)), highlightthickness=0, borderwidth=0,
+                         background=P.card)
+        line.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, int(14 * k)))
+        line.bind("<Configure>", lambda e: (line.delete("all"), line.create_line(
+            0, 1, e.width, 1, fill=P.step_pending_icon, width=max(2, int(2 * k)), dash=(4, 4))))
+        ttk.Label(self.plan_row, text=t("gui.plan.you_get_label"), font=("Segoe UI Semibold", -int(13 * k)),
+                  foreground=P.heading if P.name == "light" else P.accent).grid(row=1, column=0, sticky="nw",
+                                                                                  padx=(0, int(10 * k)))
+        self.plan_result = ttk.Label(self.plan_row, text="", font="SunValleyBodyStrongFont", justify="left")
+        self.plan_result.grid(row=1, column=1, sticky="ew")
+        self._wrap(self.plan_result, g2, int(120 * k))
         self.plan_steps = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
-        self.plan_steps.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        self.plan_steps.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(int(6 * k), 0))
         self._wrap(self.plan_steps, g2, 40)
 
         g3 = ttk.Frame(v, padding=(0, 6))
         g3.grid(row=2, column=0, sticky="ew")
         g3.columnconfigure(0, weight=1)
         self.start_btn = skin.IconButton(g3, "play", text=t("gui.setup.start"), style="Main.Accent.TButton", command=self._start)
-        self.start_btn.grid(row=0, column=0, sticky="w", ipady=4)
+        self.start_btn.grid(row=0, column=0, sticky="w")
         hint = ttk.Label(g3, text=t("gui.setup.start_hint"), style="Hint.TLabel", justify="left")
         hint.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         self._wrap(hint, g3, 10)
@@ -648,53 +670,203 @@ class App:
         self.pause_hint.pack(side="left", padx=6)
         return v
 
+    class _FileRows(tk.Frame):
+        """The done view's "Alle filer fra denne kørsel" (design review round 2, item 20): 36 px rows with the
+        file-subtitles or file-video icon, the name and the type on the right in hint; the row under the mouse or
+        with keyboard focus in picker_hover_bg. Double-click or Enter opens the file. Keeps the bits of the old
+        Listbox's interface the rest of the app uses (insert, delete, get, curselection)."""
+
+        def __init__(self, parent, app: "App"):
+            super().__init__(parent, background=P.card, borderwidth=0, highlightthickness=0)
+            self.app = app
+            self.columnconfigure(0, weight=1)
+            self.rows: list[dict] = []
+            self._hover: tk.Frame | None = None
+            self._current = -1
+
+        def insert(self, _index, name: str):
+            k = self.app.scale
+            i = len(self.rows)
+            srt = name.lower().endswith(".srt")
+            row = tk.Frame(self, background=P.card, height=int(36 * k), takefocus=1, borderwidth=0,
+                           highlightthickness=0)
+            row.grid(row=i, column=0, sticky="ew")
+            row.grid_propagate(False)
+            row.columnconfigure(1, weight=1)
+            row.rowconfigure(0, weight=1)
+            parts = [tk.Label(row, image=IMG.get("icons/file-subtitles" if srt else "icons/file-video"),
+                              background=P.card, borderwidth=0),
+                     tk.Label(row, text=name, background=P.card, foreground=P.text, font="SunValleyBodyFont",
+                              anchor="w", borderwidth=0, padx=0, pady=0),
+                     tk.Label(row, text=t("gui.done.type_subtitles" if srt else "gui.done.type_video"),
+                              background=P.card, foreground=P.hint, font=("Segoe UI", -int(13 * k)),
+                              borderwidth=0, padx=0, pady=0)]
+            parts[0].grid(row=0, column=0, padx=(int(10 * k), int(12 * k)))
+            parts[1].grid(row=0, column=1, sticky="ew")
+            parts[2].grid(row=0, column=2, padx=(int(12 * k), int(10 * k)))
+            self.rows.append({"frame": row, "parts": parts, "name": name})
+            for w in [row] + parts:
+                w.bind("<Enter>", lambda e, r=row: self._set_hover(r))
+                w.bind("<Leave>", lambda e, r=row: self._left(r))
+                w.bind("<Button-1>", lambda e, n=i: self._focus(n))
+                w.bind("<Double-Button-1>", lambda e, n=i: self._open(n))
+            row.bind("<Return>", lambda e, n=i: self._open(n))
+            row.bind("<KP_Enter>", lambda e, n=i: self._open(n))
+            row.bind("<Up>", lambda e, n=i: self._focus(n - 1))
+            row.bind("<Down>", lambda e, n=i: self._focus(n + 1))
+            row.bind("<FocusIn>", lambda e, n=i: self._focused(n))
+            row.bind("<FocusOut>", lambda e: self._paint())
+
+        def delete(self, _first, _last=None):
+            for r in self.rows:
+                r["frame"].destroy()
+            self.rows, self._hover, self._current = [], None, -1
+
+        def get(self, _first, _last=None):
+            return tuple(r["name"] for r in self.rows)
+
+        def size(self) -> int:
+            return len(self.rows)
+
+        def curselection(self):
+            return (self._current,) if 0 <= self._current < len(self.rows) else ()
+
+        def _focus(self, n: int):
+            if 0 <= n < len(self.rows):
+                self.rows[n]["frame"].focus_set()
+
+        def _focused(self, n: int):
+            self._current = n
+            self._paint()
+
+        def _open(self, n: int):
+            self._current = n
+            self.app._open_selected()
+
+        def _set_hover(self, row):
+            self._hover = row
+            self._paint()
+
+        def _left(self, row):
+            # Leave also fires when the pointer moves onto one of the row's own labels
+            try:
+                w = self.winfo_containing(*self.winfo_pointerxy())
+            except (tk.TclError, KeyError):
+                w = None
+            if w is None or not str(w).startswith(str(row)):
+                if self._hover is row:
+                    self._hover = None
+                self._paint()
+
+        def _paint(self):
+            try:
+                focus = self.focus_get()
+            except (tk.TclError, KeyError):
+                focus = None
+            for r in self.rows:
+                lit = r["frame"] is self._hover or r["frame"] is focus
+                for w in [r["frame"]] + r["parts"]:
+                    w.configure(background=P.picker_hover_bg if lit else P.card)
+
     def _build_done(self, parent) -> ttk.Frame:
+        """The done view (design review round 2, items 19-22): on the left the banner (STAGE CLEAR!, or CONTINUE?
+        after an error or a stop), the result card and the run's files; on the right (560 of 1600 px) "Hvad nu?"
+        and the run's steps in a compact list. The view takes the whole width (_show hides the Claude card)."""
+        k = self.scale
+        style = ttk.Style(self.root)
+        main_pad = style.lookup("Main.Accent.TButton", "padding")
+        # Full-width stacked buttons with the icon and text on the left; the secondary ones as tall as the main one
+        for st, extra in (("Wide.Main.Accent.TButton", {}), ("Wide.Tall.TButton", {"padding": main_pad}),
+                          ("Tall.TButton", {"padding": main_pad})):
+            style.configure(st, **({"anchor": "w"} if st.startswith("Wide") else {}), **extra)
+            style.configure(f"Card.{st}", background=P.card)
         v = ttk.Frame(parent)
-        v.columnconfigure(1, weight=1)
-        self.d_banner = tk.Label(v, image=IMG.get("art/done-banner"), background=self.bg, borderwidth=0)
-        self.d_banner.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
-        self.d_banner.grid_remove()
-        self.d_icon = tk.Label(v, text="✓", font=("Segoe UI Variable Display", 44, "bold"), foreground=P.success,
-                               background=self.bg)
-        self.d_icon.grid(row=1, column=0, rowspan=2, sticky="nw", padx=(0, 16))
-        self.d_title = ttk.Label(v, text="", style="Title.TLabel", foreground=P.heading)
-        self.d_title.grid(row=1, column=1, sticky="sw")
-        self.d_msg = ttk.Label(v, text="", justify="left")
-        self.d_msg.grid(row=2, column=1, sticky="new", pady=(4, 0))
-        self._wrap(self.d_msg, v, 120)
+        v.columnconfigure(0, weight=96, uniform="done")
+        v.columnconfigure(1, weight=56, uniform="done")
+        v.rowconfigure(0, weight=1)
+        left, right = ttk.Frame(v), ttk.Frame(v)
+        left.grid(row=0, column=0, sticky="nsew")
+        right.grid(row=0, column=1, sticky="nsew", padx=(int(32 * k), 0))
+        left.columnconfigure(0, weight=1)
+        right.columnconfigure(0, weight=1)
+        card_pad = (int(18 * k), int(14 * k), int(22 * k), int(18 * k))
 
-        self.d_main = skin.Card(v, text=t("gui.done.group_video"), padding=12)
-        self.d_main.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(18, 0))
+        self.d_banner = tk.Label(left, image=IMG.get("art/done-banner"), background=P.window, borderwidth=0)
+        self.d_banner.grid(row=0, column=0, sticky="w", pady=(0, int(24 * k)))
+
+        # The result card: the title (with the step-error icon after an error), the file, where it is saved, the
+        # run's numbers, a message (learned words, what failed, the error) and Afspil / Vis i mappe / Åbn logfil
+        self.d_main = skin.Card(left, padding=card_pad)
+        self.d_main.grid(row=1, column=0, sticky="ew")
         self.d_main.columnconfigure(0, weight=1)
-        self.d_file = ttk.Label(self.d_main, text="", font="SunValleyBodyStrongFont")
-        self.d_file.grid(row=0, column=0, columnspan=3, sticky="ew")
-        self._wrap(self.d_file, self.d_main)
-        acts = ttk.Frame(self.d_main)
-        acts.grid(row=1, column=0, sticky="w", pady=(10, 0))
-        self.d_play = skin.IconButton(acts, "play", text=t("gui.done.play"), style="Main.Accent.TButton",
-                                 command=lambda: self._open(self.d_target))
-        self.d_play.pack(side="left")
-        skin.IconButton(acts, "show-in-folder", text=t("gui.show_in_folder"),
-                   command=lambda: self._show_in_folder(self.d_target)).pack(side="left", padx=10)
+        head = ttk.Frame(self.d_main)
+        head.grid(row=0, column=0, sticky="ew")
+        self.d_icon = tk.Label(head, image=IMG.get("icons/step-error"), background=P.card, borderwidth=0)
+        self.d_icon.grid(row=0, column=0, sticky="w", padx=(0, int(12 * k)))
+        self.d_title = tk.Label(head, text="", background=P.card, foreground=P.heading, borderwidth=0, padx=0, pady=0,
+                                font=("Segoe UI Semibold", -int(22 * k)), anchor="w", justify="left")
+        self.d_title.grid(row=0, column=1, sticky="w")
+        self.d_file = tk.Label(self.d_main, text="", background=P.card, foreground=P.text, borderwidth=0, padx=0,
+                               font="SunValleyBodyStrongFont", anchor="w", justify="left")
+        self.d_file.grid(row=1, column=0, sticky="ew", pady=(int(10 * k), 0))
+        self._wrap(self.d_file, self.d_main, int(50 * k))
+        self.d_where = ttk.Label(self.d_main, text="", style="Hint.TLabel", justify="left")
+        self.d_where.grid(row=2, column=0, sticky="ew", pady=(int(2 * k), 0))
+        self._wrap(self.d_where, self.d_main, int(50 * k))
+        self.d_stats = ttk.Frame(self.d_main)
+        self.d_stats.grid(row=3, column=0, sticky="w", pady=(int(14 * k), 0))
+        self.d_msg = tk.Label(self.d_main, text="", background=P.card, foreground=P.text, borderwidth=0, padx=0,
+                              font="SunValleyBodyFont", anchor="w", justify="left")
+        self.d_msg.grid(row=4, column=0, sticky="ew", pady=(int(6 * k), 0))
+        self._wrap(self.d_msg, self.d_main, int(50 * k))
+        self.d_error = ttk.Label(self.d_main, text="", style="Hint.TLabel", justify="left")
+        self.d_error.grid(row=5, column=0, sticky="ew", pady=(int(4 * k), 0))
+        self._wrap(self.d_error, self.d_main, int(50 * k))
+        self.d_extra = ttk.Label(self.d_main, text="", style="Hint.TLabel", justify="left")
+        self.d_extra.grid(row=6, column=0, sticky="ew", pady=(int(8 * k), 0))
+        self._wrap(self.d_extra, self.d_main, int(50 * k))
+        self.d_acts = ttk.Frame(self.d_main)
+        self.d_acts.grid(row=7, column=0, sticky="w", pady=(int(16 * k), 0))
+        self.d_play = skin.IconButton(self.d_acts, "play", text=t("gui.done.play"), style="Main.Accent.TButton",
+                                      command=lambda: self._open(self.d_target))
+        self.d_play.pack(side="left", padx=(0, int(14 * k)))
+        self.d_folder = skin.IconButton(self.d_acts, "show-in-folder", text=t("gui.show_in_folder"),
+                                        style="Tall.TButton", command=lambda: self._show_in_folder(self.d_target))
+        self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+        self.d_log = ttk.Button(self.d_acts, text=t("gui.open_log"), command=lambda: self._open(log_file()))
+        self.d_log.pack(side="left")
+        self.d_target: Path | None = None
 
-        g = skin.Card(v, text=t("gui.done.group_files"), padding=12)
-        g.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        self.d_files = g = skin.Card(left, text=t("gui.done.group_files"), padding=card_pad)
+        g.grid(row=2, column=0, sticky="ew", pady=(int(24 * k), 0))
         g.columnconfigure(0, weight=1)
-        self.files = tk.Listbox(g, height=4, activestyle="none", borderwidth=0, highlightthickness=0,
-                                font="SunValleyBodyFont", background=self.bg)
+        self.files = self._FileRows(g, self)
         self.files.grid(row=0, column=0, sticky="ew")
-        self.files.bind("<Double-Button-1>", lambda e: self._open_selected())
-        ttk.Label(g, text=t("gui.done.files_hint"),
-                  style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        hint = ttk.Label(g, text=t("gui.done.files_hint"), style="Hint.TLabel", justify="left")
+        hint.grid(row=1, column=0, sticky="ew", pady=(int(10 * k), 0))
+        self._wrap(hint, g, int(50 * k))
 
-        nxt = skin.Card(v, text=t("gui.done.group_next"), padding=12)
-        nxt.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        self.d_again = ttk.Button(nxt, text=t("gui.done.try_again"), style="Accent.TButton", command=self._start)
-        self.d_same = ttk.Button(nxt, text=t("gui.done.same_video"), command=self._same_video)
-        self.d_new = skin.IconButton(nxt, "plus", text=t("gui.done.new_video"), command=self._new_video)
-        self.d_log = ttk.Button(nxt, text=t("gui.open_log"), command=lambda: self._open(log_file()))
+        # Hvad nu? Full-width 48 px buttons: the main one (another version, or Prøv igen / Fortsæt), Vælg en ny video
+        nxt = skin.Card(right, text=t("gui.done.group_next"), padding=card_pad)
+        nxt.grid(row=0, column=0, sticky="ew")
+        nxt.columnconfigure(0, weight=1)
         self.d_next_hint = ttk.Label(nxt, text="", style="Hint.TLabel", justify="left")
-        self._wrap(self.d_next_hint, nxt)
+        self.d_next_hint.grid(row=0, column=0, sticky="ew", pady=(0, int(14 * k)))
+        self._wrap(self.d_next_hint, nxt, int(50 * k))
+        self.d_again = skin.IconButton(nxt, "retry", text=t("gui.done.try_again"), style="Wide.Main.Accent.TButton",
+                                       command=self._start)
+        self.d_again.grid(row=1, column=0, sticky="ew")
+        self.d_same = skin.IconButton(nxt, "copy", text=t("gui.done.same_video"), style="Wide.Main.Accent.TButton",
+                                      command=self._same_video)
+        self.d_same.grid(row=2, column=0, sticky="ew")
+        self.d_new = skin.IconButton(nxt, "choose-video", text=t("gui.done.new_video"), style="Wide.Tall.TButton",
+                                     command=self._new_video)
+        self.d_new.grid(row=3, column=0, sticky="ew", pady=(int(14 * k), 0))
+
+        # The run's steps, compact: 34 px rows, no connectors (filled in by _show_result)
+        self.d_steps = skin.Card(right, text=t("gui.done.all_steps"), padding=card_pad)
+        self.d_steps.grid(row=1, column=0, sticky="ew", pady=(int(24 * k), 0))
+        self.d_steps.columnconfigure(2, weight=1)
         return v
 
     def _set_claude_width(self, active: bool):
@@ -792,10 +964,10 @@ class App:
         result, rest = self._plan_text()
         if result:
             self.plan_result.configure(text=result)
-            self.plan_result.grid()
+            self.plan_row.grid()
             self.plan_steps.configure(text=rest)
         else:
-            self.plan_result.grid_remove()
+            self.plan_row.grid_remove()
             self.plan_steps.configure(text=rest)
         v = self._video()
         self.start_btn.configure(state="normal" if v and v.is_file() else "disabled")
@@ -1511,66 +1683,205 @@ class App:
         self.root.after(150, self._poll)
 
     def _show_result(self, kind: str, info, replay: bool = False):
-        """replay: drawn again after a theme switch, without the side effects (skill guide, attention)."""
+        """The done view for a run's end: kind "done" (info: the result file), "error" (info: the error text),
+        "skipped" (info: the message) or "cancelled". replay: drawn again after a theme or language switch, without
+        the side effects (skill guide, attention)."""
         self._last_result = (kind, info)
-        for w in (self.d_again, self.d_same, self.d_new, self.d_log, self.d_next_hint):
+        k = self.scale
+        done = kind == "done"
+        self.d_banner.configure(image=IMG.get("art/done-banner" if done else "art/continue-banner"))
+        steps = self._result_steps(kind, replay)
+        failed = next(((i, name) for i, (name, state) in enumerate(steps) if state == "error"), None)
+        for w in (self.d_icon, self.d_where, self.d_stats, self.d_msg, self.d_error, self.d_extra, self.d_acts,
+                  self.d_again, self.d_same):
+            w.grid_remove()
+        for w in (self.d_log, self.d_folder, self.d_play):
             w.pack_forget()
-        self.d_main.grid_remove()
-        self.d_banner.grid() if kind == "done" else self.d_banner.grid_remove()
-        self.d_icon.grid_remove() if kind == "done" else self.d_icon.grid()
-        if kind == "done":
-            self.status.configure(text=t("gui.done.status"))
+        msg = ""
+        if done:
             target: Path = info
             self.d_target = target
-            self.d_icon.configure(text="✓", foreground=P.success)
-            self.d_title.configure(text=t("gui.done.title"))
-            if target.suffix.lower() == ".srt":
-                self.d_msg.configure(text=t("gui.done.text_ready"))
-                self.d_main.configure(text=t("gui.done.group_text"))
-                self.d_play.configure(text=t("gui.done.open"))
-            else:
-                learned = ", ".join(f"{w} → {r}" for w, r in self.learned_words)
-                self.d_msg.configure(text=t("gui.done.video_ready")
-                                     + ("\n\n" + t("gui.done.learned", words=learned) if learned else ""))
-                self.d_main.configure(text=t("gui.done.group_video"))
-                self.d_play.configure(text=t("gui.done.play"))
+            self.status.configure(text=t("gui.done.status"))
+            text_only = target.suffix.lower() == ".srt"
+            self.d_title.configure(text=t("gui.done.text_title" if text_only else "gui.done.video_title"),
+                                   foreground=P.heading)
             self.d_file.configure(text=target.name)
-            self.d_main.grid()
+            self.d_where.configure(text=t("gui.done.saved_in", folder=target.parent))
+            self.d_where.grid()
+            self._fill_stats([] if text_only else self._result_stats(target, replay))
+            learned = ", ".join(f"{w} → {r}" for w, r in self.learned_words)
+            if learned:
+                msg = t("gui.done.learned", words=learned)
+            self.d_play.configure(text=t("gui.done.open" if text_only else "gui.done.play"))
+            self.d_play.pack(side="left", padx=(0, int(14 * k)))
+            self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+            self.d_acts.grid()
             if self._skill_warning and not replay:
                 reason, have = self._skill_warning
                 self._skill_warning = None
                 self.root.after(1200, lambda: self.show_skill_guide(reason, have))
             self.d_next_hint.configure(text=t("gui.done.next_hint"))
-            self.d_next_hint.pack(anchor="w", pady=(0, 8))
-            self.d_same.configure(style="Accent.TButton")
-            self.d_same.pack(side="left")
-            self.d_new.pack(side="left", padx=10)
+            self.d_same.grid()
             if not replay:
                 self._call_attention()
         else:
+            self.d_target = None
             if kind == "cancelled":
-                self.d_icon.configure(text="■", foreground=P.hint)
-                self.d_title.configure(text=t("gui.done.cancelled"))
-                self.d_msg.configure(text=self._cancelled_text())
+                self.d_title.configure(text=t("gui.done.cancelled"), foreground=P.heading)
+                msg = self._cancelled_text()
             elif kind == "skipped":
-                self.d_icon.configure(text="!", foreground=P.warning)
-                self.d_title.configure(text=t("gui.done.not_finished"))
-                self.d_msg.configure(text=info)
+                self.d_title.configure(text=t("gui.done.not_finished"), foreground=P.warning)
+                msg = info or ""
             else:
-                self.d_icon.configure(text="!", foreground=P.error)
-                self.d_title.configure(text=t("gui.done.failed"))
-                self.d_msg.configure(text=info)
-                self._call_attention()
+                self.d_icon.grid()
+                self.d_title.configure(text=t("gui.done.failed"), foreground=P.error)
+                if failed:
+                    msg = t("gui.done.failed_at", n=f"1-{failed[0] + 1}", step=failed[1])
+                self.d_error.configure(text=info or "")
+                self.d_error.grid()
+                self.d_log.pack(side="left")
+                self.d_acts.grid()
+                if not replay:
+                    self._call_attention()
+            self.d_file.configure(text="")
+            if self.created:
+                self.d_extra.configure(text=t("gui.done.files_made"))
+                self.d_extra.grid()
             self.status.configure(text=self.d_title.cget("text"))
-            self.d_same.configure(style="TButton")
             self.d_again.configure(text=t("gui.done.continue") if kind == "skipped" else t("gui.done.try_again"))
-            self.d_again.pack(side="left")
-            self.d_same.pack(side="left", padx=10)
-            self.d_new.pack(side="left")
-            if kind == "error":
-                self.d_log.pack(side="left", padx=10)
-        self.files.configure(height=max(1, len(self.created)))
+            self.d_again.grid()
+            self.d_next_hint.configure(text=t("gui.done.next_hint_continue" if kind == "skipped"
+                                              else "gui.done.next_hint_retry"))
+        self.d_file.grid() if self.d_file.cget("text") else self.d_file.grid_remove()
+        self.d_msg.configure(text=msg)
+        if msg:
+            self.d_msg.grid()
+        self.d_files.grid() if self.files.size() else self.d_files.grid_remove()
+        self._fill_steps(steps, done)
         self._show("done")
+        skin.skin_cards(self.views["done"])
+
+    def _result_steps(self, kind: str, replay: bool) -> list[tuple[str, str]]:
+        """The run's steps for the done view's compact list, as (name, state): all done after a finished run; after an
+        error the step that was running failed ("error"), and after a stop it was not finished ("todo"). The names
+        lose the " - din tur" / " - i chatten" ending, which says nothing once the run is over. A replay after a theme
+        switch (the step list's widgets are gone then) uses the steps kept from the run's end."""
+        rows = []
+        for row in self.step_rows:
+            try:
+                rows.append((row.get("name") or row["text"].cget("text"), row["state"]))
+            except (tk.TclError, KeyError):
+                rows = None
+                break
+        if rows is None or (replay and not rows):
+            return getattr(self, "_done_steps", [])
+        ends = []
+        for key in ("gui.step.claude_turn", "gui.step.claude_chat"):
+            end = t(key, tasks="\x00").partition("\x00")[2]
+            if end.strip():
+                ends.append(end)
+        out = []
+        for name, state in rows:
+            for end in ends:
+                if name.endswith(end):
+                    name = name[:-len(end)]
+                    break
+            if kind == "done":
+                state = "done"
+            elif state in ("active", "turn"):
+                state = "error" if kind == "error" else "todo"
+            elif state != "done":
+                state = "todo"
+            out.append((name, state))
+        self._done_steps = out
+        return out
+
+    def _fill_steps(self, steps: list[tuple[str, str]], done: bool):
+        """The compact step list in the right column: 34 px rows, the step icon, the level number and the name in the
+        state's colour (step_done, error or step_pending), no connectors."""
+        k = self.scale
+        box = self.d_steps
+        for child in box.winfo_children():
+            if child is not box.title:
+                child.destroy()
+        box.configure(text=t("gui.done.all_steps") if done else t("gui.work.steps"))
+        if not steps:
+            box.grid_remove()
+            return
+        box.grid()
+        box.columnconfigure(1, minsize=int(34 * k))
+        texts = []
+        for i, (name, state) in enumerate(steps):
+            box.rowconfigure(i, minsize=int(34 * k))
+            icon = {"done": "step-done", "error": "step-error"}.get(state, "step-pending")
+            colour = {"done": P.step_done, "error": P.error}.get(state, P.step_pending)
+            tk.Label(box, image=IMG.get(f"icons/{icon}"), background=P.card,
+                     borderwidth=0).grid(row=i, column=0, sticky="w")
+            tk.Label(box, text=f"1-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0, pady=0,
+                     font=(theme.PIXEL_FONT, -int(10 * k))).grid(row=i, column=1, sticky="w", padx=(int(10 * k), 0),
+                                                                pady=(int(2 * k), 0))
+            text = tk.Label(box, text=name, foreground=colour, background=P.card, font="SunValleyBodyFont",
+                            anchor="w", justify="left", padx=0, pady=0, borderwidth=0)
+            text.grid(row=i, column=2, sticky="ew", padx=(int(6 * k), 0))
+            texts.append(text)
+
+        def wrap(e=None):
+            width = box.winfo_width() - int(130 * k)
+            if width > 50:
+                for x in texts:
+                    x.configure(wraplength=width)
+        box.bind("<Configure>", wrap)
+        wrap()
+
+    def _result_stats(self, target: Path, replay: bool) -> list[tuple[str, str]]:
+        """The numbers on a finished video: how much was cut away and the new length (when the run cut the video),
+        the speech and the subtitles. What the run does not know is left out. Kept for a replay of the same result."""
+        kept = getattr(self, "_done_stats", (None, []))   # (result, its stats), kept across a rebuild
+        if kept[0] == target and replay:
+            return kept[1]
+        job = self.job or {}
+        stats = []
+
+        def clock(ms: int) -> str:
+            s = round(ms / 1000)
+            return f"{s // 3600}:{s // 60 % 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60}:{s % 60:02d}"
+        if job.get("cut") and self._review_result:
+            try:
+                removed = cutting.removed_ms(cutting.active(self._review_result, 10 ** 9))
+            except Exception:
+                log.exception("cut stats")
+                removed = 0
+            if removed:
+                stats.append((f"-{round(removed / 1000)} s" if removed < 59500 else f"-{clock(removed)}",
+                              t("gui.done.stat_cut")))
+                try:
+                    stats.append((clock(engine.probe(Runner(), target).duration_ms), t("gui.done.stat_length")))
+                except Exception:
+                    log.info("no length for %s", target)
+        if job.get("speech"):
+            sp = job["speech"]
+            stats.append((sp.code, t("gui.done.stat_speech", singular=sp.singular, name=sp.name.lower())))
+        if job.get("subs"):
+            su = job["subs"]
+            stats.append((su.code, t("gui.done.stat_subs", plural=su.plural)))
+        self._done_stats = (target, stats)
+        return stats
+
+    def _fill_stats(self, stats: list[tuple[str, str]]):
+        """The stats row in the result card: the value in the pixel font (upper case), its label under it in hint."""
+        k = self.scale
+        for child in self.d_stats.winfo_children():
+            child.destroy()
+        if not stats:
+            return
+        for i, (value, label) in enumerate(stats):
+            colour = P.accent if value.startswith("-") else P.heading
+            tk.Label(self.d_stats, text=value.upper(), foreground=colour, background=P.card, borderwidth=0, padx=0,
+                     pady=0, font=(theme.PIXEL_FONT, -int(22 * k))).grid(row=0, column=i, sticky="w",
+                                                                        padx=(0, int(36 * k)))
+            ttk.Label(self.d_stats, text=label, style="Hint.TLabel").grid(row=1, column=i, sticky="w",
+                                                                         padx=(0, int(36 * k)), pady=(int(2 * k), 0))
+        self.d_stats.grid()
 
     def _cancelled_text(self) -> str:
         """What a stopped run kept: the subtitles in the spoken language, if this run wrote them or reused them
@@ -1610,8 +1921,8 @@ class App:
 
     def _open_selected(self):
         sel = self.files.curselection()
-        if sel:
-            os.startfile(self.created[sel[0]])
+        if sel and sel[0] < len(self.created):
+            self._open(self.created[sel[0]])
 
     # --- Self check (also tells us whether App Control blocks the bundled tools) ----------
 
@@ -2128,7 +2439,7 @@ class ClaudePanel(ttk.Frame):
         self.head = ttk.Label(top, text=t("gui.claude.your_turn"), style="Big.TLabel", foreground=P.your_turn_title)
         self.head.pack(side="left", anchor="s")
         ttk.Label(top, text="PLAYER 1", style="Hint.TLabel", font=(theme.PIXEL_FONT, -int(10 * app.scale))).pack(
-            side="left", anchor="s", padx=(int(16 * app.scale), 0), pady=(0, int(4 * app.scale)))
+            side="left", anchor="s", padx=(int(16 * app.scale), 0), pady=(0, int(10 * app.scale)))
         intro = ttk.Label(self, justify="left", text=t("gui.claude.intro", tasks=join_and(todo)))
         intro.grid(row=1, column=0, sticky="ew", pady=(2, 12))
         app._wrap(intro, self, 10)

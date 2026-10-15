@@ -24,7 +24,9 @@ def _element(style: ttk.Style, name: str, frame: str, states: dict[str, str] | N
     args = [IMG.get(f"frames/{frame}")]
     for state, f in (states or {}).items():   # the first matching state wins
         args.append((state, IMG.get(f"frames/{f}")))
-    kw = {"border": border, "sticky": "nsew"}
+    # width/height: the minimum size, which is the image's own size by default (48 px for the input frame, so every
+    # combobox was 48 px tall); the content and padding decide instead
+    kw = {"border": border, "sticky": "nsew", "width": sum(border[0::2]), "height": sum(border[1::2])}
     if padding is not None:
         kw["padding"] = padding
     try:
@@ -132,7 +134,7 @@ def apply(root: tk.Tk, name: str, scale: float):
     # Buttons: secondary (TButton) and primary (Accent.TButton), pixel frames with their states
     # 40 px tall with 14 px on the sides inside the frame (the frame's shadow takes 3 px right and below); the main
     # action of a view (Main.Accent.TButton: Start, Klip videoen, Afspil) is 48 px (design review round 1, item 12)
-    pad = (14 * k, 5 * k, 17 * k, 8 * k)
+    pad = (14 * k, 9 * k, 17 * k, 12 * k)
     _element(style, f"Btn2.border{suffix}", "button-secondary", {
         "disabled": "button-secondary-disabled", "pressed": "button-secondary-pressed",
         "focus": "button-secondary-focus", "active": "button-secondary-hover"}, padding=0)
@@ -145,7 +147,7 @@ def apply(root: tk.Tk, name: str, scale: float):
             ("Button.padding", {"sticky": "nsew", "children": [("Button.label", {"sticky": "nsew"})]})]})])
         style.configure(st, padding=pad, foreground=fg, anchor="center", font="SunValleyBodyStrongFont")
         style.map(st, foreground=[("disabled", P.disabled_text), ("!disabled", fg)])
-    style.configure("Main.Accent.TButton", padding=(18 * k, 9 * k, 21 * k, 12 * k))
+    style.configure("Main.Accent.TButton", padding=(18 * k, 12 * k, 21 * k, 16 * k))
 
     # Check and radio buttons: pixel indicators
     for cls, on, off, extra in (("TCheckbutton", "check-on", "check-off", [("disabled", IMG.get("icons/check-disabled"))]),
@@ -175,7 +177,7 @@ def apply(root: tk.Tk, name: str, scale: float):
     # The pickers in the header: the secondary button's frame around the items
     style.layout("Picker.TFrame", [(f"Btn2.border{suffix}", {"sticky": "nsew", "children": [
         ("Frame.padding", {"sticky": "nsew"})]})])
-    style.configure("Picker.TFrame", background=P.header_band, padding=(6 * k, 4 * k, 9 * k, 7 * k))
+    style.configure("Picker.TFrame", background=P.header_band, padding=(6 * k, 4 * k, 9 * k, 8 * k))
     # One item in a picker: no background, picker-item frames for hover, current and keyboard focus (README "Header")
     hover = IMG.get("frames/picker-item-hover")
     blank = _blank(root, hover)
@@ -189,7 +191,7 @@ def apply(root: tk.Tk, name: str, scale: float):
     style.layout("PickItem.TLabel", [(f"PickItem.border{suffix}", {"sticky": "nsew", "children": [
         ("Label.padding", {"sticky": "nsew", "children": [("Label.label", {"sticky": "nsew"})]})]})])
     style.configure("PickItem.TLabel", background=P.button_secondary_bg, foreground=P.button_secondary_text,
-                    font=(PIXEL_FONT, 12), padding=(4 * k, 4 * k, 4 * k, 3 * k), anchor="center")
+                    font=(PIXEL_FONT, -12 * k), padding=(3 * k, 2 * k, 3 * k, 2 * k), anchor="center")
     style.map("PickItem.TLabel", foreground=[("selected", P.picker_selected_text), ("!selected", P.button_secondary_text)])
     # The progress bar's trough (frames/progress-trough) around SegmentBar's canvas
     _element(style, f"Trough.border{suffix}", "progress-trough")
@@ -202,7 +204,8 @@ def apply(root: tk.Tk, name: str, scale: float):
         ("Frame.padding", {"sticky": "nsew"})]})])
     style.configure("Callout.TFrame", background=P.window)
     # Settings in the header: the cog alone in a square secondary button
-    style.configure("Icon.TButton", background=P.header_band, padding=(2 * k, 2 * k))
+    # 40 x 40 with the 16 px icon centred (the frame's shadow takes 3 px right and below)
+    style.configure("Icon.TButton", background=P.header_band, padding=(10 * k, 10 * k, 14 * k, 14 * k))
     # Choice tiles (Programmets sprog, Udseende, the first start): tile frames with hover, chosen and focus
     _element(style, f"Tile.border{suffix}", "tile", {"selected": "tile-selected", "focus": "tile-focus",
                                                     "active": "tile-hover"})
@@ -224,7 +227,7 @@ def apply(root: tk.Tk, name: str, scale: float):
         (f"Pix.downarrow{suffix}", {"side": "right", "sticky": "ns"}),
         ("Combobox.padding", {"expand": "1", "sticky": "nsew", "children": [
             ("Combobox.textarea", {"sticky": "nsew"})]})]})])
-    style.configure("TCombobox", padding=(8 * k, 4 * k), foreground=P.text, background=P.input_bg, arrowcolor=P.text,
+    style.configure("TCombobox", padding=(8 * k, 1 * k), foreground=P.text, background=P.input_bg, arrowcolor=P.text,
                     arrowsize=12 * k, bordercolor=P.input_bg, lightcolor=P.input_bg, darkcolor=P.input_bg)
     style.map("TCombobox", fieldbackground=[("readonly", P.input_bg)], foreground=[("readonly", P.text)],
               selectbackground=[("readonly", P.input_bg)], selectforeground=[("readonly", P.text)])

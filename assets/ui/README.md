@@ -100,7 +100,7 @@ cut the 9 parts with `PhotoImage.copy`/`subsample` once at start and draw them.
 `radio-off`. Use them as the ttk Checkbutton/Radiobutton indicator images.
 
 **Small icons** are 16 px. Each is drawn in the secondary-button text colour, and each has a `-selected` variant drawn
-in the picker's selected-text colour. `play`, `cut` and `choose-video` also have an `-on-primary` variant for yellow
+in the picker's selected-text colour. `play`, `cut`, `choose-video`, `retry` and `copy` also have an `-on-primary` variant for yellow
 buttons.
 
 | Icon | Used for |
@@ -116,6 +116,8 @@ buttons.
 | `plus`, `minus` | Zoom on the timeline, Lav en ny |
 | `arrow-right` | The "din tur" callout band |
 | `language` | Leading icon of the language picker |
+| `file-video`, `file-subtitles` | Rows in "Alle filer fra denne kørsel" on the done view (.mp4 / .srt) |
+| `retry` | Prøv igen (has `-on-primary`) |
 | `theme-light`, `theme-night`, `theme-system` | The three choices in the theme picker (Lys, Nat, Følg Windows) |
 
 ## Header (final, T4)
@@ -159,6 +161,7 @@ See the mockups `1-setup.png`, `theme-header.png`, `language-header.png`, `insta
   It goes on the header band (`header_band` colour).
 - `header-stripe.png` (+ `@2x`): the 4-colour stripe under the header, 1920×6 at 1x. Crop it to the window width, or
   draw four Canvas rectangles from `header_stripe` in tokens.json.
+- `continue-banner.png` (+ `@2x`): the same banner with CONTINUE? for the done view after an error (`5-done-error.png`).
 - `done-banner.png` (+ `@2x`): the 960×230 STAGE CLEAR! banner for the done view. It is the same night artwork in both
   themes; only the frame colour differs.
 - `common/splash.png` (+ `@2x`): the 1200×680 title screen, for an About dialog or a short splash at start.

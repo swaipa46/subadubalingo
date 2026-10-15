@@ -52,9 +52,27 @@ result = gui.dub_name(video, gui.LANG_BY_CODE["sv"], gui.LANG_BY_CODE["no"])
 app.created = [gui.srt_name(video, gui.LANG_BY_CODE["da"]), gui.srt_name(video, gui.LANG_BY_CODE["no"]), result]
 for path in app.created:
     app.files.insert("end", path.name)
+# What the run knew: Swedish speech, Norwegian subtitles, a cut of 10 s, and a new length of 0:08 (the file does not
+# exist, so ffmpeg is not asked)
+L = gui.LANG_BY_CODE
+app.job = {"video": video, "lang": L["da"], "speech": L["sv"], "subs": L["no"], "cut": True, "transcribe": True,
+           "check": True, "translate": [L["sv"], L["no"]]}
+app._review_result = [gui.cutting.Cut(0, 6000, "start"), gui.cutting.Cut(12000, 16000, "pause")]
+gui.engine.probe = lambda runner, v: gui.engine.MediaInfo(8000, True)
+names, app.claude_at = app._step_names(app.job)
+app.step_rows = [{"name": n, "state": "done"} for n in names]
 app._show("done")
 app._show_result("done", result, replay=True)
 shot(root, "done")
+# The error state (CONTINUE?): the voice step failed, the subtitles were made
+for i, row in enumerate(app.step_rows):
+    row["state"] = "done" if i < len(names) - 2 else "active" if i == len(names) - 2 else "todo"
+app.files.delete(0, "end")
+app.created = app.created[:2]
+for path in app.created:
+    app.files.insert("end", path.name)
+app._show_result("error", "[FEJLBESKED FRA PROGRAMMET]", replay=True)
+shot(root, "done-error")
 app._show("setup")
 dlg = gui.SettingsDialog(root, app.settings, on_theme=app.set_theme, on_language=app.set_language)
 area = _screen.other_work_area()

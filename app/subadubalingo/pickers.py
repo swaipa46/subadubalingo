@@ -44,7 +44,7 @@ class _Picker(ttk.Frame):
 
     def __init__(self, parent, lead_icon: str | None = None):
         k = 2 if IMG.two else 1
-        super().__init__(parent, style="Picker.TFrame", padding=(6 * k, 4 * k, 9 * k, 7 * k))
+        super().__init__(parent, style="Picker.TFrame", padding=(6 * k, 4 * k, 9 * k, 8 * k))
         self.items: dict[str, ttk.Label] = {}
         if lead_icon:   # a leading icon that only says what the picker is (the globe)
             ttk.Label(self, image=IMG.get(f"icons/{lead_icon}"), style="PickItem.TLabel").pack(side="left")
@@ -142,11 +142,13 @@ class Tiles(ttk.Frame):
                 ttk.Label(top, text=code, style="TileCode.TLabel").pack(side="left")
             if icon:
                 ttk.Label(top, image=IMG.get(f"icons/{icon}"), style="TileCode.TLabel").pack(side="left")
-            box = ttk.Label(top, image=IMG.get("icons/check-off"), style="TileCode.TLabel")
+            box = ttk.Label(top, image=IMG.get("icons/step-pending"), style="TileCode.TLabel")
             box.pack(side="right", anchor="n")
             ttk.Label(tile, text=name, style="TileName.TLabel").pack(anchor="w", pady=(6 * k, 0))
-            if hint:
-                ttk.Label(tile, text=hint, style="TileHint.TLabel").pack(anchor="w", pady=(4 * k, 0))
+            if hint:   # wraps to the tile's width (Swedish and Norwegian hints need two lines in Indstillinger)
+                h = ttk.Label(tile, text=hint, style="TileHint.TLabel", justify="left")
+                h.pack(anchor="w", fill="x", pady=(4 * k, 0))
+                tile.bind("<Configure>", lambda e, h=h: h.configure(wraplength=max(80, e.width - 34 * k)), add="+")
             self._bind(tile, value)
             self.tiles[value] = (tile, box)
         self.refresh()
@@ -180,7 +182,7 @@ class Tiles(ttk.Frame):
         for value, (tile, box) in self.tiles.items():
             on = value == self.var.get()
             tile.state(["selected"] if on else ["!selected"])
-            box.configure(image=IMG.get(f"icons/check-{'on' if on else 'off'}"))
+            box.configure(image=IMG.get(f"icons/step-{'done' if on else 'pending'}"))
 
 
 def language_tiles(parent, variable: tk.StringVar, columns: int | None = None, on_change=None) -> Tiles:

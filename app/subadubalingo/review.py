@@ -81,8 +81,9 @@ class CutReview(ttk.Frame):
         head = ttk.Frame(self)
         head.grid(row=0, column=0, sticky="ew")
         head.columnconfigure(1, weight=1)
-        # A short heading: Press Start 2P 16 px in heading (design review round 1, item 22)
-        ttk.Label(head, text=t("review.title"), style="Section.TLabel", foreground=P.heading,
+        # A short heading: Press Start 2P 16 px in heading (design review round 1, item 22), uppercased at render
+        # time in every language like the other pixel-font headings (round 2, item 17)
+        ttk.Label(head, text=t("review.title").upper(), style="Section.TLabel", foreground=P.heading,
                   font=(PIXEL_FONT, -16 * kd)).grid(row=0, column=0, sticky="w")
         zoom = ttk.Frame(head)
         zoom.grid(row=0, column=2, sticky="e")
@@ -104,7 +105,9 @@ class CutReview(ttk.Frame):
         tl.grid(row=3, column=0, sticky="nsew")
         tl.columnconfigure(0, weight=1)
         tl.rowconfigure(0, weight=1)
-        self.canvas = tk.Canvas(tl, height=int(150 * k), background=P.timeline_bg, highlightthickness=0,
+        # About 260 px for the whole timeline at a 1000 px tall window; it also takes any extra height (round 2,
+        # item 15)
+        self.canvas = tk.Canvas(tl, height=int(244 * k), background=P.timeline_bg, highlightthickness=0,
                                 borderwidth=0, cursor="crosshair")
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self.xbar = ttk.Scrollbar(self, orient="horizontal", command=self._xview)
@@ -174,9 +177,13 @@ class CutReview(ttk.Frame):
         self.d_text = ttk.Label(det, text=t("review.click_cut"), style="Hint.TLabel", justify="left",
                                 wraplength=int(340 * k))
         self.d_text.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 6))
-        self.img_a = tk.Label(det, background=P.card, borderwidth=0)
+        # The two frames in fixed 168 x 94 boxes (round 2, item 15c): a taller picture is cropped, not grown
+        fw, fh = int(168 * self.k), int(94 * self.k)
+        self._no_frame = tk.PhotoImage(master=self, width=fw, height=fh)   # holds the box (pixel units) until a frame comes
+        box = dict(background=P.card, borderwidth=0, width=fw, height=fh, image=self._no_frame)
+        self.img_a = tk.Label(det, **box)
         self.img_a.grid(row=2, column=0, sticky="nw")
-        self.img_b = tk.Label(det, background=P.card, borderwidth=0)
+        self.img_b = tk.Label(det, **box)
         self.img_b.grid(row=2, column=1, sticky="nw", padx=(6, 0))
         self.cap_a = ttk.Label(det, text="", style="Hint.TLabel")
         self.cap_a.grid(row=3, column=0, sticky="w")
@@ -209,7 +216,7 @@ class CutReview(ttk.Frame):
             self.after_idle(lambda: self.cuts and self.sel is None and self._select(self.cuts[0], scroll=False))
 
     def _tree_rows(self) -> int:
-        return min(max(len(self.cuts), 3), 8)
+        return 3   # the list shows three rows and scrolls (round 2, item 15); the timeline gets the height
 
     def _text_w(self, text: str, font) -> int:
         if not hasattr(self, "_font"):
@@ -369,8 +376,9 @@ class CutReview(ttk.Frame):
             x = round(self.x_of(sec * 1000))
             if m - 1 <= x <= w - m - 2 * kd:
                 c.create_rectangle(x, 6 * kd, x + 2 * kd, ruler, fill=P.timeline_ruler, outline="")
-                c.create_text(x + 6 * kd, ruler - 4 * kd, text=fmt_clock(sec * 1000), anchor="sw", fill=P.timeline_ruler,
-                              font=(TERMINAL_FONT, -16 * kd))
+                # VT323 18 px, 5 px after the 2 px tick (round 2, item 14)
+                c.create_text(x + 7 * kd, ruler - 3 * kd, text=fmt_clock(sec * 1000), anchor="sw", fill=P.timeline_ruler,
+                              font=(TERMINAL_FONT, -18 * kd))
             sec += step
         # hover line
         if self.hover_t is not None and self.v0 <= self.hover_t <= self.v1:
@@ -592,13 +600,13 @@ class CutReview(ttk.Frame):
     def _show_frame_at(self, ms: int):
         self.cap_a.configure(text=t("review.frame_at", time=fmt_clock(ms)))
         self.cap_b.configure(text="")
-        self.img_b.configure(image="")
+        self.img_b.configure(image=self._no_frame)
         self._load_frames([(ms, self.img_a)])
 
     def _load_frames(self, items):
         self._img_gen += 1
         gen = self._img_gen
-        width = int(165 * self.k)
+        width = int(168 * self.k)
 
         def work():
             for ms, label in items:
