@@ -20,6 +20,8 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import claude, cutting, engine, jobs, textstate
+from . import skin, theme
+from .theme import IMG, P
 from .common import (APP_NAME, APP_TAGLINE, APP_VERSION, branding_dir, set_app_icon, set_app_id, FFMPEG, LANG_BY_NAME, LANGUAGES, NO_WINDOW, PIPER, WHISPER, Cancelled,
                      Cue, Language, Runner, ToolError, burned_name, copy_file_to_clipboard, cut_name, data_dir, downloads_dir,
                      dub_name,
@@ -41,6 +43,7 @@ class Settings:
         self.gender_voices = True          # (v1.9.6) kept for old settings files; voice_mode replaces it
         self.voice_mode = "person"         # dub: "person" (a voice per person), "gender" (deep/light) or "one"
         self.skill_installed = 0           # the Claude skill version the user has put into Claude (0 = unknown)
+        self.theme = "system"              # Udseende: "system" (follow Windows), "light" (Lys) or "night" (Nat)
         self.last_dir = str(Path.home() / "Videos")
         try:
             self.__dict__.update(json.loads(self.path.read_text(encoding="utf-8")))
@@ -56,102 +59,6 @@ class Settings:
             self.path.write_text(json.dumps(self.__dict__, indent=2), encoding="utf-8")
         except Exception:
             log.exception("could not save settings")
-
-
-def apply_style(root: tk.Tk):
-    """Windows 11 look (Sun Valley theme) with point-size fonts, so text scales with the display."""
-    try:
-        import sv_ttk
-        sv_ttk.set_theme("light", root)
-    except Exception:
-        log.exception("sv_ttk not available; using the default theme")
-    sizes = {"SunValleyCaptionFont": 9, "SunValleyBodyFont": 11, "SunValleyBodyStrongFont": 11,
-             "SunValleyBodyLargeFont": 13, "SunValleySubtitleFont": 15, "SunValleyTitleFont": 20,
-             "TkDefaultFont": 11, "TkTextFont": 11, "TkHeadingFont": 11, "TkMenuFont": 11}
-    for name, size in sizes.items():
-        try:
-            tkfont.nametofont(name).configure(size=size)
-        except tk.TclError:
-            pass
-    style = ttk.Style(root)
-    style.configure("Title.TLabel", font="SunValleyTitleFont", foreground=ACCENT_DARK)
-    style.configure("Section.TLabel", font="SunValleySubtitleFont", foreground=ACCENT_DARK)
-    style.configure("Hint.TLabel", foreground="#5f5f5f")
-    style.configure("Turn.TLabel", font="SunValleyBodyStrongFont", foreground=ACCENT)
-    style.configure("TLabelframe.Label", font="SunValleyBodyStrongFont", foreground=ACCENT_DARK)
-    style.configure("Pct.TLabel", font=("Segoe UI Variable Display Semibold", 30), foreground=ACCENT)
-    style.configure("Big.TLabel", font=("Segoe UI Variable Display Semibold", 24), foreground=ACCENT)
-    style.configure("Tint.TLabel", background=TINT)
-    # Sun Valley's row height is in pixels and does not follow the font size (rows were clipped)
-    style.configure("Treeview", rowheight=int(tkfont.nametofont("TkDefaultFont").metrics("linespace") * 1.6))
-    # Sun Valley sets label colours through a state map, which wins over configure(); map ours too
-    for name, colour in (("Title.TLabel", ACCENT_DARK), ("Section.TLabel", ACCENT_DARK), ("Pct.TLabel", ACCENT),
-                         ("Big.TLabel", ACCENT), ("Turn.TLabel", ACCENT)):
-        style.map(name, foreground=[("!disabled", colour)])
-    style.configure("TintHint.TLabel", background=TINT, foreground=ACCENT_DARK)
-    scale = root.winfo_fpixels("1i") / 96
-    root._card_images = []
-    # Card frames like Sun Valley's, drawn in blue: the steps card, and two states the Claude card pulses between
-    for name, fill, border, width in (("Blue", TINT, ACCENT_LIGHT, 1), ("TurnA", CARD_BG, ACCENT, 2),
-                                      ("TurnB", CARD_BG, ACCENT_PULSE, 2)):
-        img = card_image(root, fill, border, width, scale)
-        root._card_images.append(img)
-        pad = int(6 * scale) + width
-        style.element_create(f"{name}.Labelframe.border", "image", img, border=pad, padding=4, sticky="nsew")
-        # No Labelframe.label element inside: the widget draws its label itself, and the element would put a
-        # second copy of the text inside the card (hidden behind the contents, but its edge peeked out).
-        style.layout(f"{name}.TLabelframe", [(f"{name}.Labelframe.border", {"sticky": "nsew", "children": [
-            ("Labelframe.padding", {"expand": "1"})]})])
-    style.configure("Blue.TLabelframe.Label", foreground=ACCENT_DARK, font="SunValleyBodyStrongFont")
-    for name in ("TurnA", "TurnB"):
-        style.configure(f"{name}.TLabelframe.Label", foreground=ACCENT, font="SunValleyBodyStrongFont")
-
-
-def card_image(root, fill: str, border: str, width: int, scale: float) -> tk.PhotoImage:
-    """A rounded card frame (anti-aliased), drawn on the window background, for a ttk image element."""
-    k = max(1.0, scale)
-    radius, bw = 6 * k, width * k
-    size = int(radius * 2 + bw * 2 + 12)
-
-    def rgb(c):
-        return tuple(int(c[i:i + 2], 16) for i in (1, 3, 5))
-
-    def mix(a, b, t):
-        return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
-
-    def coverage(x, y, inset, r):
-        cx = min(max(x, inset + r), size - inset - r)
-        cy = min(max(y, inset + r), size - inset - r)
-        d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 - r
-        return max(0.0, min(1.0, 0.5 - d))
-
-    bg, bc, fc = rgb(CARD_BG), rgb(border), rgb(fill)
-    rows = []
-    for y in range(size):
-        row = []
-        for x in range(size):
-            px, py = x + 0.5, y + 0.5
-            outer = coverage(px, py, 0.0, radius)
-            inner = coverage(px, py, bw, max(0.5, radius - bw))
-            c = mix(mix(bg, bc, outer), fc, inner)
-            row.append("#%02x%02x%02x" % c)
-        rows.append("{" + " ".join(row) + "}")
-    img = tk.PhotoImage(master=root, width=size, height=size)
-    img.put(" ".join(rows))
-    return img
-
-
-# Blues (Windows 11 accent family): dark for headings, accent, a lighter pulse, light borders, tinted fills
-ACCENT_DARK = "#0b4a7d"
-ACCENT = "#0f6cbd"
-ACCENT_PULSE = "#62abf5"
-ACCENT_LIGHT = "#c7e0f4"
-TINT = "#eff6fc"
-CARD_BG = "#fafafa"
-GREEN = "#0f7b0f"
-AMBER = "#9d5d00"
-RED = "#c42b1c"
-GREY = "#6e6e6e"   # dark enough for text on the light background (4.5:1)
 
 
 class _RECT(ctypes.Structure):
@@ -221,6 +128,7 @@ def place_over(win, parent):
         win.geometry(f"+{x}+{y}")
     except Exception:
         log.exception("could not place dialog")
+    skin.dialog(win)
     win.deiconify()
     win.lift()
     win.focus_set()
@@ -339,9 +247,10 @@ class App:
 
         root.title(APP_NAME)
         set_app_icon(root)
-        apply_style(root)
         # Sizes in logical pixels, scaled to the display (the process is DPI aware), within the screen.
         scale = self.scale = root.winfo_fpixels("1i") / 96
+        self.theme_name = theme.resolve(self.settings.theme)
+        skin.apply(root, self.theme_name, scale)
         sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
         try:
             gsm = ctypes.windll.user32.GetSystemMetrics
@@ -353,7 +262,7 @@ class App:
         root.minsize(g["min_w"], g["min_h"])
         if g["zoom"]:
             root.state("zoomed")   # a low screen (e.g. 1200 px at 150 %): use all of it
-        self.bg = ttk.Style().lookup("TFrame", "background") or "#fafafa"
+        self.bg = P.window
 
         self.video = tk.StringVar()
         self.lang = tk.StringVar(value="Dansk")
@@ -377,6 +286,8 @@ class App:
         self.manual_steps: list[int] = []
         self.mcp_job: str | None = None      # the job Claude started through the MCP server, if any
         self._inbox_tick = 0
+        self._last_result = None            # (kind, info) of the done view, to draw it again after a theme switch
+        self._theme_pending = None          # a theme picked during a run, applied at its end
         self._status_written = 0.0
         try:
             jobs.cleanup()
@@ -384,8 +295,10 @@ class App:
             log.exception("job cleanup failed")
 
         self._build()
+        skin.skin_cards(self.main)
         self._refresh()
         self.video.trace_add("write", lambda *_: self._refresh())
+        root.after(50, lambda: theme.dark_title_bar(root, self.theme_name == "night"))
         self._show("setup")
         root.after(100, self._poll)
         root.after(150, self._animate)
@@ -405,25 +318,12 @@ class App:
         parent.bind("<Configure>", lambda e: label.configure(wraplength=max(200, e.width - pad)), add="+")
 
     def _build(self):
+        self._build_header()
         f = self.main = ttk.Frame(self.root, padding=(20, 16))
         f.pack(fill="both", expand=True)
         f.columnconfigure(0, weight=3, uniform="cols")
         self._set_claude_width(False)
         f.rowconfigure(1, weight=1)
-
-        top = ttk.Frame(f)
-        top.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 12))
-        # The pixel-art logo at a whole multiple of its size (2x on a display scaled 150 % or more); text if it is missing
-        logo = branding_dir() / ("header-logo@2x.png" if self.scale >= 1.5 else "header-logo.png")
-        try:
-            self._logo = tk.PhotoImage(file=str(logo))   # keep a reference, or Tk drops the image
-            ttk.Label(top, image=self._logo, text=APP_NAME).pack(side="left")
-            tagline_pad = (0, 0)   # centred on the logo
-        except tk.TclError:
-            ttk.Label(top, text=APP_NAME, style="Title.TLabel", foreground=ACCENT_DARK).pack(side="left")
-            tagline_pad = (10, 0)   # on the title's baseline
-        ttk.Label(top, text=APP_TAGLINE, style="Hint.TLabel").pack(side="left", padx=(18, 0), pady=tagline_pad)
-        ttk.Button(top, text="Indstillinger", command=self._settings_dialog).pack(side="right")
 
         self.left = ttk.Frame(f)
         self.left.grid(row=1, column=0, sticky="nsew", padx=(0, 16))
@@ -447,6 +347,71 @@ class App:
                          text="Claude hjælper, når det bliver din tur.")
         idle.pack(anchor="nw", fill="x")
         self._wrap(idle, self.claude_idle, 10)
+
+    def _build_header(self):
+        """The header band across the window: logo and tagline, the theme picker and Indstillinger, and the
+        four-colour stripe under it."""
+        k = self.scale
+        band = self.header = tk.Frame(self.root, background=P.header_band, padx=int(24 * k), pady=int(12 * k))
+        band.pack(side="top", fill="x")
+        brand = tk.Frame(band, background=P.header_band)
+        brand.pack(side="left")
+        tk.Label(brand, image=IMG.get("art/header-logo"), background=P.header_band, borderwidth=0).pack(anchor="w")
+        # The brand words under the wordmark, as on the title screen
+        tk.Label(brand, text="CUT · DUB · SUB", background=P.header_band, foreground=P.header_text,
+                 font=(theme.TERMINAL_FONT, 15), borderwidth=0, pady=0).pack(anchor="w", padx=(int(64 * k), 0))
+        ttk.Button(band, text="Indstillinger", image=IMG.get("icons/settings"), compound="left", style="Header.TButton",
+                   command=self._settings_dialog).pack(side="right")
+        self.theme_picker = ThemePicker(band, self)
+        self.theme_picker.pack(side="right", padx=(0, int(12 * k)))
+        stripe = tk.Canvas(self.root, height=max(4, int(5 * k)), highlightthickness=0, borderwidth=0,
+                           background=P.header_band)
+        stripe.pack(side="top", fill="x")
+        self.header_stripe = stripe
+
+        def draw(e=None):
+            stripe.delete("all")
+            w, h = stripe.winfo_width(), int(stripe.cget("height"))
+            for i, colour in enumerate(P.header_stripe):
+                stripe.create_rectangle(w * i / 4, 0, w * (i + 1) / 4 + 1, h, fill=colour, outline="")
+        stripe.bind("<Configure>", draw)
+
+    # --- Theme -----------------------------------------------------------------------------
+
+    def set_theme(self, choice: str):
+        """Udseende: "system", "light" or "night". The window is rebuilt in the new look (the choices made in it are
+        kept); during a run the switch waits for the end, so nothing the run shows is lost."""
+        self.settings.theme = choice
+        self.settings.save()
+        name = theme.resolve(choice)
+        if name == self.theme_name:
+            self.theme_picker.refresh()
+            return
+        if self._running:
+            self._theme_pending = name
+            self.theme_picker.refresh()
+            self.detail.configure(text="Udseendet skifter, når programmet er færdigt med videoen.")
+            return
+        self._apply_theme(name)
+
+    def _apply_theme(self, name: str):
+        self._theme_pending = None
+        self.theme_name = name
+        view = getattr(self, "view", "setup")
+        self.header.destroy()
+        self.header_stripe.destroy()
+        self.main.destroy()
+        skin.apply(self.root, name, self.scale)
+        self.bg = P.window
+        theme.dark_title_bar(self.root, name == "night")
+        self._build()
+        self._refresh()
+        for path in self.created:
+            self.files.insert("end", path.name)
+        self._show(view)
+        if view == "done" and self._last_result:
+            self._show_result(*self._last_result, replay=True)
+        skin.skin_cards(self.main)
 
     def _build_setup(self, parent) -> ttk.Frame:
         v = ttk.Frame(parent)
@@ -522,7 +487,7 @@ class App:
         v = ttk.Frame(parent)
         v.columnconfigure(0, weight=1)
         ttk.Label(v, text="Arbejder på", style="Hint.TLabel").grid(row=0, column=0, sticky="w")
-        self.w_video = ttk.Label(v, text="", style="Section.TLabel", foreground=ACCENT_DARK)
+        self.w_video = ttk.Label(v, text="", style="Section.TLabel", foreground=P.heading)
         self.w_video.grid(row=1, column=0, sticky="ew")
         self._wrap(self.w_video, v)
         self.w_result = ttk.Label(v, text="", style="Hint.TLabel")
@@ -531,31 +496,31 @@ class App:
 
         box = ttk.LabelFrame(v, text=" Trin ", padding=14, style="Blue.TLabelframe")
         box.grid(row=3, column=0, sticky="ew")
-        box.columnconfigure(1, weight=1)
+        box.columnconfigure(2, weight=1)
         self.steps_box = box
 
         prog = ttk.Frame(v, padding=(0, 16, 0, 0))
         prog.grid(row=4, column=0, sticky="ew")
         prog.columnconfigure(1, weight=1)
-        self.w_pct = ttk.Label(prog, text="0 %", style="Pct.TLabel", foreground=ACCENT, width=5)
+        self.w_pct = ttk.Label(prog, text="0%", style="Pct.TLabel", width=5)
         self.w_pct.grid(row=0, column=0, rowspan=2, sticky="w")
-        self.bar = ttk.Progressbar(prog, maximum=1000)
+        self.bar = SegmentBar(prog, self.scale)
         self.bar.grid(row=0, column=1, sticky="ew", padx=(8, 0))
         self.status = ttk.Label(prog, text="")
         self.status.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
 
         # One quiet line on a tinted strip: the big "Din tur" is in the Claude card, where the steps are
         k = self.scale
-        self.callout = tk.Frame(v, background=TINT, padx=int(12 * k), pady=int(8 * k))
+        self.callout = tk.Frame(v, background=P.callout_bg, padx=int(12 * k), pady=int(8 * k))
         self.callout.grid(row=5, column=0, sticky="ew", pady=(20, 0))
         self.callout.columnconfigure(0, weight=1)
-        hint = tk.Label(self.callout, text="Din tur: følg trinene i Claude-kortet til højre", background=TINT,
-                        foreground=ACCENT_DARK, font="SunValleyBodyStrongFont", justify="left", anchor="w",
+        hint = tk.Label(self.callout, text="Din tur: følg trinene i Claude-kortet til højre", background=P.callout_bg,
+                        foreground=P.callout_text, font="SunValleyBodyStrongFont", justify="left", anchor="w",
                         borderwidth=0, padx=0, pady=0)
         hint.grid(row=0, column=0, sticky="w")
         self.callout.bind("<Configure>", lambda e: hint.configure(wraplength=max(150, e.width - int(90 * k))))
         self.arrow = tk.Canvas(self.callout, width=int(44 * k), height=int(20 * k), highlightthickness=0,
-                               background=TINT)
+                               background=P.callout_bg)
         self.arrow.grid(row=0, column=1, sticky="e", padx=(10, 0))
         self.callout.grid_remove()
 
@@ -577,17 +542,20 @@ class App:
     def _build_done(self, parent) -> ttk.Frame:
         v = ttk.Frame(parent)
         v.columnconfigure(1, weight=1)
-        self.d_icon = tk.Label(v, text="✓", font=("Segoe UI Variable Display", 44, "bold"), foreground=GREEN,
+        self.d_banner = tk.Label(v, image=IMG.get("art/done-banner"), background=self.bg, borderwidth=0)
+        self.d_banner.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 14))
+        self.d_banner.grid_remove()
+        self.d_icon = tk.Label(v, text="✓", font=("Segoe UI Variable Display", 44, "bold"), foreground=P.success,
                                background=self.bg)
-        self.d_icon.grid(row=0, column=0, rowspan=2, sticky="nw", padx=(0, 16))
-        self.d_title = ttk.Label(v, text="", style="Title.TLabel", foreground=ACCENT_DARK)
-        self.d_title.grid(row=0, column=1, sticky="sw")
+        self.d_icon.grid(row=1, column=0, rowspan=2, sticky="nw", padx=(0, 16))
+        self.d_title = ttk.Label(v, text="", style="Title.TLabel", foreground=P.heading)
+        self.d_title.grid(row=1, column=1, sticky="sw")
         self.d_msg = ttk.Label(v, text="", justify="left")
-        self.d_msg.grid(row=1, column=1, sticky="new", pady=(4, 0))
+        self.d_msg.grid(row=2, column=1, sticky="new", pady=(4, 0))
         self._wrap(self.d_msg, v, 120)
 
         self.d_main = ttk.LabelFrame(v, text=" Din nye video ", padding=12)
-        self.d_main.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(18, 0))
+        self.d_main.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(18, 0))
         self.d_main.columnconfigure(0, weight=1)
         self.d_file = ttk.Label(self.d_main, text="", font="SunValleyBodyStrongFont")
         self.d_file.grid(row=0, column=0, columnspan=3, sticky="ew")
@@ -601,7 +569,7 @@ class App:
                    command=lambda: self._show_in_folder(self.d_target)).pack(side="left", padx=10)
 
         g = ttk.LabelFrame(v, text=" Alle filer fra denne kørsel ", padding=12)
-        g.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        g.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(14, 0))
         g.columnconfigure(0, weight=1)
         self.files = tk.Listbox(g, height=4, activestyle="none", borderwidth=0, highlightthickness=0,
                                 font="SunValleyBodyFont", background=self.bg)
@@ -611,7 +579,7 @@ class App:
                   style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
 
         nxt = ttk.LabelFrame(v, text=" Hvad nu? ", padding=12)
-        nxt.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(14, 0))
+        nxt.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(14, 0))
         self.d_again = ttk.Button(nxt, text="Prøv igen", style="Accent.TButton", command=self._start)
         self.d_same = ttk.Button(nxt, text="Lav en anden udgave af samme video", command=self._same_video)
         self.d_new = ttk.Button(nxt, text="Vælg en ny video", command=self._new_video)
@@ -699,13 +667,13 @@ class App:
         v = self._video()
         self.start_btn.configure(state="normal" if v and v.is_file() else "disabled")
         if not v:
-            self.v_name.configure(text="Ingen video valgt", foreground=GREY)
+            self.v_name.configure(text="Ingen video valgt", foreground=P.hint)
             self.v_dir.configure(text="Vælg den video, der skal have undertekster eller dubbes.", foreground="")
             self.v_btn.configure(text="Vælg video...", style="Accent.TButton")
         else:
             self.v_name.configure(text=v.name, foreground="")
             self.v_dir.configure(text=str(v.parent) if v.is_file() else "Filen findes ikke længere. Vælg den igen.",
-                                 foreground="" if v.is_file() else RED)
+                                 foreground="" if v.is_file() else P.error)
             self.v_btn.configure(text="Skift video...", style="TButton")
 
     def _claude_plan(self, v: Path, lang: Language, transcribe: bool, targets) -> tuple[bool, list[Language]]:
@@ -969,13 +937,14 @@ class App:
         for child in self.steps_box.winfo_children():
             child.destroy()
         self.step_rows = []
-        size = int(24 * self.scale)
         for i, name in enumerate(names):
-            icon = tk.Canvas(self.steps_box, width=size, height=size, highlightthickness=0, background=TINT)
+            icon = tk.Label(self.steps_box, background=P.card, borderwidth=0)
             icon.grid(row=i, column=0, sticky="w", pady=4)
-            text = tk.Label(self.steps_box, text=name, foreground=GREY, background=TINT, font="SunValleyBodyFont",
-                            anchor="w", padx=0, pady=0, borderwidth=0)
-            text.grid(row=i, column=1, sticky="w", padx=(10, 0))
+            tk.Label(self.steps_box, text=f"1-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0,
+                     font=(theme.PIXEL_FONT, 8)).grid(row=i, column=1, sticky="w", padx=(10, 0))
+            text = tk.Label(self.steps_box, text=name, foreground=P.step_pending, background=P.card,
+                            font="SunValleyBodyFont", anchor="w", padx=0, pady=0, borderwidth=0)
+            text.grid(row=i, column=2, sticky="w", padx=(10, 0))
             row = {"icon": icon, "text": text, "state": "todo"}
             self.step_rows.append(row)
             self._draw_icon(row)
@@ -983,7 +952,7 @@ class App:
         self.w_video.configure(text=job["video"].name)
         self.w_result.configure(text=f"Du får:  {job['result'].name}")
         self.bar.configure(value=0)
-        self.w_pct.configure(text="0 %")
+        self.w_pct.configure(text="0%")
         self.status.configure(text="Starter...")
         self.detail.configure(text="")
         self.callout.grid_remove()
@@ -1064,42 +1033,26 @@ class App:
             if state == "active" and i in (self.claude_at, self.review_at):
                 state = "turn"
             row["state"] = state
-            colour = {"done": GREEN, "active": ACCENT, "turn": ACCENT}.get(state, GREY)
+            colour = {"done": P.step_done, "active": P.step_active, "turn": P.your_turn_title}.get(state, P.step_pending)
             strong = state in ("active", "turn")
             row["text"].configure(foreground=colour, font="SunValleyBodyStrongFont" if strong else "SunValleyBodyFont")
             self._draw_icon(row)
 
-    def _draw_icon(self, row: dict, angle: float = 0.0):
-        """Step icons drawn like Windows 11: thin ring (to do), spinning arc (working), filled check (done),
-        filled arrow (the user's turn)."""
-        c: tk.Canvas = row["icon"]
-        c.delete("all")
-        s = int(c.cget("width"))
-        k = self.scale
-        p = 3 * k
-        state = row["state"]
-        if state == "todo":
-            c.create_oval(p, p, s - p, s - p, outline="#a9c7e3", width=1.5 * k)
-        elif state == "done":
-            c.create_oval(p, p, s - p, s - p, outline=GREEN, fill=GREEN)
-            c.create_line(s * 0.30, s * 0.52, s * 0.45, s * 0.66, s * 0.71, s * 0.37,
-                          fill="white", width=2 * k, capstyle="round", joinstyle="round")
-        elif state == "turn":
-            c.create_oval(p, p, s - p, s - p, outline=ACCENT, fill=ACCENT)
-            c.create_line(s * 0.30, s * 0.5, s * 0.70, s * 0.5, fill="white", width=2 * k, capstyle="round")
-            c.create_line(s * 0.52, s * 0.32, s * 0.70, s * 0.5, s * 0.52, s * 0.68,
-                          fill="white", width=2 * k, capstyle="round", joinstyle="round")
-        else:  # working: a light track with a rotating accent arc
-            c.create_oval(p, p, s - p, s - p, outline=ACCENT_LIGHT, width=2.5 * k)
-            c.create_arc(p, p, s - p, s - p, start=-angle, extent=100, style="arc", outline=ACCENT, width=2.5 * k)
+    def _draw_icon(self, row: dict, frame: int = 0):
+        """The step's pixel icon: pending, done, error, the user's turn (blinking) or working (animated)."""
+        name = {"todo": "step-pending", "done": "step-done", "error": "step-error",
+                "turn": f"step-your-turn-{frame % 2}"}.get(row["state"], f"step-active-{frame % 6}")
+        row["icon"].configure(image=IMG.get(f"icons/{name}"))
 
     def _animate(self):
         """Smooth spinner on the active step, and the pulsing border on the Claude panel."""
         self._spin += 1
         if self._running and 0 <= self.active_step < len(self.step_rows):
             row = self.step_rows[self.active_step]
-            if row["state"] == "active" and not (self.runner and self.runner.paused):
-                self._draw_icon(row, angle=(self._spin * 12) % 360)
+            if row["state"] == "active" and not (self.runner and self.runner.paused) and self._spin % 3 == 0:
+                self._draw_icon(row, frame=self._spin // 3)   # about 120 ms a frame
+            elif row["state"] == "turn" and self._spin % 12 == 0:
+                self._draw_icon(row, frame=self._spin // 12)   # blinks about every 500 ms
         if self._pulsing:
             if self._spin % 11 == 0:
                 self.claude_box.configure(style="TurnA.TLabelframe" if (self._spin // 11) % 2 == 0 else "TurnB.TLabelframe")
@@ -1113,9 +1066,9 @@ class App:
         w, h = int(c.cget("width")), int(c.cget("height"))
         dx = (math.sin(self._spin * 0.25) + 1) * 3 * k
         y = h / 2
-        c.create_line(3 * k + dx, y, w - 10 * k + dx, y, fill=ACCENT, width=2.5 * k, capstyle="round")
+        c.create_line(3 * k + dx, y, w - 10 * k + dx, y, fill=P.callout_text, width=2.5 * k, capstyle="round")
         c.create_line(w - 17 * k + dx, y - 6 * k, w - 9 * k + dx, y, w - 17 * k + dx, y + 6 * k,
-                      fill=ACCENT, width=2.5 * k, capstyle="round", joinstyle="round")
+                      fill=P.callout_text, width=2.5 * k, capstyle="round", joinstyle="round")
 
     def _busy(self) -> bool:
         return self._running
@@ -1152,7 +1105,7 @@ class App:
         no Pause: nothing runs then, and a paused run would not notice her answer. Pause comes back afterwards,
         unless the run has stopped meanwhile."""
         r = self.runner
-        self.w_pct.configure(foreground=GREY if active else ACCENT)
+        self.w_pct.configure(foreground=P.hint if active else P.step_active)
         if active:
             if r and r.paused:
                 self._toggle_pause()
@@ -1344,7 +1297,7 @@ class App:
                         self._set_step(self._worker_step_to_display(step))
                     if overall is not None:
                         self.bar.configure(value=overall * 1000)
-                        self.w_pct.configure(text=f"{overall * 100:.0f} %")
+                        self.w_pct.configure(text=f"{overall * 100:.0f}%")
                     self.status.configure(text=status.split(": ", 1)[-1] if status.startswith("Trin ") else status)
                     if detail:
                         self.detail.configure(text=f"Lige nu:  “{detail.strip()}”")
@@ -1371,6 +1324,7 @@ class App:
                                                 on_finish=self._translation_finished, mcp_job=self.mcp_job,
                                                 cut=cut, duration=duration)
                     self._tdialog.grid(row=0, column=0, sticky="nsew")
+                    skin.skin_cards(self.main)
                     self._user_turn(True)
                     if self.mcp_job:
                         self.status.configure(text="Claude retter og oversætter i chatten")
@@ -1396,21 +1350,27 @@ class App:
                         self._jstatus(state="cancelled", message=ev[1] or "Stoppet i appen.")
                     self.mcp_job = None
                     self._show_result(kind, ev[1])
+                    if self._theme_pending:
+                        self.root.after(300, lambda: self._apply_theme(self._theme_pending))
                 elif kind == "selfcheck":
                     self._show_selfcheck(ev[1])
         except queue.Empty:
             pass
         self.root.after(150, self._poll)
 
-    def _show_result(self, kind: str, info):
+    def _show_result(self, kind: str, info, replay: bool = False):
+        """replay: drawn again after a theme switch, without the side effects (skill guide, attention)."""
+        self._last_result = (kind, info)
         for w in (self.d_again, self.d_same, self.d_new, self.d_log, self.d_next_hint):
             w.pack_forget()
         self.d_main.grid_remove()
+        self.d_banner.grid() if kind == "done" else self.d_banner.grid_remove()
+        self.d_icon.grid_remove() if kind == "done" else self.d_icon.grid()
         if kind == "done":
             self.status.configure(text="Færdig.")
             target: Path = info
             self.d_target = target
-            self.d_icon.configure(text="✓", foreground=GREEN)
+            self.d_icon.configure(text="✓", foreground=P.success)
             self.d_title.configure(text="Færdig!")
             if target.suffix.lower() == ".srt":
                 self.d_msg.configure(text="Teksten er klar.")
@@ -1425,7 +1385,7 @@ class App:
                 self.d_play.configure(text="▶  Afspil")
             self.d_file.configure(text=target.name)
             self.d_main.grid()
-            if self._skill_warning:
+            if self._skill_warning and not replay:
                 reason, have = self._skill_warning
                 self._skill_warning = None
                 self.root.after(1200, lambda: self.show_skill_guide(reason, have))
@@ -1435,18 +1395,19 @@ class App:
             self.d_same.configure(style="Accent.TButton")
             self.d_same.pack(side="left")
             self.d_new.pack(side="left", padx=10)
-            self._call_attention()
+            if not replay:
+                self._call_attention()
         else:
             if kind == "cancelled":
-                self.d_icon.configure(text="■", foreground=GREY)
+                self.d_icon.configure(text="■", foreground=P.hint)
                 self.d_title.configure(text="Annulleret")
                 self.d_msg.configure(text=self._cancelled_text())
             elif kind == "skipped":
-                self.d_icon.configure(text="!", foreground=AMBER)
+                self.d_icon.configure(text="!", foreground=P.warning)
                 self.d_title.configure(text="Ikke færdig")
                 self.d_msg.configure(text=info)
             else:
-                self.d_icon.configure(text="!", foreground=RED)
+                self.d_icon.configure(text="!", foreground=P.error)
                 self.d_title.configure(text="Noget gik galt")
                 self.d_msg.configure(text=info)
                 self._call_attention()
@@ -1532,7 +1493,7 @@ class App:
     # --- Dialogs and the Claude panel ---------------------------------------------------
 
     def _settings_dialog(self):
-        SettingsDialog(self.root, self.settings)
+        SettingsDialog(self.root, self.settings, on_theme=self.set_theme)
 
     # --- The Claude skill's version ---------------------------------------------------------
 
@@ -1573,6 +1534,7 @@ class App:
         self._review = CutReview(self.left, self, video, duration, cues, suggestions, env,
                                  on_done=self._review_finished, mcp_job=self.mcp_job)
         self._review.grid(row=0, column=0, sticky="nsew")
+        skin.skin_cards(self.main)
         for frame in self.views.values():
             frame.grid_remove()
         self.view = "review"
@@ -1668,6 +1630,107 @@ class App:
             pass
 
 
+class SegmentBar(tk.Canvas):
+    """The arcade progress bar: 20 segments in a framed trough, the last filled one highlighted. Takes the
+    Progressbar calls the app makes: configure(value=0..1000) and cget("value")."""
+    SEGMENTS = 20
+
+    def __init__(self, parent, scale: float):
+        self.k = max(1, round(scale))
+        super().__init__(parent, height=22 * self.k, highlightthickness=0, borderwidth=0, background=P.window)
+        self._value = 0.0
+        self.bind("<Configure>", lambda e: self._draw())
+
+    def configure(self, cnf=None, **kw):
+        if "value" in kw:
+            self._value = max(0.0, min(1000.0, float(kw.pop("value"))))
+            self._draw()
+        return super().configure(cnf, **kw) if (cnf or kw) else None
+
+    config = configure
+
+    def cget(self, key):
+        return self._value if key == "value" else super().cget(key)
+
+    def _draw(self):
+        self.delete("all")
+        k, w, h = self.k, self.winfo_width(), int(super().cget("height"))
+        if w < 10:
+            return
+        self.create_rectangle(0, 0, w - 1, h - 1, fill=P.progress_trough, outline=P.progress_border, width=2 * k)
+        pad, gap = 4 * k, 3 * k
+        seg = (w - 2 * pad - gap * (self.SEGMENTS - 1)) / self.SEGMENTS
+        filled = int(round(self._value / 1000 * self.SEGMENTS))
+        for i in range(filled):
+            x0 = pad + i * (seg + gap)
+            colour = P.progress_fill_current if i == filled - 1 and filled < self.SEGMENTS else P.progress_fill
+            self.create_rectangle(x0, pad, x0 + seg, h - pad, fill=colour, outline="")
+
+
+class ThemePicker(ttk.Frame):
+    """Lys, Nat and Følg Windows as three pixel icons in the header (Indstillinger -> Udseende has the same)."""
+    CHOICES = (("light", "theme-light", "Lys"), ("night", "theme-night", "Nat"),
+               ("system", "theme-system", "Følg Windows"))
+
+    def __init__(self, parent, app):
+        super().__init__(parent, style="Picker.TFrame", padding=4)
+        self.app = app
+        self.items = {}
+        for choice, icon, label in self.CHOICES:
+            item = tk.Label(self, image=IMG.get(f"icons/{icon}"), background=P.button_secondary_bg, borderwidth=0,
+                            padx=6, pady=4, cursor="hand2")
+            item.pack(side="left")
+            item.bind("<Button-1>", lambda e, c=choice: app.set_theme(c))
+            item.bind("<Enter>", lambda e, c=choice: self._hover(c, True))
+            item.bind("<Leave>", lambda e, c=choice: self._hover(c, False))
+            Tooltip(item, lambda c=choice, l=label: self._tip(c, l))
+            self.items[choice] = (item, icon)
+        self.refresh()
+
+    def _tip(self, choice: str, label: str) -> str:
+        if choice == "system":
+            now = "Lys" if theme.resolve("system") == "light" else "Nat"
+            return f"{label} (nu: {now}) · skift udseende"
+        return f"{label} · skift udseende"
+
+    def _hover(self, choice: str, on: bool):
+        item, icon = self.items[choice]
+        if choice != self.app.settings.theme:
+            item.configure(background=P.picker_hover_bg if on else P.button_secondary_bg)
+
+    def refresh(self):
+        current = self.app.settings.theme
+        for choice, (item, icon) in self.items.items():
+            selected = choice == current
+            item.configure(image=IMG.get(f"icons/{icon}{'-selected' if selected else ''}"),
+                           background=P.picker_selected_bg if selected else P.button_secondary_bg)
+
+
+class Tooltip:
+    """A small label under a widget while the mouse is over it, in the theme's tooltip colours."""
+
+    def __init__(self, widget, text):
+        self.widget, self.text, self.tip = widget, text, None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+
+    def _show(self, e=None):
+        self._hide()
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        text = self.text() if callable(self.text) else self.text
+        tk.Label(self.tip, text=text, background=P.tooltip_bg, foreground=P.tooltip_text, padx=8, pady=4,
+                 font="SunValleyCaptionFont").pack()
+        x = self.widget.winfo_rootx()
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+        self.tip.wm_geometry(f"+{x}+{y}")
+
+    def _hide(self, e=None):
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
+
+
 class SkillGuide(tk.Toplevel):
     """How to put the new Claude skill into Claude: after an update (this version ships a newer skill), or when
     Claude worked without the skill or with an old one."""
@@ -1693,7 +1756,7 @@ class SkillGuide(tk.Toplevel):
         f = ttk.Frame(self, padding=18)
         f.pack(fill="both", expand=True)
         wrap = int(520 * app.scale)
-        ttk.Label(f, text=heading, style="Section.TLabel", foreground=ACCENT_DARK).pack(anchor="w")
+        ttk.Label(f, text=heading, style="Section.TLabel", foreground=P.heading).pack(anchor="w")
         ttk.Label(f, text=intro, wraplength=wrap, justify="left").pack(anchor="w", pady=(6, 12))
         steps = ["Klik \"Gem skill-filen\". Den lægges i din Overførsler-mappe.",
                  "Åbn Claude, og gå til Customize -> Skills.",
@@ -1723,9 +1786,9 @@ class SkillGuide(tk.Toplevel):
         try:
             claude.skill_zip(dest)
         except OSError as e:
-            self.status.configure(text=f"Kunne ikke gemme filen: {e}", foreground=RED)
+            self.status.configure(text=f"Kunne ikke gemme filen: {e}", foreground=P.error)
             return
-        self.status.configure(text=f"Gemt: {dest}", foreground=GREEN)
+        self.status.configure(text=f"Gemt: {dest}", foreground=P.success)
         subprocess.Popen(["explorer", "/select,", str(dest)])
 
     def _done(self):
@@ -1735,15 +1798,21 @@ class SkillGuide(tk.Toplevel):
 
 
 class SettingsDialog(tk.Toplevel):
-    def __init__(self, parent, settings: Settings):
+    def __init__(self, parent, settings: Settings, on_theme=None):
         super().__init__(parent)
         self.withdraw()
         self.title("Indstillinger")
         self.transient(parent)
         self.resizable(False, False)
         self.s = settings
+        self.on_theme = on_theme
         f = ttk.Frame(self, padding=14)
         f.pack(fill="both")
+        look = ttk.LabelFrame(f, text="Udseende", padding=10)
+        look.grid(row=9, column=0, sticky="ew", pady=(14, 0))
+        self.look = tk.StringVar(value=settings.theme)
+        for value, label in (("system", "Følg Windows"), ("light", "Lys"), ("night", "Nat")):
+            ttk.Radiobutton(look, text=label, value=value, variable=self.look).pack(side="left", padx=(0, 18))
         ttk.Label(f, text="Model til at skrive tekst:").grid(row=0, column=0, sticky="w")
         self.model = tk.StringVar(value=settings.whisper_model)
         for i, (key, (label, _)) in enumerate(engine.WHISPER_MODELS.items(), 1):
@@ -1769,7 +1838,7 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(links, text="Åbn logfil", command=lambda: self._open(log_file())).pack(side="left")
         ttk.Label(f, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").grid(row=7, column=0, sticky="w", pady=(12, 0))
         b = ttk.Frame(f)
-        b.grid(row=8, column=0, sticky="e", pady=(12, 0))
+        b.grid(row=10, column=0, sticky="e", pady=(12, 0))
         save_btn = ttk.Button(b, text="Gem", style="Accent.TButton", command=self._save, default="active")
         save_btn.pack(side="left")
         ttk.Button(b, text="Annullér", command=self.destroy).pack(side="left", padx=6)
@@ -1816,7 +1885,10 @@ class SettingsDialog(tk.Toplevel):
         self.s.whisper_model, self.s.use_gpu, self.s.keep_original_audio = self.model.get(), self.gpu.get(), self.keep.get()
         self.s.voice_mode = self.voice_mode.get()
         self.s.save()
+        look = self.look.get()
         self.destroy()
+        if self.on_theme and look != self.s.theme:
+            self.on_theme(look)
 
 
 class ModelDialog(tk.Toplevel):
@@ -1964,7 +2036,7 @@ class ClaudePanel(ttk.Frame):
                ([f"oversætte dem til {' og '.join(t.name.lower() for t in self.targets)}"] if self.targets else []) + \
                (["foreslå, hvad der skal klippes væk"] if cut else [])
         todo = [", ".join(todo[:-1]), todo[-1]] if len(todo) > 2 else todo
-        self.head = ttk.Label(self, text="Din tur", style="Big.TLabel", foreground=ACCENT)
+        self.head = ttk.Label(self, text="Din tur", style="Big.TLabel", foreground=P.your_turn_title)
         self.head.grid(row=0, column=0, sticky="w")
         intro = ttk.Label(self, justify="left", text=f"Claude skal {' og '.join(todo)}.")
         intro.grid(row=1, column=0, sticky="ew", pady=(2, 12))
@@ -2082,7 +2154,7 @@ class ClaudePanel(ttk.Frame):
             row = ttk.Frame(b, padding=(0, 6))
             row.grid(row=i, column=0, sticky="ew")
             row.columnconfigure(1, weight=1)
-            icon = tk.Canvas(row, width=int(26 * k), height=int(26 * k), highlightthickness=0, background=CARD_BG)
+            icon = tk.Canvas(row, width=int(26 * k), height=int(26 * k), highlightthickness=0, background=P.card)
             icon.grid(row=0, column=0, rowspan=2, sticky="nw", pady=(2, 0))
             t = ttk.Label(row, text=f"{title}", font="SunValleyBodyStrongFont")
             t.grid(row=0, column=1, sticky="w", padx=(10, 0))
@@ -2106,7 +2178,7 @@ class ClaudePanel(ttk.Frame):
         self.result = ttk.Label(b, text="", justify="left")
         self.result.grid(row=3, column=0, sticky="ew", pady=(14, 0))
         self.app._wrap(self.result, b, 10)
-        self.problem_detail = ttk.Label(b, text="", style="Hint.TLabel", foreground=GREY, justify="left")
+        self.problem_detail = ttk.Label(b, text="", style="Hint.TLabel", foreground=P.hint, justify="left")
         self.app._wrap(self.problem_detail, b, 10)
         self.followup_btn = ttk.Button(b, text="Kopiér besked til Claude", command=self._copy_followup)
         self._set_fstep(0)
@@ -2116,9 +2188,9 @@ class ClaudePanel(ttk.Frame):
             st["state"] = "done" if i < active else ("active" if i == active else "todo")
             if failed and i == active:
                 st["state"] = "failed"
-            st["title"].configure(foreground=GREEN if st["state"] == "done" else
-                                  RED if st["state"] == "failed" else
-                                  ACCENT if st["state"] == "active" else GREY)
+            st["title"].configure(foreground=P.success if st["state"] == "done" else
+                                  P.error if st["state"] == "failed" else
+                                  P.step_active if st["state"] == "active" else P.hint)
             self._draw_fstep(st)
         self.copy_file_btn.configure(style="Accent.TButton" if active == 0 else "TButton")
 
@@ -2129,18 +2201,18 @@ class ClaudePanel(ttk.Frame):
         p = 3 * k
         n = str(self.fsteps.index(st) + 1)
         if st["state"] == "done":
-            c.create_oval(p, p, s - p, s - p, outline=GREEN, fill=GREEN)
+            c.create_oval(p, p, s - p, s - p, outline=P.success, fill=P.success)
             c.create_line(s * 0.30, s * 0.52, s * 0.45, s * 0.66, s * 0.71, s * 0.37,
                           fill="white", width=2 * k, capstyle="round", joinstyle="round")
         elif st["state"] == "failed":
-            c.create_oval(p, p, s - p, s - p, outline=RED, fill=RED)
+            c.create_oval(p, p, s - p, s - p, outline=P.error, fill=P.error)
             c.create_text(s / 2, s / 2, text="!", fill="white", font="SunValleyBodyStrongFont")
         elif st["state"] == "active":
-            c.create_oval(p, p, s - p, s - p, outline=ACCENT, fill=ACCENT)
+            c.create_oval(p, p, s - p, s - p, outline=P.step_active, fill=P.step_active)
             c.create_text(s / 2, s / 2, text=n, fill="white", font="SunValleyBodyStrongFont")
         else:
             c.create_oval(p, p, s - p, s - p, outline="#c4c4c4", width=1.5 * k)
-            c.create_text(s / 2, s / 2, text=n, fill=GREY, font="SunValleyCaptionFont")
+            c.create_text(s / 2, s / 2, text=n, fill=P.hint, font="SunValleyCaptionFont")
 
     def _copy_file(self):
         if copy_file_to_clipboard(self.work_file):
@@ -2214,7 +2286,7 @@ class ClaudePanel(ttk.Frame):
         self._set_fstep(3)
         self.wait_lbl.configure(text=f"Fundet: {f.name}")
         self.result.configure(text=f"✓  Svaret er i orden ({len(self.cues)} blokke). Programmet fortsætter...",
-                              foreground=GREEN, font="SunValleyBodyStrongFont")
+                              foreground=P.success, font="SunValleyBodyStrongFont")
         self.problem_detail.grid_remove()
         self.followup_btn.grid_remove()
         self.after(1200, lambda: self._finish(have))
@@ -2227,7 +2299,7 @@ class ClaudePanel(ttk.Frame):
         self.wait_lbl.configure(text="")
         self.result.configure(text=plain or ("Claudes svar var ikke helt færdigt. Klik \"Kopiér besked til Claude\", "
                                              "indsæt den i samme chat (Ctrl+V), og hent den nye fil."),
-                              foreground=RED, font="SunValleyBodyFont")
+                              foreground=P.error, font="SunValleyBodyFont")
         self.problem_detail.configure(text=f"Detaljer: {msg}")
         self.problem_detail.grid(row=4, column=0, sticky="ew", pady=(4, 0))
         if followup:
@@ -2274,7 +2346,7 @@ class ClaudePanel(ttk.Frame):
                     self._set_fstep(3)
                     self.wait_lbl.configure(text="Fundet: Claudes svar (kopieret fra chatten)")
                     self.problem_detail.grid_remove()
-                    self.result.configure(text="✓  Svaret er i orden. Programmet fortsætter...", foreground=GREEN)
+                    self.result.configure(text="✓  Svaret er i orden. Programmet fortsætter...", foreground=P.success)
                     self.after(1200, lambda: self._finish(have))
         elif self.mode == "parts":
             self._watch_clipboard()
@@ -2295,11 +2367,11 @@ class ClaudePanel(ttk.Frame):
         self.words = []
         b = self.body
         b.rowconfigure(2, weight=1)
-        self.next_box = tk.Frame(b, background=TINT, padx=12, pady=10)
+        self.next_box = tk.Frame(b, background=P.card, padx=12, pady=10)
         self.next_box.grid(row=0, column=0, sticky="ew")
         self.next_box.columnconfigure(0, weight=1)
-        self.next_lbl = tk.Label(self.next_box, text="", font="SunValleyBodyStrongFont", background=TINT,
-                                 foreground=ACCENT_DARK, justify="left", anchor="w")
+        self.next_lbl = tk.Label(self.next_box, text="", font="SunValleyBodyStrongFont", background=P.card,
+                                 foreground=P.heading, justify="left", anchor="w")
         self.next_lbl.grid(row=0, column=0, sticky="ew")
         self.next_box.bind("<Configure>", lambda e: self.next_lbl.configure(wraplength=max(150, e.width - 30)))
         ttk.Label(b, text=(f"Teksten er delt i {len(self.parts)} dele, så Claudes svar ikke bliver afkortet. "
@@ -2340,7 +2412,7 @@ class ClaudePanel(ttk.Frame):
             cb.grid(row=0, column=1, padx=6)
             pb = ttk.Button(box, text="Indsæt svar", width=11, command=lambda i=i: self._paste(i))
             pb.grid(row=0, column=2)
-            lab = ttk.Label(box, text="", justify="left", foreground=GREY)
+            lab = ttk.Label(box, text="", justify="left", foreground=P.hint)
             lab.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(2, 0))
             box.bind("<Configure>", lambda e, lab=lab: lab.configure(wraplength=max(150, e.width - 10)))
             self.state_labels.append(lab)
@@ -2357,7 +2429,7 @@ class ClaudePanel(ttk.Frame):
         self.save_btn.configure(style="TButton", state="disabled")
         nxt = next((i for i, a in enumerate(self.answers) if a is None), None)
         for i, t in enumerate(self.part_titles):
-            t.configure(foreground=GREEN if self.answers[i] else (ACCENT if i == nxt else ""))
+            t.configure(foreground=P.success if self.answers[i] else (P.step_active if i == nxt else ""))
         if nxt is None:
             self.watching = None
             self.save_btn.configure(state="normal", style="Accent.TButton")
@@ -2397,7 +2469,7 @@ class ClaudePanel(ttk.Frame):
         self._prompt_text = text
         self.copied[i] = True
         self.watching = i
-        self.state_labels[i].configure(text="Kopieret. Indsæt i Claude med Ctrl+V og send.", foreground=GREY)
+        self.state_labels[i].configure(text="Kopieret. Indsæt i Claude med Ctrl+V og send.", foreground=P.hint)
         self._guide()
 
     def _paste(self, i: int, text: str | None = None):
@@ -2416,11 +2488,11 @@ class ClaudePanel(ttk.Frame):
             self.answers[i] = None
             got = [claude.LANG_BY_CODE[c].name.lower() for c in self.codes if c in have]
             prefix = f"Har {', '.join(got)}. " if got and len(self.codes) > 1 else ""
-            self.state_labels[i].configure(text="✗ " + prefix + msg, foreground=RED)
+            self.state_labels[i].configure(text="✗ " + prefix + msg, foreground=P.error)
         else:
             self.answers[i] = have
             extra = f", {len(set(self.words))} ord rettet" if self.words else ""
-            self.state_labels[i].configure(text=f"✓ {len(self.parts[i])} blokke ok{extra}", foreground=GREEN)
+            self.state_labels[i].configure(text=f"✓ {len(self.parts[i])} blokke ok{extra}", foreground=P.success)
             if self.watching == i:
                 self.watching = None
         self._guide()
@@ -2531,6 +2603,7 @@ def main():
     if running_installed():   # old version folders nothing runs from any more, models left under an earlier name
         threading.Thread(target=lambda: (_safe(cleanup), _safe(adopt_previous_models)), daemon=True).start()
     set_app_id()
+    theme.load_fonts()
     root = tk.Tk()
     App(root)
     root.mainloop()
