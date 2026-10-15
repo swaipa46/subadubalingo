@@ -118,6 +118,7 @@ buttons.
 | `language` | Leading icon of the language picker |
 | `file-video`, `file-subtitles` | Rows in "Alle filer fra denne kørsel" on the done view (.mp4 / .srt) |
 | `retry` | Prøv igen (has `-on-primary`) |
+| `speaker-0`, `speaker-1` | Scrub preview caption: idle / sound snippet playing (T7), drawn in `hint` |
 | `theme-light`, `theme-night`, `theme-system` | The three choices in the theme picker (Lys, Nat, Følg Windows) |
 
 ## Header (final, T4)
@@ -154,6 +155,66 @@ choices as tiles under "Programmets sprog" and "Udseende", using the `tile*` fra
 
 See the mockups `1-setup.png`, `theme-header.png`, `language-header.png`, `install-2.png` and `update.png` in
 `design/mockups/*/`.
+
+## Cut review: live preview while dragging (T7)
+
+Mockups: `4-review-scrub.png` (dragging the end edge of cut 2) and `4-review-scrub-states.png` (end edge, new cut,
+image not loaded yet) in `design/mockups/*/`. Source: `design/mockups/source/scrub.py`.
+
+**Where:** a floating preview inside the timeline, next to the edge being dragged. It is not shown in the details
+column.
+
+- **Why:**
+  - Your eyes are already on the edge and the waveform, so the picture is where you look.
+  - It can be bigger than the 168×94 details box without costing timeline or list height.
+  - Video editors use this for scrub previews, so it reads as familiar.
+- **Details column while dragging:** it keeps showing the last "Lige før / Lige efter" frames, unchanged. On release
+  they update as today. Show the video in only one place at a time.
+
+**Size and parts (1x):**
+
+| Part | Value |
+|---|---|
+| Image | 256×144, scaled from the 4-per-second thumbnails (nearest one to the edge time) |
+| Frame | `frames/scrub` (slice 12/12/16/16 at 1x, 24/24/32/32 at 2x); image inset 6 px |
+| Caption row | 30 px tall, under the image, inside the frame |
+| Total | about 288×196 including the shadow |
+| Pointer | `art/scrub-pointer-right` when the preview is left of the edge, `-left` when it is right of it; 8×16, vertically centred on the image |
+| Gap | 16 px from the edge line to the pointer tip |
+| Vertical position | top 8 px under the ruler. It stays above the speech bar at the bottom, so you can always see where speech stops. If the track is shorter than 220 px, scale the image down to fit, keeping 16:9 and at least 192×108. |
+| Dragged handle | `art/timeline-handle-dragging` (14×60 accent with a 2 px border), centred on the edge, replacing the normal 10×44 handle while dragging |
+
+**Which side:**
+
+- **Existing cut edge:** the preview goes on the cut's inside, away from the edge. That is left of an end edge and
+  right of a start edge. This side is being cut away anyway, and the kept side of the waveform stays visible.
+- **New cut being dragged out:** the preview goes on the side the drag started from.
+- **Flip:** if the preview would leave the visible timeline, put it on the other side.
+- **Follows the edge:** it moves with the edge, and the edge follows the mouse (with your snapping).
+
+**Caption, left to right:**
+
+1. **Tag:** a chip in Press Start 2P 10 px, with a background in the cut's border colour and text in `#ffffff` (Lys)
+   or `#1a0840` (Nat). The chip text:
+   - `START` for the start edge, `SLUT` for the end edge;
+   - `NYT KLIP` while dragging out a new cut, using the `manual` cut colour.
+2. **Time:** the exact edge time in VT323 26 px, `text` colour, as `m:ss,cc` with the UI language's decimal sign
+   (`0:07,75` in da/sv/no, `0:07.75` in en).
+3. **Right-aligned:** the speaker icon, then the cut's new length in Segoe UI 10 pt, `hint`. The length text is
+   "klip 1,75 s" in da, "klipp 1,75 s" in sv and no, and "cut 1.75 s" in en.
+   - The speaker icon is `icons/speaker-1` while a sound snippet is playing and `speaker-0` between snippets.
+
+**States:**
+
+| State | Shown |
+|---|---|
+| Not dragging (incl. hover over a handle) | No preview. Only the normal handle, with the cursor `sb_h_double_arrow` on the handle |
+| Dragging | Preview appears at once, with no fade. It updates the image whenever the nearest thumbnail changes, and the time on every mouse move |
+| Thumbnail not ready | Same frame, image area filled `#0b0320` with "..." in Press Start 2P 10 px `#9c8cc9`. The caption still shows the time |
+| Released / Esc | Preview disappears at once. The details column frames update as today |
+
+Translation keys for the tag and length text: `review.scrub.start`, `review.scrub.end`, `review.scrub.new`,
+`review.scrub.length`.
 
 ## Larger art (`<theme>/art/`, `common/`)
 

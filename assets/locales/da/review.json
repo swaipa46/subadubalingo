@@ -33,6 +33,9 @@
  "review.just_before": "Lige før  {time}",
  "review.just_after": "Lige efter  {time}",
  "review.frame_at": "Billedet ved {time}",
- "review.scrub_at": "Her: {time}",
- "review.making_preview": "Laver klippet ..."
+ "review.making_preview": "Laver klippet ...",
+ "review.scrub.start": "Start",
+ "review.scrub.end": "Slut",
+ "review.scrub.new": "Nyt klip",
+ "review.scrub.length": "klip {s} s"
 }

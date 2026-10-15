@@ -23,6 +23,7 @@ import numpy as np
 from . import cutting, jobs, scrub, skin
 from .common import Cue, Runner, log
 from .cutting import Cut, fmt_clock, fmt_length
+from . import i18n
 from .i18n import t
 from .theme import IMG, P, PIXEL_FONT, TERMINAL_FONT
 
@@ -37,7 +38,8 @@ def kind_label(kind: str) -> str:
     return cutting.kind_label(kind)
 
 EDGE_PX = 7
-SCRUB_W = 168         # thumbnails for scrubbing, in design px wide: the details column's preview box
+SCRUB_W = 256         # thumbnails for scrubbing, in design px wide: the floating preview (assets/ui README, T7)
+DETAIL_W = 168        # the details column's two frame boxes
 SCRUB_FRAME_MS = 40   # while dragging, a new picture at most this often
 SCRUB_SOUND_MS = 120  # and a new snippet of sound at most this often,
 SCRUB_MOVE_MS = 60    # once the edge has moved this far
@@ -123,6 +125,7 @@ class CutReview(ttk.Frame):
         self.canvas = tk.Canvas(tl, height=int(244 * k), background=P.timeline_bg, highlightthickness=0,
                                 borderwidth=0, cursor="crosshair")
         self.canvas.grid(row=0, column=0, sticky="nsew")
+        self._build_scrub_pop()
         self.xbar = ttk.Scrollbar(self, orient="horizontal", command=self._xview)
         self.xbar.grid(row=4, column=0, sticky="ew", pady=(2 * kd, 0))
         self.xbar.grid_remove()   # only while zoomed in (_redraw)
@@ -191,7 +194,7 @@ class CutReview(ttk.Frame):
                                 wraplength=int(340 * k))
         self.d_text.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 6))
         # The two frames in fixed 168 x 94 boxes (round 2, item 15c): a taller picture is cropped, not grown
-        fw, fh = int(SCRUB_W * self.k), int(94 * self.k)
+        fw, fh = int(DETAIL_W * self.k), int(94 * self.k)
         self._no_frame = tk.PhotoImage(master=self, width=fw, height=fh)   # holds the box (pixel units) until a frame comes
         box = dict(background=P.card, borderwidth=0, width=fw, height=fh, image=self._no_frame)
         self.img_a = tk.Label(det, **box)
@@ -370,8 +373,13 @@ class CutReview(ttk.Frame):
             else:
                 c.create_rectangle(x0, top, x0 + lw, bottom, outline="", fill=strong)
             if cut.on or selected:
-                for x in (x0, x1):
-                    c.create_rectangle(x - 5 * kd, mid - 22 * kd, x + 5 * kd, mid + 22 * kd, fill=strong, outline="")
+                target = self._scrub_target() if self._scrub_ms is not None else None
+                for side, x in (("start", x0), ("end", x1)):
+                    if target and target[0] is cut and target[1] == side:   # the edge being dragged (T7)
+                        c.create_image(x, mid, image=IMG.get("art/timeline-handle-dragging"))
+                    else:
+                        c.create_rectangle(x - 5 * kd, mid - 22 * kd, x + 5 * kd, mid + 22 * kd, fill=strong,
+                                           outline="")
             label = f"{n} {kind_label(cut.kind) if cut.on else t('review.kept')}"
             tx = max(x0, m) + lw + 6 * kd
             if x1 - tx > self._text_w(label, font) + 6 * kd:
@@ -397,6 +405,7 @@ class CutReview(ttk.Frame):
         if self.hover_t is not None and self.v0 <= self.hover_t <= self.v1:
             x = self.x_of(self.hover_t)
             c.create_line(x, top, x, bottom, fill=P.heading)
+        self._place_scrub_pop(top)
         self.xbar.set(self.v0 / self.dur, self.v1 / self.dur)
         if self.v0 > 0 or self.v1 < self.dur:   # the scroll bar only while zoomed in
             self.xbar.grid()
@@ -662,14 +671,18 @@ class CutReview(ttk.Frame):
         if ms is not None and (self._scrub_sound_ms is None or abs(ms - self._scrub_sound_ms) >= SCRUB_MOVE_MS):
             self._scrub_sound_ms, self._scrub_sound_t = ms, time.monotonic()
             self.scrub.play(ms)
+            self._speaker(True)
+            self.after(scrub.SNIPPET_MS, lambda: self._speaker(False))
 
     def _show_scrub_frame(self, ms: int):
-        """Show the picture at ms (the nearest thumbnail, or an exact frame made now) with its time. The one place
-        that decides where the live picture goes."""
-        self.cap_a.configure(text=t("review.scrub_at", time=scrub.fmt_fine(ms)))
+        """The picture at ms (the nearest thumbnail, or an exact frame made now) and its time in the floating preview.
+        The details column keeps its frames until the release (T7)."""
+        self._scrub_caption(ms)
         path = self.scrub.thumb(ms)
         if path is None:
             self._scrub_one.put(ms)   # arrives as ("scrub", ms, path) in _poll
+            if self._scrub_img is None:
+                self.pop_img.configure(image=self._pop_blank, text="...")
             return
         self._put_scrub_image(path)
 
@@ -678,7 +691,88 @@ class CutReview(ttk.Frame):
             self._scrub_img = tk.PhotoImage(master=self, file=str(path))   # kept: Tk drops images Python lets go
         except tk.TclError:
             return
-        self.img_a.configure(image=self._scrub_img)
+        self.pop_img.configure(image=self._scrub_img, text="")
+
+    # --- The floating preview while dragging (T7: assets/ui/README.md "Cut review: live preview while dragging") ---
+
+    def _build_scrub_pop(self):
+        kd = self.kd
+        w, h = SCRUB_W * kd, 144 * kd
+        pop = self.pop = ttk.Frame(self.canvas, style="Scrub.TFrame", padding=(6 * kd, 6 * kd, 10 * kd, 10 * kd))
+        self._pop_blank = tk.PhotoImage(master=self, width=w, height=h)
+        self.pop_img = tk.Label(pop, image=self._pop_blank, text="...", compound="center", borderwidth=0,
+                                background="#0b0320", foreground="#9c8cc9", font=(PIXEL_FONT, -10 * kd),
+                                width=w, height=h)
+        self.pop_img.pack()
+        cap = tk.Frame(pop, background=P.card, height=30 * kd)
+        cap.pack(fill="x")
+        cap.pack_propagate(False)
+        self.pop_tag = tk.Label(cap, font=(PIXEL_FONT, -10 * kd), borderwidth=0, padx=5 * kd, pady=3 * kd)
+        self.pop_tag.pack(side="left", padx=(0, 8 * kd))
+        self.pop_time = tk.Label(cap, font=(TERMINAL_FONT, -26 * kd), background=P.card, foreground=P.text,
+                                 borderwidth=0, padx=0, pady=0)
+        self.pop_time.pack(side="left")
+        self.pop_len = tk.Label(cap, font=("Segoe UI", 10), background=P.card, foreground=P.hint, borderwidth=0)
+        self.pop_len.pack(side="right")
+        self.pop_speaker = tk.Label(cap, image=IMG.get("icons/speaker-0"), background=P.card, borderwidth=0)
+        self.pop_speaker.pack(side="right", padx=(0, 4 * kd))
+
+    def _scrub_target(self):
+        """(cut, the dragged side "start"/"end", tag key) while an edge or a new cut is dragged, else None."""
+        d = self.drag
+        if not d or d.get("cut") is None:
+            return None
+        cut = d["cut"]
+        if d["mode"] == "edge":
+            return cut, d["side"], "review.scrub." + ("start" if d["side"] == "start" else "end")
+        if d["mode"] == "new":
+            side = "end" if self._snap(d["t0"]) <= cut.start else "start"   # the moving end
+            return cut, side, "review.scrub.new"
+        return None
+
+    def _scrub_caption(self, ms: int):
+        target = self._scrub_target()
+        time_text = scrub.fmt_fine(ms)
+        if i18n.current() != "en":   # the UI language's decimal sign
+            time_text = time_text.replace(".", ",")
+        self.pop_time.configure(text=time_text)
+        if not target:
+            return
+        cut, _, tag = target
+        kind = "manual" if tag.endswith(".new") else cut.kind
+        self.pop_tag.configure(text=t(tag).upper(), background=kind_colour(kind, "border"),
+                               foreground="#ffffff" if P.name == "light" else "#1a0840")
+        length = f"{(cut.end - cut.start) / 1000:.2f}"
+        self.pop_len.configure(text=t("review.scrub.length", s=length if i18n.current() == "en"
+                                      else length.replace(".", ",")))
+
+    def _speaker(self, on: bool):
+        if self.pop.winfo_exists():
+            self.pop_speaker.configure(image=IMG.get(f"icons/speaker-{1 if on else 0}"))
+
+    def _place_scrub_pop(self, top: int):
+        """Put the preview next to the dragged edge, on the cut's inside (flipped when it would leave the timeline),
+        its pointer 16 px from the edge and its top 8 px under the ruler."""
+        target = self._scrub_target()
+        if self._scrub_ms is None or not target:
+            return
+        cut, side, _ = target
+        c, kd = self.canvas, self.kd
+        edge = self.x_of(cut.start if side == "start" else cut.end)
+        self.pop.update_idletasks()
+        pw = self.pop.winfo_reqwidth()
+        pointer_w, gap = 8 * kd, 16 * kd
+        right = side == "start"   # inside the cut: right of a start edge, left of an end edge
+        if right and edge + gap + pointer_w + pw > c.winfo_width():
+            right = False
+        elif not right and edge - gap - pointer_w - pw < 0:
+            right = True
+        y = top + 8 * kd
+        tip = edge + gap if right else edge - gap
+        x = tip + pointer_w if right else tip - pointer_w - pw
+        c.create_window(x, y, window=self.pop, anchor="nw")
+        c.create_image(tip, y + 6 * kd + 72 * kd, image=IMG.get(f"art/scrub-pointer-{'left' if right else 'right'}"),
+                       anchor="w" if right else "e")
 
     def _scrub_frame_work(self, ms: int):
         if self.scrub.thumb(ms) is not None:   # the thumbnail came meanwhile
@@ -700,6 +794,8 @@ class CutReview(ttk.Frame):
         if self._scrub_ms is not None:
             self.scrub.silence()
         self._scrub_ms = self._scrub_shown = self._scrub_sound_ms = None
+        self._scrub_img = None
+        self.after_idle(self._redraw)   # the floating preview goes at once
 
     def _play(self, what: str):
         cut = self.sel

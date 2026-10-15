@@ -33,6 +33,9 @@
  "review.just_before": "Precis före  {time}",
  "review.just_after": "Precis efter  {time}",
  "review.frame_at": "Bilden vid {time}",
- "review.scrub_at": "Här: {time}",
- "review.making_preview": "Gör klippet ..."
+ "review.making_preview": "Gör klippet ...",
+ "review.scrub.start": "Start",
+ "review.scrub.end": "Slut",
+ "review.scrub.new": "Nytt klipp",
+ "review.scrub.length": "klipp {s} s"
 }

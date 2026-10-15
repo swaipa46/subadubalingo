@@ -198,6 +198,11 @@ def apply(root: tk.Tk, name: str, scale: float):
     style.layout("Trough.TFrame", [(f"Trough.border{suffix}", {"sticky": "nsew", "children": [
         ("Frame.padding", {"sticky": "nsew"})]})])
     style.configure("Trough.TFrame", background=P.window)
+    # The floating preview while dragging a cut's edge (frames/scrub; T7)
+    _element(style, f"Scrub.border{suffix}", "scrub")
+    style.layout("Scrub.TFrame", [(f"Scrub.border{suffix}", {"sticky": "nsew", "children": [
+        ("Frame.padding", {"sticky": "nsew"})]})])
+    style.configure("Scrub.TFrame", background=P.timeline_bg)
     # The "your turn" band under the progress bar (frames/callout; design review round 1, item 11)
     _element(style, f"Callout.border{suffix}", "callout")
     style.layout("Callout.TFrame", [(f"Callout.border{suffix}", {"sticky": "nsew", "children": [
