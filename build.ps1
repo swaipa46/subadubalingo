@@ -9,8 +9,11 @@ $version = (Select-String -Path app\subadubalingo\common.py -Pattern 'APP_VERSIO
 foreach ($t in 'bin\whisper\whisper-cli.exe', 'bin\piper\piper.exe', 'bin\ffmpeg\ffmpeg.exe') {
     if (-not (Test-Path $t)) { throw "Missing $t - run fetch-tools.ps1 first" }
 }
-& .venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --windowed --name $name `
-    --add-data 'bin;bin' --collect-data sv_ttk --collect-all sherpa_onnx --paths app --distpath $Out --workpath build app\main.py
+# The icon goes into the exe (so shortcuts and Explorer show it); the files the window uses ride along as data.
+$brand = 'assets\branding'
+& .venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --windowed --name $name --icon "$brand\SubaDubaLingo.ico" `
+    --add-data "$brand\SubaDubaLingo.ico;$brand" --add-data "$brand\header-logo.png;$brand" `
+    --add-data "$brand\header-logo@2x.png;$brand" --add-data 'bin;bin' --collect-data sv_ttk --collect-all sherpa_onnx --paths app --distpath $Out --workpath build app\main.py
 if ($LASTEXITCODE) { throw 'PyInstaller failed' }
 $dir = "$Out\$name"
 New-Item -ItemType Directory -Force "$dir\models" | Out-Null

@@ -30,7 +30,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-from .common import APP_NAME, APP_VERSION, NO_WINDOW, app_dir, data_dir, log
+from .common import APP_NAME, APP_VERSION, NO_WINDOW, app_dir, data_dir, log, set_app_icon, set_app_id
 
 EXE_NAME = f"{APP_NAME}.exe"
 INSTALL_FOLDER = APP_NAME
@@ -320,8 +320,10 @@ def offer_install() -> bool:
     have = installed_version()
     if have and _vtuple(have) > _vtuple(APP_VERSION):
         return True  # an older zip: just run it
+    set_app_id()
     root = tk.Tk()
     root.title(APP_NAME)
+    set_app_icon(root)
     root.resizable(False, False)
     try:
         import sv_ttk

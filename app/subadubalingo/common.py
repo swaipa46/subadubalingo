@@ -32,6 +32,31 @@ def bin_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent / "bin"
 
 
+def branding_dir() -> Path:
+    """The logo and icon (assets/branding; see BRANDING.md there)."""
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", app_dir())) / "assets" / "branding"
+    return Path(__file__).resolve().parent.parent.parent / "assets" / "branding"
+
+
+APP_USER_MODEL_ID = "SubaDubaLingo.App"   # own taskbar group and icon, also when run from source (python.exe)
+
+
+def set_app_icon(root):
+    """The window and taskbar icon for this Tk root and every window it opens. Call set_app_id() before Tk()."""
+    try:
+        root.iconbitmap(default=str(branding_dir() / "SubaDubaLingo.ico"))
+    except Exception:
+        pass
+
+
+def set_app_id():
+    try:
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+    except Exception:
+        pass
+
+
 def legacy_data_dir() -> Path:
     """Before v1.7: %LOCALAPPDATA%\\VideoUndertekster (settings and models)."""
     return Path(os.environ.get("LOCALAPPDATA") or str(Path.home())) / "VideoUndertekster"

@@ -20,7 +20,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import claude, cutting, engine, jobs, textstate
-from .common import (APP_NAME, APP_TAGLINE, APP_VERSION, FFMPEG, LANG_BY_NAME, LANGUAGES, NO_WINDOW, PIPER, WHISPER, Cancelled,
+from .common import (APP_NAME, APP_TAGLINE, APP_VERSION, branding_dir, set_app_icon, set_app_id, FFMPEG, LANG_BY_NAME, LANGUAGES, NO_WINDOW, PIPER, WHISPER, Cancelled,
                      Cue, Language, Runner, ToolError, burned_name, copy_file_to_clipboard, cut_name, data_dir, downloads_dir,
                      dub_name,
                      free_memory_gb, output_path,
@@ -338,6 +338,7 @@ class App:
         self._starting = False   # The user's own start is waiting in a dialog (a question, the model download)
 
         root.title(APP_NAME)
+        set_app_icon(root)
         apply_style(root)
         # Sizes in logical pixels, scaled to the display (the process is DPI aware), within the screen.
         scale = self.scale = root.winfo_fpixels("1i") / 96
@@ -412,8 +413,16 @@ class App:
 
         top = ttk.Frame(f)
         top.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 12))
-        ttk.Label(top, text=APP_NAME, style="Title.TLabel", foreground=ACCENT_DARK).pack(side="left")
-        ttk.Label(top, text=APP_TAGLINE, style="Hint.TLabel").pack(side="left", padx=(14, 0), pady=(10, 0))
+        # The pixel-art logo at a whole multiple of its size (2x on a display scaled 150 % or more); text if it is missing
+        logo = branding_dir() / ("header-logo@2x.png" if self.scale >= 1.5 else "header-logo.png")
+        try:
+            self._logo = tk.PhotoImage(file=str(logo))   # keep a reference, or Tk drops the image
+            ttk.Label(top, image=self._logo, text=APP_NAME).pack(side="left")
+            tagline_pad = (0, 0)   # centred on the logo
+        except tk.TclError:
+            ttk.Label(top, text=APP_NAME, style="Title.TLabel", foreground=ACCENT_DARK).pack(side="left")
+            tagline_pad = (10, 0)   # on the title's baseline
+        ttk.Label(top, text=APP_TAGLINE, style="Hint.TLabel").pack(side="left", padx=(18, 0), pady=tagline_pad)
         ttk.Button(top, text="Indstillinger", command=self._settings_dialog).pack(side="right")
 
         self.left = ttk.Frame(f)
@@ -2521,6 +2530,7 @@ def main():
     from .common import adopt_previous_models
     if running_installed():   # old version folders nothing runs from any more, models left under an earlier name
         threading.Thread(target=lambda: (_safe(cleanup), _safe(adopt_previous_models)), daemon=True).start()
+    set_app_id()
     root = tk.Tk()
     App(root)
     root.mainloop()
