@@ -24,6 +24,11 @@ downloads = Path(tempfile.mkdtemp(prefix="sdl-downloads-"))
 gui.downloads_dir = lambda: downloads
 out = Path(sys.argv[2])
 ctypes.windll.shcore.SetProcessDpiAwareness(1)
+from subadubalingo import theme  # noqa: E402
+if "--theme" in sys.argv:   # light or night, whatever Windows and the settings say
+    _forced = sys.argv[sys.argv.index("--theme") + 1]
+    theme.resolve = lambda choice: _forced
+theme.load_fonts()
 root = tk.Tk()
 app = gui.App(root)
 

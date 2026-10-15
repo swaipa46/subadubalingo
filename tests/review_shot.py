@@ -33,6 +33,11 @@ claude_cuts, _ = cutting.parse_cut_lines(["1-3 start Folk kommer ind og tester l
                                          cues, dur)
 sugg = cutting.combine_suggestions(cutting.find_pauses(cues, dur, env, min_ms=5000), claude_cuts)
 
+from subadubalingo import theme  # noqa: E402
+if "--theme" in sys.argv:   # light or night, whatever Windows and the settings say
+    _forced = sys.argv[sys.argv.index("--theme") + 1]
+    theme.resolve = lambda choice: _forced
+theme.load_fonts()
 root = tk.Tk()
 app = gui.App(root)
 app.step_rows = []
