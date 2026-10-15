@@ -390,7 +390,7 @@ class App:
         idle = ttk.Label(mid, justify="center", style="Hint.TLabel", text=t("gui.claude.idle"),
                          wraplength=int(360 * k))
         idle.pack()
-        autoupdate.build(self)   # the "new version is ready" band at the bottom, if there is one
+        autoupdate.build(self)   # the "new version is ready" band under the header, if there is one
 
     def _build_header(self):
         """The header band across the window: logo and CUT · DUB · SUB, then from the right Indstillinger (the cog),
