@@ -15,16 +15,16 @@ Första gången erbjuder programmet sig att installera sig självt; tryck "Insta
 Tips: högerklicka på det och välj "Fäst på Start", så är det lätt att hitta.
 
 Längst upp till höger kan du byta programmets språk (DA, SV, NO, EN) och utseende
-(Ljus, Natt eller Följ Windows). Kugghjulet längst till höger öppnar
+(Ljust, Natt eller Följ Windows). Kugghjulet längst till höger öppnar
 inställningarna.
 
 
 FÖRSTA GÅNGEN
 -------------
-Första gången du trycker Start säger programmet att det saknas några filer
+Första gången du trycker Starta säger programmet att det saknas några filer
 (ca 1,1 GB, och 63 MB per röst för dubbning). Tryck "Hämta automatiskt".
 Fungerar det inte, klicka på länkarna, hämta filerna och lägg dem i modellmappen
-(knappen "Öppna modellmappen").
+(knappen "Öppna modellmapp").
 
 Lägg också in Claude-skillen i Claude (en gång). Programmet visar själv
 fönstret "Lägg in Claude-skillen" med fyra steg:
@@ -42,14 +42,14 @@ SÅ GÖR DU EN VIDEO
 2. Välj vilket språk som talas i videon.
 3. Välj vad den nya videon ska ha:
      Tal:           Original, eller ett språk den ska dubbas till
-     Undertexter:   Ingen, eller det språk texterna ska vara på
+     Undertexter:   Inga, eller det språk texterna ska vara på
    Under valen står det vilken fil du får.
-4. Tryck Start. Du kan jobba vidare med annat under tiden.
+4. Tryck Starta. Du kan jobba vidare med annat under tiden.
 
 Medan programmet arbetar visar det stegen och hur långt det har kommit.
 När texten är skriven kommer programmet fram, och panelen "Claude" till höger
 lyser upp med "Din tur" (se CLAUDE nedan). Sedan gör programmet resten
-självt, och när videon är klar står det "Klar!" med knappar för att spela upp
+självt, och när videon är klar står det "Klart!" med knappar för att spela upp
 den, visa den i mappen eller göra en ny.
 
 Exempel:
@@ -80,8 +80,8 @@ Claude rättar felhörda ord (till exempel produktnamn) och översätter till de
 den nya videon ska ha. Det sker med en fil fram och en fil tillbaka:
 1. Klicka "Kopiera fil" i Claude-kortet.
 2. Öppna en ny chatt i Claude, klistra in (Ctrl+V) och skicka. (Går det inte att
-   klistra in filen, klicka "Visa i mappen" och dra in filen i Claude.)
-3. Claude gör en svarsfil ("... - fra Claude.txt"). Klicka på den i Claudes svar
+   klistra in filen, klicka "Visa i mapp" och dra in filen i Claude.)
+3. Claude gör en svarsfil ("... - från Claude.txt"). Klicka på den i Claudes svar
    och tryck Download.
 4. Programmet hittar själv filen i mappen Hämtade filer, kontrollerar den och
    fortsätter. Du behöver inte spara eller flytta något. Under tiden står det under
@@ -104,18 +104,18 @@ Datorn hör inte alltid rätt, särskilt när det gäller namn och fackord.
 Hör den samma ord fel varje gång (till exempel ett produktnamn), skriv in det i
 listan med rättelser: kugghjulet -> "Redigera rättelser". En rad per ord,
 till exempel:   memberkär = Membercare
-Bocka sedan i "Lyssna igenom videon från början" och tryck Start.
+Bocka sedan i "Lyssna igenom videon på nytt" och tryck Starta.
 
 Enstaka fel kan du rätta direkt i textfilen (till exempel "... - svenska undertexter.srt")
-i Anteckningar. Ändra bara texten, inte siffrorna och tidskoderna. Tryck sedan Start igen.
+i Anteckningar. Ändra bara texten, inte siffrorna och tidskoderna. Tryck sedan Starta igen.
 
-Har du bråttom kan du under kugghjulet välja "Snabbast". Det går ungefär 1,5
+Har du bråttom kan du under kugghjulet välja "Snabbast (large-v3-turbo, ca. 1,5x snabbare, lite fler fel)". Det går ungefär 1,5
 gånger snabbare, men fler ord blir felhörda.
 
 
 KLIPP VIDEON FÖRST (till exempel en Teams-inspelning)
 -----------------------------------------------------
-Bocka i "Klipp videon först" innan du trycker Start. Då hittar
+Bocka i "Klipp videon först: ta bort väntetid, pauser och det som inte ska vara med" innan du trycker Starta. Då hittar
 programmet själv långa pauser, och Claude föreslår vad som ska klippas bort:
 väntetiden innan mötet kommer igång, avbrott, slutet där inspelningen
 drar ut på tiden, och sådant som är olämpligt, inte hör till ämnet eller inte går att förstå.
@@ -133,10 +133,10 @@ Ingenting klipps förrän du har godkänt det:
   tar bort det.
 Tryck "Klipp videon" när du är nöjd. Du får "... - klippt.mp4", och
 undertexterna och dubbningen görs till den klippta videon. Vill du bara få
-videon klippt, välj Tal: Original och Undertexter: Ingen.
+videon klippt, välj Tal: Original och Undertexter: Inga.
 
 Gör du senare ett annat språk av samma video återanvänds den klippta videon.
-Vill du klippa om, bocka i "Klipp om videon".
+Vill du klippa om, bocka i "Klipp videon på nytt".
 
 
 ANVÄND PROGRAMMET FRÅN CLAUDE (valfritt)

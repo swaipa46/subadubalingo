@@ -41,6 +41,16 @@ def apply(root: tk.Tk, name: str, scale: float):
         sv_ttk.set_theme("light" if name == "light" else "dark", root)
     except Exception:
         log.exception("sv_ttk not available; using the default theme")
+    # sv_ttk's tk_setPalette puts its own background and foreground on every widget through the option database, and
+    # on a ttk label that wins over the style: rows of labels showed Sun Valley's grey (#fafafa/#1c1c1c) in the cards
+    # It does so on <<ThemeChanged>>, after the window is built, recolouring every widget then; so it runs now, its
+    # event binding goes, and its option entries are cleared (plain tk widgets get explicit colours)
+    try:
+        root.tk.eval("configure_colors")
+        root.bind_class("Tk", "<<ThemeChanged>>", "")
+    except tk.TclError:
+        pass
+    root.option_clear()
     for fname, size in BODY_SIZES.items():
         try:
             tkfont.nametofont(fname).configure(size=size)
@@ -102,6 +112,15 @@ def apply(root: tk.Tk, name: str, scale: float):
         style.configure(st, background=P.window, labeloutside=True, labelmargins=(2 * k, 0, 0, 4 * k))
         style.configure(f"{st}.Label", background=P.window, foreground=P.your_turn_title,
                         font="SunValleyBodyStrongFont")
+    # Card titles inside the card (Card): Segoe UI Semibold 12 pt in heading, your_turn_title on the your-turn card
+    style.configure("CardTitle.TLabel", font=("Segoe UI Semibold", 12), foreground=P.heading, background=P.card)
+    style.configure("Card.CardTitle.TLabel", background=P.card, foreground=P.heading)
+    style.configure("YT.CardTitle.TLabel", background=P.your_turn_card, foreground=P.your_turn_title)
+    for nm, colour in (("CardTitle.TLabel", P.heading), ("Card.CardTitle.TLabel", P.heading),
+                       ("YT.CardTitle.TLabel", P.your_turn_title)):
+        style.map(nm, foreground=[("!disabled", colour)])
+    # sv_ttk has its own Card.TFrame (a raised field image); here a frame in a card is just the card's colour
+    style.layout("Card.TFrame", style.layout("TFrame"))
     for cls in CARD_CLASSES:
         style.configure(f"Card.{cls}", background=P.card)
         style.configure(f"YT.{cls}", background=P.your_turn_card)
@@ -198,6 +217,63 @@ def apply(root: tk.Tk, name: str, scale: float):
     root.option_add("*TCombobox*Listbox.foreground", P.text)
     root.option_add("*TCombobox*Listbox.selectBackground", P.selection_bg)
     root.option_add("*TCombobox*Listbox.selectForeground", P.selection_text)
+
+
+def _pad4(pad) -> tuple:
+    """ttk padding (one, two or four numbers) as (left, top, right, bottom)."""
+    p = list(pad) if isinstance(pad, (tuple, list)) else [pad]
+    p = [int(x) for x in p]
+    if len(p) == 1:
+        return (p[0],) * 4
+    if len(p) == 2:
+        return (p[0], p[1], p[0], p[1])
+    if len(p) == 3:
+        return (p[0], p[1], p[2], p[1])
+    return tuple(p[:4])
+
+
+class Card(ttk.Frame):
+    """A card (frames/card) with its title inside, as the first row (design review round 1, item 7). ttk can only put a
+    LabelFrame's label outside or across the frame, so a card is a frame of class TLabelframe (it takes the
+    TLabelframe styles and layouts, which have no label) with its title placed in the top padding, which leaves grid
+    or pack free for the content. configure(text=...) changes the title."""
+
+    def __init__(self, parent, text: str = "", padding=12, **kw):
+        kw.setdefault("style", "TLabelframe")   # ttk takes a frame's style from the widget type, not class_
+        super().__init__(parent, class_="TLabelframe", **kw)
+        self._pad = _pad4(padding)
+        self.title = ttk.Label(self, text=text.strip(), style="CardTitle.TLabel")
+        self._layout()
+
+    def _layout(self):
+        k = 2 if IMG.two else 1
+        left, top, right, bottom = self._pad
+        if self.title.cget("text"):
+            # Placed from the card's outer edge, where the padding starts too (ttk counts the padding as Tk's internal
+            # border, so "inside" would put it at the content's top)
+            head = self.title.winfo_reqheight() + 12 * k
+            super().configure(padding=(left, top + head, right, bottom))
+            self.title.place(x=left, y=top, bordermode="outside")
+            self.title.lift()
+        else:
+            self.title.place_forget()
+            super().configure(padding=(left, top, right, bottom))
+
+    def configure(self, cnf=None, **kw):
+        if isinstance(cnf, dict):
+            kw.update(cnf)
+            cnf = None
+        if "text" in kw:
+            self.title.configure(text=str(kw.pop("text")).strip())
+            self._layout()
+        if "padding" in kw:
+            self._pad = _pad4(kw.pop("padding"))
+            self._layout()
+        if cnf is None and not kw:
+            return None
+        return super().configure(cnf, **kw)
+
+    config = configure
 
 
 def _blank(root, like: tk.PhotoImage) -> tk.PhotoImage:

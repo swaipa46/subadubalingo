@@ -28,11 +28,11 @@ folder (the "Open model folder" button).
 
 Also add the Claude skill to Claude (once). The program shows the
 "Add the Claude skill" window by itself, with four steps:
-1. Click "Save skill file". It goes into your Downloads folder.
+1. Click "Save the skill file". It goes into your Downloads folder.
 2. Open Claude and go to Customize -> Skills.
 3. Delete the old "subadubalingo" and "videosprog" skills if they are there.
 4. Click "Upload skill" and choose "subadubalingo-skill.zip".
-Then click "I've done it". The skill teaches Claude the rules and EG's product
+Then click "I have done it". The skill teaches Claude the rules and EG's product
 terms (such as Membercare).
 
 
@@ -81,7 +81,7 @@ languages the new video needs. It works with one file there and one file back:
 1. Click "Copy file" in the Claude card.
 2. Open a new chat in Claude, paste (Ctrl+V) and send. (If you can't paste
    the file, click "Show in folder" and drag the file into Claude.)
-3. Claude makes a reply file ("... - fra Claude.txt"). Click it in Claude's reply
+3. Claude makes a reply file ("... - from Claude.txt"). Click it in Claude's reply
    and press Download.
 4. The program finds the file in your Downloads folder by itself, checks it and
    carries on. There's nothing to save or move. Meanwhile, step 3 shows
@@ -104,18 +104,18 @@ The computer doesn't always hear correctly, especially names and technical terms
 If it gets the same word wrong every time (a product name, for example), add it to
 the list of corrections: the cog wheel -> "Edit corrections". One line per word,
 for example:   member care = Membercare
-Then tick "Listen through the video again" and press Start.
+Then tick "Listen to the video again" and press Start.
 
 You can fix the odd mistake directly in the text file (for example "... - Danish subtitles.srt")
 in Notepad. Only change the text, not the numbers and timecodes. Then press Start again.
 
-If you're in a hurry, you can choose "Fastest" under the cog wheel. It's about 1.5
+If you're in a hurry, you can choose "Fastest (large-v3-turbo, about 1.5x faster, a few more errors)" under the cog wheel. It's about 1.5
 times faster, but gets a few more words wrong.
 
 
 CUT THE VIDEO FIRST (for example a Teams recording)
 ---------------------------------------------------
-Tick "Cut the video first" before you press Start. The program then
+Tick "Cut the video first: remove waiting, breaks and what should not be in it" before you press Start. The program then
 finds long pauses by itself, and Claude suggests what to cut out:
 the waiting time before the meeting gets going, interruptions, the end where the recording
 drags on, and anything inappropriate, off-topic or impossible to make out.

@@ -50,7 +50,8 @@ class _Picker(ttk.Frame):
             ttk.Label(self, image=IMG.get(f"icons/{lead_icon}"), style="PickItem.TLabel").pack(side="left")
 
     def add(self, value: str, tip, **label):
-        item = ttk.Label(self, style="PickItem.TLabel", takefocus=True, cursor="hand2", **label)
+        # foreground="": the style decides (sv_ttk puts a colour on every label through the option database)
+        item = ttk.Label(self, style="PickItem.TLabel", takefocus=True, cursor="hand2", foreground="", **label)
         item.pack(side="left")
         item.bind("<Button-1>", lambda e: self.pick(value))
         item.bind("<Enter>", lambda e: item.state(["active"]))

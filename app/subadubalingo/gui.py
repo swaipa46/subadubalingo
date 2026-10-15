@@ -368,7 +368,7 @@ class App:
         self.claude_wrap.grid(row=1, column=1, sticky="nsew")
         self.claude_wrap.columnconfigure(0, weight=1)
         self.claude_wrap.rowconfigure(0, weight=1)
-        self.claude_box = ttk.LabelFrame(self.claude_wrap, text=" Claude ", padding=12)
+        self.claude_box = skin.Card(self.claude_wrap, text=" Claude ", padding=12)
         self.claude_box.grid(row=0, column=0, sticky="nsew")
         self.claude_box.columnconfigure(0, weight=1)
         self.claude_box.rowconfigure(0, weight=1)
@@ -491,7 +491,7 @@ class App:
         v = ttk.Frame(parent)
         v.columnconfigure(0, weight=1)
 
-        g1 = ttk.LabelFrame(v, text=t("gui.setup.group_video"), padding=12)
+        g1 = skin.Card(v, text=t("gui.setup.group_video"), padding=12)
         g1.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         g1.columnconfigure(1, weight=1)
         # The chosen file as a card (name, folder, change button) instead of an editable path
@@ -511,7 +511,7 @@ class App:
         c_lang.grid(row=1, column=1, sticky="w", padx=10, pady=(14, 0))
         c_lang.bind("<<ComboboxSelected>>", lambda e: self._refresh(lang_changed=True))
 
-        g2 = ttk.LabelFrame(v, text=t("gui.setup.group_output"), padding=12)
+        g2 = skin.Card(v, text=t("gui.setup.group_output"), padding=12)
         g2.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         g2.columnconfigure(1, weight=1)
         self.cb_cut = ttk.Checkbutton(g2, variable=self.cut, command=self._cut_changed,
@@ -567,7 +567,7 @@ class App:
         self.w_result.grid(row=2, column=0, sticky="ew", pady=(2, 12))
         self._wrap(self.w_result, v)
 
-        box = ttk.LabelFrame(v, text=t("gui.work.steps"), padding=14, style="Blue.TLabelframe")
+        box = skin.Card(v, text=t("gui.work.steps"), padding=14, style="Blue.TLabelframe")
         box.grid(row=3, column=0, sticky="ew")
         box.columnconfigure(2, weight=1)
         self.steps_box = box
@@ -627,7 +627,7 @@ class App:
         self.d_msg.grid(row=2, column=1, sticky="new", pady=(4, 0))
         self._wrap(self.d_msg, v, 120)
 
-        self.d_main = ttk.LabelFrame(v, text=t("gui.done.group_video"), padding=12)
+        self.d_main = skin.Card(v, text=t("gui.done.group_video"), padding=12)
         self.d_main.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(18, 0))
         self.d_main.columnconfigure(0, weight=1)
         self.d_file = ttk.Label(self.d_main, text="", font="SunValleyBodyStrongFont")
@@ -641,7 +641,7 @@ class App:
         ttk.Button(acts, text=t("gui.show_in_folder"), width=14,
                    command=lambda: self._show_in_folder(self.d_target)).pack(side="left", padx=10)
 
-        g = ttk.LabelFrame(v, text=t("gui.done.group_files"), padding=12)
+        g = skin.Card(v, text=t("gui.done.group_files"), padding=12)
         g.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(14, 0))
         g.columnconfigure(0, weight=1)
         self.files = tk.Listbox(g, height=4, activestyle="none", borderwidth=0, highlightthickness=0,
@@ -651,7 +651,7 @@ class App:
         ttk.Label(g, text=t("gui.done.files_hint"),
                   style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        nxt = ttk.LabelFrame(v, text=t("gui.done.group_next"), padding=12)
+        nxt = skin.Card(v, text=t("gui.done.group_next"), padding=12)
         nxt.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(14, 0))
         self.d_again = ttk.Button(nxt, text=t("gui.done.try_again"), style="Accent.TButton", command=self._start)
         self.d_same = ttk.Button(nxt, text=t("gui.done.same_video"), command=self._same_video)
@@ -1837,17 +1837,17 @@ class SettingsDialog(tk.Toplevel):
         self.on_theme, self.on_language = on_theme, on_language
         outer = ttk.Frame(self, padding=14)
         outer.pack(fill="both")
-        lang = ttk.LabelFrame(outer, text=t("pickers.lang_title"), padding=12)
+        lang = skin.Card(outer, text=t("pickers.lang_title"), padding=12)
         lang.pack(fill="x")
         ttk.Label(lang, text=t("pickers.lang_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
         self.ui_language = tk.StringVar(value=i18n.current())
         language_tiles(lang, self.ui_language).pack(fill="x")
-        look = ttk.LabelFrame(outer, text=t("gui.settings.look"), padding=12)
+        look = skin.Card(outer, text=t("gui.settings.look"), padding=12)
         look.pack(fill="x", pady=(14, 0))
         ttk.Label(look, text=t("pickers.look_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
         self.look = tk.StringVar(value=settings.theme)
         theme_tiles(look, self.look).pack(fill="x")
-        f = ttk.LabelFrame(outer, text=t("pickers.text_voices"), padding=12)
+        f = skin.Card(outer, text=t("pickers.text_voices"), padding=12)
         f.pack(fill="x", pady=(14, 0))
         ttk.Label(f, text=t("gui.settings.model")).grid(row=0, column=0, sticky="w")
         self.model = tk.StringVar(value=settings.whisper_model)

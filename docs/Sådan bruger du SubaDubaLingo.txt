@@ -109,13 +109,13 @@ Sæt så flueben i "Lyt videoen igennem forfra" og tryk Start.
 Enkelte fejl kan du rette direkte i tekstfilen (fx "... - danske undertekster.srt")
 i Notesblok. Ret kun teksten, ikke tallene og tidskoderne. Tryk så Start igen.
 
-Har du travlt, kan du under tandhjulet vælge "Hurtigst". Den er ca. 1,5
+Har du travlt, kan du under tandhjulet vælge "Hurtigst (large-v3-turbo, ca. 1,5x hurtigere, lidt flere fejl)". Den er ca. 1,5
 gange hurtigere, men hører lidt flere ord forkert.
 
 
 KLIP VIDEOEN FØRST (fx en Teams-optagelse)
 ------------------------------------------
-Sæt flueben i "Klip videoen først", før du trykker Start. Så finder
+Sæt flueben i "Klip videoen først: fjern ventetid, pauser og det, der ikke skal med", før du trykker Start. Så finder
 programmet selv lange pauser, og Claude foreslår, hvad der skal klippes væk:
 ventetiden før mødet går i gang, afbrydelser, slutningen hvor optagelsen
 trækker ud, og ting der er upassende, off-topic eller ikke til at forstå.

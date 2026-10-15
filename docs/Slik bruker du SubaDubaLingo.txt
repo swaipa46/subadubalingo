@@ -15,16 +15,16 @@ Første gang tilbyr programmet å installere seg selv; trykk "Installer".
 Tips: høyreklikk på det og velg "Fest til Start", så er det lett å finne.
 
 Øverst til høyre kan du bytte programmets språk (DA, SV, NO, EN) og utseende
-(Lys, Natt eller Følg Windows). Tannhjulet helt til høyre åpner
+(Lyst, Natt eller Følg Windows). Tannhjulet helt til høyre åpner
 innstillingene.
 
 
 FØRSTE GANG
 -----------
 Første gang du trykker Start, sier programmet at det mangler noen filer
-(ca. 1,1 GB, og 63 MB per stemme til dubbing). Trykk "Last ned automatisk".
+(ca. 1,1 GB, og 63 MB per stemme til dubbing). Trykk "Hent automatisk".
 Virker ikke det, klikk på lenkene, last ned filene og legg dem i modellmappen
-(knappen "Åpne modellmappen").
+(knappen "Åpne modellmappe").
 
 Legg også inn Claude-skillen i Claude (én gang). Programmet viser selv
 vinduet "Legg inn Claude-skillen" med fire trinn:
@@ -109,13 +109,13 @@ Sett så hake ved "Lytt gjennom videoen på nytt" og trykk Start.
 Enkeltfeil kan du rette direkte i tekstfilen (for eksempel "... - norske undertekster.srt")
 i Notisblokk. Rett bare teksten, ikke tallene og tidskodene. Trykk så Start igjen.
 
-Har du det travelt, kan du under tannhjulet velge "Raskest". Det går ca. 1,5
+Har du det travelt, kan du under tannhjulet velge "Raskest (large-v3-turbo, ca. 1,5x raskere, litt flere feil)". Det går ca. 1,5
 ganger raskere, men hører litt flere ord feil.
 
 
 KLIPP VIDEOEN FØRST (for eksempel et Teams-opptak)
 --------------------------------------------------
-Sett hake ved "Klipp videoen først" før du trykker Start. Da finner
+Sett hake ved "Klipp videoen først: fjern ventetid, pauser og det som ikke skal være med" før du trykker Start. Da finner
 programmet selv lange pauser, og Claude foreslår hva som skal klippes bort:
 ventetiden før møtet kommer i gang, avbrytelser, slutten der opptaket
 trekker ut, og ting som er upassende, utenfor temaet eller ikke går an å forstå.
