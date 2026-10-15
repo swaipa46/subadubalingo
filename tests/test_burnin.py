@@ -154,6 +154,15 @@ else:
     gone = burn("logo-gone", L(logo=str(TMP / "gone.png")))
     assert max(diff(gone, base, b) for b in corners.values()) < 0.01
 
+    # The dub path: a -filter_complex for the sound next to the -vf with the logo's movie source
+    prog = engine.Progress(lambda *a: None, [("burn", 1.0)])
+    prog.start("burn")
+    dubbed = TMP / "dub.mp4"
+    engine.encode(runner, [video, video], "[1:a]aresample=48000,aformat=channel_layouts=stereo[a]", srt,
+                  ["-map", "0:v:0", "-map", "[a]"], engine.AUDIO_AAC, dubbed, 3000, prog, work,
+                  L(box=True, logo=str(LOGO)))
+    assert burnin.video_size(runner, dubbed)[:2] == (w, h)
+
     # The live sample in Indstillinger: a still of the video, and the gradient without one
     frame = TMP / "sample" / "frame.png"
     frame.parent.mkdir()
