@@ -60,6 +60,7 @@ cut the 9 parts with `PhotoImage.copy`/`subsample` once at start and draw them.
 | `frames/card-your-turn-1.png` | 18 / 18 / 24 / 24 | Second pulse state (border and shadow colours swapped). |
 | `frames/dialog.png` | 20 / 20 / 28 / 28 | Outer frame of Indstillinger, the skill guide and the install/update window, inside the OS title bar. |
 | `frames/banner.png` | 18 / 18 / 24 / 24 | Frame for any custom banner (art/done-banner.png already includes it). |
+| `frames/callout.png` | 14 / 14 / 14 / 14 | The "din tur" callout band under the progress bar (fill and border in callout_bg, no shadow). |
 | `frames/timeline.png` | 16 / 16 / 20 / 20 | Frame around the cut-review Canvas. |
 | `frames/tile.png` | 16 / 16 / 20 / 20 | Choice tile (language, Udseende), normal. |
 | `frames/tile-hover.png` | 16 / 16 / 20 / 20 | Choice tile under the mouse. |
@@ -117,25 +118,40 @@ buttons.
 | `language` | Leading icon of the language picker |
 | `theme-light`, `theme-night`, `theme-system` | The three choices in the theme picker (Lys, Nat, Følg Windows) |
 
-## Pickers in the header
+## Header (final, T4)
 
-The header has, from the right: Indstillinger, then the language picker (`language` icon + `DA SV NO EN` in Press
-Start 2P, 12 px), then the theme picker (`theme-light`, `theme-night`, `theme-system`). This is shown in
-`design/mockups/*/theme-header.png` and `language-header.png`.
+From the left, the header contains:
 
-- **Outer frame:** `button-secondary`.
-- **Each item:**
-  - normal: no background;
-  - hover: `picker-item-hover`;
-  - current: `picker-item-selected`, with the text or icon in `picker_selected_text` and the icon's `-selected`
-    variant;
-  - keyboard focus: `picker-item-focus` on top.
-- **Tooltip:** in `tooltip_bg` / `tooltip_text`, giving the option's name in its own language plus the action. For
-  example: "Svenska · byt programmets språk", or "Følg Windows (nu: Lys) · skift udseende".
-- **Theme picker default:** `theme-system` (Følg Windows) is selected by default. While it is, the tooltip names the
-  look currently in use.
-- **Indstillinger:** the same choices appear as tiles under "Programmets sprog" and "Udseende" (see
-  `language-settings.png` and `theme-settings.png`), using the `tile*` frames.
+1. **Logo:** the icon (48 px), with the wordmark next to it in Press Start 2P 24 px.
+2. **Tagline:** "CUT · DUB · SUB" under the wordmark, in VT323 20 px, 3 px letter spacing, colour `text`. The dots are
+   5 px squares in #ff2e88 and in cyan (#22e4ff on Nat, #22a6c9 on Lys).
+3. **No other tagline:** the old "Undertekster og dubbing af videoer" line is gone.
+
+On the right, with 12 px between them, all three controls are **40 px tall** and use `button-secondary` as their outer
+frame:
+
+- **Theme picker:** the `theme-light`, `theme-night` and `theme-system` icons.
+- **Language picker:** the `language` icon, then `DA SV NO EN` in Press Start 2P 12 px.
+- **Indstillinger:** an icon-only, square 40×40 button. Use `button-secondary` and its hover, pressed and focus
+  states; a 9-slice stretches to a square, so no new frame is needed. The 16 px `settings` icon is centred (`@2x` at
+  125 % and above). The tooltip says "Indstillinger", translated.
+
+**Each picker item** is 28 px tall with 7–9 px side padding:
+
+- **normal:** no background;
+- **hover:** `picker-item-hover`;
+- **current:** `picker-item-selected`, with the text or icon in `picker_selected_text` and the icon's `-selected`
+  variant;
+- **keyboard focus:** `picker-item-focus` on top.
+
+**Tooltips** use `tooltip_bg` / `tooltip_text` and give the option's name in its own language plus the action. For
+example: "Svenska · byt programmets språk", or "Følg Windows (nu: Lys) · skift udseende".
+
+**Defaults and Indstillinger:** `theme-system` (Følg Windows) is selected by default. Indstillinger has the same
+choices as tiles under "Programmets sprog" and "Udseende", using the `tile*` frames.
+
+See the mockups `1-setup.png`, `theme-header.png`, `language-header.png`, `install-2.png` and `update.png` in
+`design/mockups/*/`.
 
 ## Larger art (`<theme>/art/`, `common/`)
 
