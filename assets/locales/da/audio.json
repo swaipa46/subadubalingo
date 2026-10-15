@@ -4,5 +4,6 @@
  "audio.settings_title": "Lyd",
  "audio.settings_option": "Forbedr lyden som standard",
  "audio.settings_hint": "Ens lydstyrke og mindre støj. Kan slås fra for hver video.",
- "audio.measuring": "Måler lyden..."
+ "audio.measuring": "Måler lyden...",
+ "audio.setup_hint_off": "Den nye video har kun dubbens stemme, så der er ingen original lyd at forbedre."
 }

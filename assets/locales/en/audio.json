@@ -4,5 +4,6 @@
  "audio.settings_title": "Sound",
  "audio.settings_option": "Improve the sound by default",
  "audio.settings_hint": "Even volume and less noise. Can be turned off for each video.",
- "audio.measuring": "Measuring the sound..."
+ "audio.measuring": "Measuring the sound...",
+ "audio.setup_hint_off": "The new video only has the dub's voice, so there is no original sound to improve."
 }

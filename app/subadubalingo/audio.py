@@ -162,8 +162,8 @@ def applies(cut: bool, speech, subs, keep_original: bool) -> bool:
 
 
 def setup_option(parent, var, row: int, indent: int, wrap):
-    """Setup card 2's check box with its hint under it, in grid `row` of `parent`. Returns the check button (it is
-    disabled when the choices make no video with the original speech)."""
+    """Setup card 2's check box with its hint under it, in grid `row` of `parent`. Returns the check button; give it
+    to refresh_setup when the choices change."""
     from tkinter import ttk
     box = ttk.Frame(parent)
     box.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(8, 0))
@@ -173,7 +173,14 @@ def setup_option(parent, var, row: int, indent: int, wrap):
     hint = ttk.Label(box, text=t("audio.setup_hint"), style="Hint.TLabel", justify="left")
     hint.grid(row=1, column=0, sticky="ew", padx=(indent, 0))
     wrap(hint, parent, 40 + indent)
+    cb.hint = hint
     return cb
+
+
+def refresh_setup(cb, applies_now: bool):
+    """Greyed, with a hint that says why, when the choices make no video with the original speech in it."""
+    cb.state(["!disabled"] if applies_now else ["disabled"])
+    cb.hint.configure(text=t("audio.setup_hint" if applies_now else "audio.setup_hint_off"))
 
 
 def settings_card(parent, var):

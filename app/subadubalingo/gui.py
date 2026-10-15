@@ -965,7 +965,7 @@ class App:
         for w in (self.cb_recut, self.recut_hint):
             w.grid() if show_recut else w.grid_remove()
         applies = audio.applies(self.cut.get(), self._speech_lang(), self._subs_lang(), self.settings.keep_original_audio)
-        self.cb_improve.state(["!disabled"] if applies else ["disabled"])
+        audio.refresh_setup(self.cb_improve, applies)
         result, rest = self._plan_text()
         if result:
             self.plan_result.configure(text=result)
