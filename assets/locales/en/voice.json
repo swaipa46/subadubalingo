@@ -1,0 +1,10 @@
+{
+ "voice.sample": "Hi! This is how I sound when I dub your video in English.",
+ "voice.listen": "Listen to the {singular} voice",
+ "voice.listen_none": "Choose a new speech language to listen to the voice",
+ "voice.stop": "Stop",
+ "voice.title": "Listen to the voice",
+ "voice.failed": "The sample could not be made. See the log (Settings -> Open log file).",
+ "voice.missing": "The voice has not been downloaded yet.",
+ "voice.listen_short": "Listen"
+}

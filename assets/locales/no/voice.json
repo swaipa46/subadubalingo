@@ -1,0 +1,10 @@
+{
+ "voice.sample": "Hei! Slik høres jeg ut når jeg leser inn videoen din på norsk.",
+ "voice.listen": "Lytt til stemmen på {singular}",
+ "voice.listen_none": "Velg ny tale for å lytte til stemmen",
+ "voice.stop": "Stopp",
+ "voice.title": "Lytt til stemmen",
+ "voice.failed": "Prøven kunne ikke lages. Se loggen (Innstillinger -> Åpne loggfil).",
+ "voice.missing": "Stemmen er ikke lastet ned ennå.",
+ "voice.listen_short": "Lytt"
+}
