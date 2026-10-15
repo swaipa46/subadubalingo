@@ -19,7 +19,7 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import claude, cutting, engine, jobs, textstate
+from . import audio, claude, cutting, engine, jobs, textstate
 from . import i18n, skin, theme
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
@@ -62,6 +62,7 @@ class Settings:
         self.whisper_model = "large"
         self.use_gpu = True
         self.keep_original_audio = False   # under a dub you would still hear the original speaker
+        self.improve_audio = True          # Forbedr lyden: even loudness, less noise in the original speech (audio.py)
         self.cut_first = False             # "Klip videoen først", remembered from the last run
         self.gender_voices = True          # (v1.9.6) kept for old settings files; voice_mode replaces it
         self.voice_mode = "person"         # dub: "person" (a voice per person), "gender" (deep/light) or "one"
@@ -1508,12 +1509,12 @@ class App:
                 engine.dub(runner, v, read_srt(srt_of(speech)), job["voice"], out, srt_of(subs) if subs else None,
                            self.settings.keep_original_audio, info, prog, work, s_voice, s_dub,
                            voices=job.get("voices"), palette=job.get("palette"),
-                           speaker_model=job.get("speaker_model"))
+                           speaker_model=job.get("speaker_model"), improve_audio=self.settings.improve_audio)
                 post(("file", out))
             elif subs:
                 prog.start(s_burn)
                 out = burned_name(v, subs)
-                engine.burn(runner, v, srt_of(subs), out, info, prog, work)
+                engine.burn(runner, v, srt_of(subs), out, info, prog, work, self.settings.improve_audio)
                 post(("file", out))
             post(("done", job["result"]))
         except Cancelled:
@@ -1562,7 +1563,8 @@ class App:
             return v, info
         edited: Path = job["edited"]
         prog.start(step_name)
-        cutting.cut_video(runner, v, ranges, edited, info.duration_ms, info.has_audio, prog, work)
+        cutting.cut_video(runner, v, ranges, edited, info.duration_ms, info.has_audio, prog, work,
+                          self.settings.improve_audio)
         textstate.record_cut(edited, v, ranges)
         post(("file", edited))
         # The subtitles that belong to the original (and match its blocks) are moved to the cut video.
@@ -2224,6 +2226,8 @@ class SettingsDialog(tk.Toplevel):
         self.voice_mode = tk.StringVar(value=settings.voice_mode)
         dubopts = ttk.Frame(f)
         dubopts.grid(row=5, column=0, sticky="w")
+        self.improve_audio = tk.BooleanVar(value=settings.improve_audio)
+        audio.settings_option(dubopts, self.improve_audio)
         ttk.Checkbutton(dubopts, text=t("gui.settings.keep_audio"), variable=self.keep).pack(anchor="w")
         ttk.Label(dubopts, text=t("gui.settings.voices")).pack(anchor="w", pady=(8, 0))
         for value in ("person", "gender", "one"):
@@ -2280,6 +2284,7 @@ class SettingsDialog(tk.Toplevel):
     def _save(self):
         self.s.whisper_model, self.s.use_gpu, self.s.keep_original_audio = self.model.get(), self.gpu.get(), self.keep.get()
         self.s.voice_mode = self.voice_mode.get()
+        self.s.improve_audio = self.improve_audio.get()
         self.s.save()
         look, code = self.look.get(), self.ui_language.get()
         self.destroy()
