@@ -16,6 +16,7 @@ from typing import Callable
 import numpy as np
 
 from .common import (FFMPEG, PIPER, WHISPER, Cue, Language, Runner, ToolError, log, model_dirs)
+from . import audio
 from .i18n import t
 
 # --- Models ----------------------------------------------------------------------
@@ -479,10 +480,15 @@ def encode(runner: Runner, inputs: list, filter_complex: str | None, vf_srt: Pat
 AUDIO_AAC = ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
 
 
-def burn(runner: Runner, video: Path, srt: Path, out: Path, info: MediaInfo, prog: Progress, workdir: Path):
+def burn(runner: Runner, video: Path, srt: Path, out: Path, info: MediaInfo, prog: Progress, workdir: Path,
+         improve_audio: bool = False):
+    """With improve_audio, the speech goes through audio.py's chain (Forbedr lyden)."""
     maps = ["-map", "0:v:0"] + (["-map", "0:a:0"] if info.has_audio else [])
-    encode(runner, [video], None, srt, maps, AUDIO_AAC if info.has_audio else [], out,
-           info.duration_ms, prog, workdir)
+    audio_args = []
+    if info.has_audio:
+        clean = audio.prepare(runner, video, improve_audio, prog)
+        audio_args = (["-af", clean] + audio.MARK_ARGS if clean else []) + AUDIO_AAC
+    encode(runner, [video], None, srt, maps, audio_args, out, info.duration_ms, prog, workdir)
 
 # --- Dubbing ---------------------------------------------------------------------------------
 
@@ -633,11 +639,21 @@ def shift_pitch(runner: Runner, wav: Path, semitones: float):
         tmp.replace(wav)
 
 
+def dub_mix(keep_original: bool, clean: str | None = None) -> str:
+    """The dub's audio graph: input 1 is the dub voice track (never filtered beyond resampling); with
+    keep_original, the original speech (input 0) goes under it, through `clean` (audio.py's chain) first."""
+    if not keep_original:
+        return "[1:a]aresample=48000,aformat=channel_layouts=stereo[a]"
+    return (f"[0:a:0]{clean + ',' if clean else ''}volume=0.12[o];[1:a]aresample=48000,volume=1.0[d];"
+            "[o][d]amix=inputs=2:duration=first:normalize=0,aformat=channel_layouts=stereo[a]")
+
+
 def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, burn_srt: Path | None,
         keep_original: bool, info: MediaInfo, prog: Progress, workdir: Path, step_tts: str, step_video: str,
         voices: dict[str, Path] | None = None, palette: dict[str, list[Path]] | None = None,
-        speaker_model: Path | None = None):
-    """`voice` is the language's voice. With `palette` and `speaker_model`, every person in the video gets a voice
+        speaker_model: Path | None = None, improve_audio: bool = False):
+    """With improve_audio, the original speech kept under the dub goes through audio.py's chain first (the dub's
+    own voice track is not touched). `voice` is the language's voice. With `palette` and `speaker_model`, every person in the video gets a voice
     of their own; with `voices` ({"male": ..., "female": ...}) each sentence gets the one that matches the
     original speaker's pitch."""
     from .speakers import Voice
@@ -727,11 +743,8 @@ def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, bu
         w.writeframes((track * 32767).astype(np.int16).tobytes())
 
     prog.start(step_video)
-    if keep_original and info.has_audio:
-        fc = ("[0:a:0]volume=0.12[o];[1:a]aresample=48000,volume=1.0[d];"
-              "[o][d]amix=inputs=2:duration=first:normalize=0,aformat=channel_layouts=stereo[a]")
-    else:
-        fc = "[1:a]aresample=48000,aformat=channel_layouts=stereo[a]"
+    keep = keep_original and info.has_audio
+    fc = dub_mix(keep, audio.prepare(runner, video, improve_audio, prog) if keep else None)
     encode(runner, [video, dub_wav], fc, burn_srt, ["-map", "0:v:0", "-map", "[a]"], AUDIO_AAC, out,
            info.duration_ms, prog, workdir)
 
