@@ -29,8 +29,10 @@ if "--theme" in sys.argv:   # light or night, whatever Windows and the settings 
     _forced = sys.argv[sys.argv.index("--theme") + 1]
     theme.resolve = lambda choice: _forced
 theme.load_fonts()
+import _screen  # noqa: E402
 root = tk.Tk()
 app = gui.App(root)
+_screen.place(root)   # on the monitor the user is not working on
 
 
 def pump(sec):
@@ -47,7 +49,7 @@ def take(name):
     hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
     r = wt.RECT()
     ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
-    ImageGrab.grab(bbox=(r.left, r.top, r.right, r.bottom), all_screens=True).save(out / name)
+    _screen.grab((r.left, r.top, r.right, r.bottom)).save(out / name)
     root.attributes("-topmost", False)
     print("saved", name)
 
