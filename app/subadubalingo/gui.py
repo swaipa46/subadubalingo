@@ -20,7 +20,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import claude, cutting, engine, jobs, textstate
-from . import i18n, skin, theme
+from . import i18n, queue_view, skin, theme
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
 from .theme import IMG, P
@@ -320,6 +320,8 @@ class App:
         self._theme_pending = None          # a theme picked during a run, applied at its end
         self._language_pending = None       # the same for the app's language
         self._status_written = 0.0
+        self.level = 1                      # the "world" in the step numbers (1-1, 1-2 ...): the video's place in a queue
+        self.vq = queue_view.QueueController(self)   # several videos in a queue (queue_view.py)
         try:
             jobs.cleanup()
         except Exception:
@@ -335,6 +337,9 @@ class App:
         root.after(150, self._animate)
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._self_check, daemon=True).start()
+        root.after(300, self.vq.enable_drop)
+        if "--from-claude" not in sys.argv:
+            root.after(1200, self.vq.offer_resume)
         self._skill_guide = None
         self._skill_warning: tuple | None = None
         if "--from-claude" not in sys.argv and self.settings.skill_installed < claude.SKILL_VERSION:
@@ -438,7 +443,7 @@ class App:
         if name == self.theme_name:
             self.theme_picker.refresh()
             return
-        if self._running:
+        if self._running or self.vq.running:
             self._theme_pending = name
             self.theme_picker.refresh()
             self.detail.configure(text=t("gui.theme.after_run"))
@@ -478,7 +483,7 @@ class App:
         if code == i18n.current():
             self.language_picker.refresh(code)
             return
-        if self._running:
+        if self._running or self.vq.running:
             self._language_pending = code
             self.language_picker.refresh(code)
             self.detail.configure(text=t("pickers.after_run", lang=code))
@@ -531,11 +536,11 @@ class App:
         v = ttk.Frame(parent)
         v.columnconfigure(0, weight=1)
 
-        g1 = skin.Card(v, text=t("gui.setup.group_video"), padding=12)
+        g1 = self.g_video = skin.Card(v, text=t("gui.setup.group_video"), padding=12)
         g1.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         g1.columnconfigure(1, weight=1)
         # The chosen file as a card (name, folder, change button) instead of an editable path
-        card = ttk.Frame(g1)
+        card = self.v_card = ttk.Frame(g1)
         card.grid(row=0, column=0, columnspan=2, sticky="ew")
         card.columnconfigure(0, weight=1)
         self.v_name = ttk.Label(card, text="", font="SunValleyBodyLargeFont")
@@ -551,7 +556,7 @@ class App:
         c_lang.grid(row=1, column=1, sticky="w", padx=10, pady=(14, 0))
         c_lang.bind("<<ComboboxSelected>>", lambda e: self._refresh(lang_changed=True))
 
-        g2 = skin.Card(v, text=t("gui.setup.group_output"), padding=12)
+        g2 = self.g_output = skin.Card(v, text=t("gui.setup.group_output"), padding=12)
         g2.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         g2.columnconfigure(1, weight=1)
         self.cb_cut = ttk.Checkbutton(g2, variable=self.cut, command=self._cut_changed,
@@ -604,9 +609,10 @@ class App:
         g3.columnconfigure(0, weight=1)
         self.start_btn = skin.IconButton(g3, "play", text=t("gui.setup.start"), style="Main.Accent.TButton", command=self._start)
         self.start_btn.grid(row=0, column=0, sticky="w")
-        hint = ttk.Label(g3, text=t("gui.setup.start_hint"), style="Hint.TLabel", justify="left")
+        hint = self.start_hint = ttk.Label(g3, text=t("gui.setup.start_hint"), style="Hint.TLabel", justify="left")
         hint.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         self._wrap(hint, g3, 10)
+        self.vq.build_setup(g1)
         return v
 
     def _build_work(self, parent) -> ttk.Frame:
@@ -668,6 +674,7 @@ class App:
         self.pause_hint = ttk.Label(btns, text=t("gui.work.pause_hint"),
                                     style="Hint.TLabel")
         self.pause_hint.pack(side="left", padx=6)
+        self.vq.build_work(v, row=8)
         return v
 
     class _FileRows(tk.Frame):
@@ -854,7 +861,7 @@ class App:
         self.d_next_hint.grid(row=0, column=0, sticky="ew", pady=(0, int(14 * k)))
         self._wrap(self.d_next_hint, nxt, int(50 * k))
         self.d_again = skin.IconButton(nxt, "retry", text=t("gui.done.try_again"), style="Wide.Main.Accent.TButton",
-                                       command=self._start)
+                                       command=self._again)
         self.d_again.grid(row=1, column=0, sticky="ew")
         self.d_same = skin.IconButton(nxt, "copy", text=t("gui.done.same_video"), style="Wide.Main.Accent.TButton",
                                       command=self._same_video)
@@ -980,6 +987,7 @@ class App:
             self.v_dir.configure(text=str(v.parent) if v.is_file() else t("gui.setup.video_gone"),
                                  foreground="" if v.is_file() else P.error)
             self.v_btn.configure(text=t("gui.setup.change_video"), style="TButton")
+        self.vq.refresh_setup()
 
     def _claude_plan(self, v: Path, lang: Language, transcribe: bool, targets) -> tuple[bool, list[Language]]:
         """(check the spoken-language text?, languages to translate to) for the Claude round.
@@ -1073,9 +1081,14 @@ class App:
         return result, "\n".join(lines)
 
     def _pick_video(self):
-        p = filedialog.askopenfilename(parent=self.root, title=t("gui.setup.pick_video_title"), filetypes=video_types(),
-                                       initialdir=self.settings.last_dir)
-        if p:
+        # Several files at once make a queue (queue_view); one file is handled as always
+        ps = filedialog.askopenfilenames(parent=self.root, title=t("gui.setup.pick_video_title"),
+                                         filetypes=video_types(), initialdir=self.settings.last_dir)
+        p = ps[0] if ps else ""
+        if p and self.vq.picked(ps):
+            self.settings.last_dir = str(Path(p).parent)
+            self.settings.save()
+        elif p:
             self.redo.set(False)
             self.recut.set(False)
             self.video.set(str(Path(p)))
@@ -1214,7 +1227,10 @@ class App:
         return names, claude_at
 
     def _start(self, auto: bool = False):
-        if self._running or self._starting:
+        if self._running or self._starting or self.vq.running:
+            return
+        if not auto and self.vq.active:
+            self.vq.start()   # several videos: the queue checks them all, then runs them
             return
         if not auto:
             self.mcp_job = None
@@ -1228,6 +1244,18 @@ class App:
                 jobs.set_status(self.mcp_job, state="error", message=self._auto_reason or "Appen kunne ikke starte jobbet.")
                 self.mcp_job = None
             return
+        self.level = 1
+        self._run_job(job)
+
+    def _again(self):
+        """Prøv igen / Fortsæt on the done view: the same run again, or after a queue the videos that did not finish."""
+        if self._last_result and self._last_result[0] == "queue":
+            self.vq.retry()
+        else:
+            self._start()
+
+    def _run_job(self, job: dict):
+        """Show the work view for a validated job and start its worker thread."""
         job["mcp"] = self.mcp_job
         self.job = job
         self.runner = Runner()
@@ -1253,7 +1281,7 @@ class App:
                                  width=max(2, int(2 * k)), dash=(4, 4))
             icon = tk.Label(self.steps_box, background=P.card, borderwidth=0)
             icon.grid(row=2 * i, column=0, sticky="w")
-            tk.Label(self.steps_box, text=f"1-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0,
+            tk.Label(self.steps_box, text=f"{self.level}-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0,
                      font=(theme.PIXEL_FONT, -int(10 * k)), pady=0).grid(row=2 * i, column=1, sticky="w",
                                                                           padx=(int(10 * k), 0), pady=(int(2 * k), 0))
             text = tk.Label(self.steps_box, text=name, foreground=P.step_pending, background=P.card,
@@ -1316,7 +1344,7 @@ class App:
             log.exception("inbox")
             return
         for req in reqs:
-            if self._running:
+            if self._running or self.vq.running:
                 jobs.reject(req, "busy", "Appen er i gang med en anden video. Prøv igen, når den er færdig.")
                 continue
             jobs.accept(req)
@@ -1381,7 +1409,7 @@ class App:
         self.arrow.grid_configure(padx=(int((10 + (4 if (self._spin // 11) % 2 else 0)) * k), 0))
 
     def _busy(self) -> bool:
-        return self._running
+        return self._running or self.vq.running
 
     def _on_close(self):
         if self._busy():
@@ -1602,6 +1630,10 @@ class App:
 
     def _poll(self):
         self._inbox_tick += 1
+        try:
+            self.vq.poll_drops()
+        except Exception:
+            log.exception("dropped files")
         if self._inbox_tick % 6 == 0:
             try:
                 self._check_cancel()
@@ -1673,6 +1705,8 @@ class App:
                     else:
                         self._jstatus(state="cancelled", message=ev[1] or "Stoppet i appen.")
                     self.mcp_job = None
+                    if self.vq.job_ended(kind, ev[1]):
+                        continue   # the queue goes on with its next round (or shows its summary at the end)
                     self._show_result(kind, ev[1])
                     if self._theme_pending or self._language_pending:
                         self.root.after(300, self._apply_pending)
@@ -1685,7 +1719,11 @@ class App:
     def _show_result(self, kind: str, info, replay: bool = False):
         """The done view for a run's end: kind "done" (info: the result file), "error" (info: the error text),
         "skipped" (info: the message) or "cancelled". replay: drawn again after a theme or language switch, without
-        the side effects (skill guide, attention)."""
+        the side effects (skill guide, attention). Kind "queue": the summary after a queue (queue_view)."""
+        if kind == "queue":
+            self.vq.show_summary(replay)
+            return
+        self.vq.hide_summary()
         self._last_result = (kind, info)
         k = self.scale
         done = kind == "done"
@@ -1736,7 +1774,7 @@ class App:
                 self.d_icon.grid()
                 self.d_title.configure(text=t("gui.done.failed"), foreground=P.error)
                 if failed:
-                    msg = t("gui.done.failed_at", n=f"1-{failed[0] + 1}", step=failed[1])
+                    msg = t("gui.done.failed_at", n=f"{self.level}-{failed[0] + 1}", step=failed[1])
                 self.d_error.configure(text=info or "")
                 self.d_error.grid()
                 self.d_log.pack(side="left")
@@ -1817,7 +1855,7 @@ class App:
             colour = {"done": P.step_done, "error": P.error}.get(state, P.step_pending)
             tk.Label(box, image=IMG.get(f"icons/{icon}"), background=P.card,
                      borderwidth=0).grid(row=i, column=0, sticky="w")
-            tk.Label(box, text=f"1-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0, pady=0,
+            tk.Label(box, text=f"{self.level}-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0, pady=0,
                      font=(theme.PIXEL_FONT, -int(10 * k))).grid(row=i, column=1, sticky="w", padx=(int(10 * k), 0),
                                                                 pady=(int(2 * k), 0))
             text = tk.Label(box, text=name, foreground=colour, background=P.card, font="SunValleyBodyFont",
