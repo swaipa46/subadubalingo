@@ -1,4 +1,4 @@
-"""Danish tkinter GUI. All work runs in a worker thread; the GUI polls a queue."""
+"""The tkinter GUI, in the app's own language (i18n). All work runs in a worker thread; the GUI polls a queue."""
 from __future__ import annotations
 
 import json
@@ -20,16 +20,39 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import claude, cutting, engine, jobs, textstate
-from . import skin, theme
+from . import i18n, skin, theme
+from .i18n import t
+from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
 from .theme import IMG, P
-from .common import (APP_NAME, APP_TAGLINE, APP_VERSION, branding_dir, set_app_icon, set_app_id, FFMPEG, LANG_BY_NAME, LANGUAGES, NO_WINDOW, PIPER, WHISPER, Cancelled,
+from .common import (APP_NAME, APP_TAGLINE, APP_VERSION, branding_dir, set_app_icon, set_app_id, FFMPEG, LANG_BY_CODE, LANGUAGES, NO_WINDOW, PIPER, WHISPER, Cancelled,
                      Cue, Language, Runner, ToolError, burned_name, copy_file_to_clipboard, cut_name, data_dir, downloads_dir,
-                     dub_name,
+                     dub_name, find_cut, find_srt, lang_by_name,
                      free_memory_gb, output_path,
                      log, log_file, model_dirs, read_srt, srt_name, write_srt)
 
-VIDEO_TYPES = [("Video", "*.mp4 *.mov *.mkv *.m4v *.avi *.webm *.wmv"), ("Alle filer", "*.*")]
 PAD = {"padx": 8, "pady": 4}
+
+
+def video_types() -> list[tuple[str, str]]:
+    return [(t("gui.filetype.video"), "*.mp4 *.mov *.mkv *.m4v *.avi *.webm *.wmv"), (t("gui.filetype.all"), "*.*")]
+
+
+def join_and(items: list[str]) -> str:
+    """"a, b og c" in the app's language."""
+    items = list(items)
+    if len(items) < 2:
+        return "".join(items)
+    return ", ".join(items[:-1]) + " " + t("gui.and") + " " + items[-1]
+
+
+def srt_path(video: Path, lang: Language) -> Path:
+    """The subtitles in lang already made for video (named in any app language), else where new ones are written."""
+    return find_srt(video, lang) or srt_name(video, lang)
+
+
+def cut_path(video: Path) -> Path:
+    """The cut video already made from video (named in any app language), else where a new one is written."""
+    return find_cut(video) or cut_name(video)
 
 
 class Settings:
@@ -44,9 +67,13 @@ class Settings:
         self.voice_mode = "person"         # dub: "person" (a voice per person), "gender" (deep/light) or "one"
         self.skill_installed = 0           # the Claude skill version the user has put into Claude (0 = unknown)
         self.theme = "system"              # Udseende: "system" (follow Windows), "light" (Lys) or "night" (Nat)
+        self.ui_language = ""              # Programmets sprog: da, sv, no or en ("" until picked: Windows' language)
         self.last_dir = str(Path.home() / "Videos")
         try:
-            self.__dict__.update(json.loads(self.path.read_text(encoding="utf-8")))
+            saved = json.loads(self.path.read_text(encoding="utf-8"))
+            self.__dict__.update(saved)
+            if "ui_language" not in saved:
+                self.ui_language = "da"   # used before 2.1, when the app was Danish only
         except Exception:
             pass
         self.__dict__.pop("model", None)  # v1.0.0 key; the default changed from turbo to large-v3
@@ -237,6 +264,7 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.settings = Settings()
+        i18n.set_language(i18n.resolve(self.settings.ui_language))
         self.events: queue.Queue = queue.Queue()
         self.runner: Runner | None = None
         self.created: list[Path] = []
@@ -265,9 +293,10 @@ class App:
         self.bg = P.window
 
         self.video = tk.StringVar()
-        self.lang = tk.StringVar(value="Dansk")
-        self.speech = tk.StringVar()       # "Original (dansk)" or a language name
-        self.subs = tk.StringVar()         # "Ingen" or "Danske", "Svenske", ...
+        # The comboboxes show words in the app's language; _lang/_speech_lang/_subs_lang read the language behind them
+        self.lang = tk.StringVar(value=LANG_BY_CODE["da"].name)
+        self.speech = tk.StringVar()       # "Original (dansk)" or a language's name
+        self.subs = tk.StringVar()         # "Ingen" or a language's subtitle-list word ("Danske", "Svenske", ...)
         self.redo = tk.BooleanVar(value=False)
         self.cut = tk.BooleanVar(value=bool(self.settings.cut_first))
         self.recut = tk.BooleanVar(value=False)
@@ -284,10 +313,12 @@ class App:
         self.active_step = -1
         self.claude_at = self.review_at = -1
         self.manual_steps: list[int] = []
+        self._progress_names: list[str] = []   # the worker's progress steps (engine.Progress), in order
         self.mcp_job: str | None = None      # the job Claude started through the MCP server, if any
         self._inbox_tick = 0
         self._last_result = None            # (kind, info) of the done view, to draw it again after a theme switch
         self._theme_pending = None          # a theme picked during a run, applied at its end
+        self._language_pending = None       # the same for the app's language
         self._status_written = 0.0
         try:
             jobs.cleanup()
@@ -344,13 +375,13 @@ class App:
         self.claude_idle = ttk.Frame(self.claude_box)
         self.claude_idle.grid(row=0, column=0, sticky="nsew")
         idle = ttk.Label(self.claude_idle, justify="left", style="Hint.TLabel",
-                         text="Claude hjælper, når det bliver din tur.")
+                         text=t("gui.claude.idle"))
         idle.pack(anchor="nw", fill="x")
         self._wrap(idle, self.claude_idle, 10)
 
     def _build_header(self):
-        """The header band across the window: logo and tagline, the theme picker and Indstillinger, and the
-        four-colour stripe under it."""
+        """The header band across the window: logo and CUT · DUB · SUB, then from the right Indstillinger (the cog),
+        the language picker and the theme picker, and the four-colour stripe under it (assets/ui/README.md "Header")."""
         k = self.scale
         band = self.header = tk.Frame(self.root, background=P.header_band, padx=int(24 * k), pady=int(12 * k))
         band.pack(side="top", fill="x")
@@ -360,8 +391,11 @@ class App:
         # The brand words under the wordmark, as on the title screen
         tk.Label(brand, text="CUT · DUB · SUB", background=P.header_band, foreground=P.header_text,
                  font=(theme.TERMINAL_FONT, 15), borderwidth=0, pady=0).pack(anchor="w", padx=(int(64 * k), 0))
-        ttk.Button(band, text="Indstillinger", image=IMG.get("icons/settings"), compound="left", style="Header.TButton",
-                   command=self._settings_dialog).pack(side="right")
+        cog = ttk.Button(band, image=IMG.get("icons/settings"), style="Icon.TButton", command=self._settings_dialog)
+        cog.pack(side="right")
+        Tooltip(cog, t("gui.settings.title"))
+        self.language_picker = LanguagePicker(band, self)
+        self.language_picker.pack(side="right", padx=(0, int(12 * k)))
         self.theme_picker = ThemePicker(band, self)
         self.theme_picker.pack(side="right", padx=(0, int(12 * k)))
         stripe = tk.Canvas(self.root, height=max(4, int(5 * k)), highlightthickness=0, borderwidth=0,
@@ -390,9 +424,49 @@ class App:
         if self._running:
             self._theme_pending = name
             self.theme_picker.refresh()
-            self.detail.configure(text="Udseendet skifter, når programmet er færdigt med videoen.")
+            self.detail.configure(text=t("gui.theme.after_run"))
             return
         self._apply_theme(name)
+
+    # --- The app's language ----------------------------------------------------------------
+
+    def set_language(self, code: str):
+        """Programmets sprog: the window is rebuilt in the new language, like a theme switch (the choices made in it
+        are kept); during a run the switch waits for the end."""
+        self.settings.ui_language = code
+        self.settings.save()
+        if code == i18n.current():
+            self.language_picker.refresh(code)
+            return
+        if self._running:
+            self._language_pending = code
+            self.language_picker.refresh(code)
+            self.detail.configure(text=t("pickers.after_run", lang=code))
+            return
+        self._apply_language(code)
+
+    def _apply_language(self, code: str):
+        self._language_pending = None
+        lang, speech, subs = self._lang(), self._speech_lang(), self._subs_lang()
+        i18n.set_language(code)
+        self.root.title(APP_NAME)
+        self._apply_theme(self.theme_name)
+        self.lang.set(lang.name)
+        self._refresh(lang_changed=True)
+        self.speech.set(speech.name if speech else self._speech_items(lang)[0][1])
+        self.subs.set(subs.word("choice") if subs else t("gui.setup.subs_none"))
+        self._refresh()
+
+    def _apply_pending(self):
+        """A theme or language picked during the run that just ended."""
+        if self._language_pending:
+            if self._theme_pending:
+                self.theme_name, self._theme_pending = self._theme_pending, None
+                skin.apply(self.root, self.theme_name, self.scale)
+                theme.dark_title_bar(self.root, self.theme_name == "night")
+            self._apply_language(self._language_pending)
+        elif self._theme_pending:
+            self._apply_theme(self._theme_pending)
 
     def _apply_theme(self, name: str):
         self._theme_pending = None
@@ -417,7 +491,7 @@ class App:
         v = ttk.Frame(parent)
         v.columnconfigure(0, weight=1)
 
-        g1 = ttk.LabelFrame(v, text=" 1. Video ", padding=12)
+        g1 = ttk.LabelFrame(v, text=t("gui.setup.group_video"), padding=12)
         g1.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         g1.columnconfigure(1, weight=1)
         # The chosen file as a card (name, folder, change button) instead of an editable path
@@ -430,36 +504,36 @@ class App:
         self.v_dir.grid(row=1, column=0, sticky="ew")
         self._wrap(self.v_name, card, 200)
         self._wrap(self.v_dir, card, 200)
-        self.v_btn = ttk.Button(card, text="Vælg video...", width=14, command=self._pick_video)
+        self.v_btn = ttk.Button(card, text=t("gui.setup.pick_video"), width=14, command=self._pick_video)
         self.v_btn.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
-        ttk.Label(g1, text="Hvilket sprog tales på videoen?").grid(row=1, column=0, sticky="w", pady=(14, 0))
+        ttk.Label(g1, text=t("gui.setup.spoken_language")).grid(row=1, column=0, sticky="w", pady=(14, 0))
         c_lang = ttk.Combobox(g1, textvariable=self.lang, values=[l.name for l in LANGUAGES], state="readonly", width=14)
         c_lang.grid(row=1, column=1, sticky="w", padx=10, pady=(14, 0))
         c_lang.bind("<<ComboboxSelected>>", lambda e: self._refresh(lang_changed=True))
 
-        g2 = ttk.LabelFrame(v, text=" 2. Hvad skal den nye video have? ", padding=12)
+        g2 = ttk.LabelFrame(v, text=t("gui.setup.group_output"), padding=12)
         g2.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         g2.columnconfigure(1, weight=1)
         self.cb_cut = ttk.Checkbutton(g2, variable=self.cut, command=self._cut_changed,
-                                      text="Klip videoen først: fjern ventetid, pauser og det, der ikke skal med")
+                                      text=t("gui.setup.cut_first"))
         self.cb_cut.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
-        ttk.Label(g2, text="Tale:").grid(row=1, column=0, sticky="w")
+        ttk.Label(g2, text=t("gui.setup.speech")).grid(row=1, column=0, sticky="w")
         self.c_speech = ttk.Combobox(g2, textvariable=self.speech, state="readonly", width=22)
         self.c_speech.grid(row=1, column=1, sticky="w", padx=8, pady=3)
         self.c_speech.bind("<<ComboboxSelected>>", lambda e: self._refresh())
-        ttk.Label(g2, text="Undertekster:").grid(row=2, column=0, sticky="w")
+        ttk.Label(g2, text=t("gui.setup.subtitles")).grid(row=2, column=0, sticky="w")
         self.c_subs = ttk.Combobox(g2, textvariable=self.subs, state="readonly", width=22,
-                                   values=["Ingen"] + [l.plural.capitalize() for l in LANGUAGES])
+                                   values=[label for _, label in self._subs_items()])
         self.c_subs.grid(row=2, column=1, sticky="w", padx=8, pady=3)
         self.c_subs.bind("<<ComboboxSelected>>", lambda e: self._refresh())
         # Short checkbox labels; what happens otherwise is on a wrapped hint line under each (lined up with the text)
         indent = int(20 * self.scale)
-        self.cb_redo = ttk.Checkbutton(g2, variable=self.redo, command=self._refresh, text="Lyt videoen igennem forfra")
+        self.cb_redo = ttk.Checkbutton(g2, variable=self.redo, command=self._refresh, text=t("gui.setup.redo"))
         self.cb_redo.grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.redo_hint = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
         self.redo_hint.grid(row=4, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
         self._wrap(self.redo_hint, g2, 40 + indent)
-        self.cb_recut = ttk.Checkbutton(g2, variable=self.recut, command=self._refresh, text="Klip videoen forfra")
+        self.cb_recut = ttk.Checkbutton(g2, variable=self.recut, command=self._refresh, text=t("gui.setup.recut"))
         self.cb_recut.grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.recut_hint = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
         self.recut_hint.grid(row=6, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
@@ -475,10 +549,9 @@ class App:
         g3 = ttk.Frame(v, padding=(0, 6))
         g3.grid(row=2, column=0, sticky="ew")
         g3.columnconfigure(0, weight=1)
-        self.start_btn = ttk.Button(g3, text="Start", style="Accent.TButton", width=16, command=self._start)
+        self.start_btn = ttk.Button(g3, text=t("gui.setup.start"), style="Accent.TButton", width=16, command=self._start)
         self.start_btn.grid(row=0, column=0, sticky="w", ipady=4)
-        hint = ttk.Label(g3, text="Programmet laver resten, og du kan arbejde videre imens. "
-                                  "Det siger til, når det er din tur.", style="Hint.TLabel", justify="left")
+        hint = ttk.Label(g3, text=t("gui.setup.start_hint"), style="Hint.TLabel", justify="left")
         hint.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         self._wrap(hint, g3, 10)
         return v
@@ -486,7 +559,7 @@ class App:
     def _build_work(self, parent) -> ttk.Frame:
         v = ttk.Frame(parent)
         v.columnconfigure(0, weight=1)
-        ttk.Label(v, text="Arbejder på", style="Hint.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(v, text=t("gui.work.working_on"), style="Hint.TLabel").grid(row=0, column=0, sticky="w")
         self.w_video = ttk.Label(v, text="", style="Section.TLabel", foreground=P.heading)
         self.w_video.grid(row=1, column=0, sticky="ew")
         self._wrap(self.w_video, v)
@@ -494,7 +567,7 @@ class App:
         self.w_result.grid(row=2, column=0, sticky="ew", pady=(2, 12))
         self._wrap(self.w_result, v)
 
-        box = ttk.LabelFrame(v, text=" Trin ", padding=14, style="Blue.TLabelframe")
+        box = ttk.LabelFrame(v, text=t("gui.work.steps"), padding=14, style="Blue.TLabelframe")
         box.grid(row=3, column=0, sticky="ew")
         box.columnconfigure(2, weight=1)
         self.steps_box = box
@@ -514,7 +587,7 @@ class App:
         self.callout = tk.Frame(v, background=P.callout_bg, padx=int(12 * k), pady=int(8 * k))
         self.callout.grid(row=5, column=0, sticky="ew", pady=(20, 0))
         self.callout.columnconfigure(0, weight=1)
-        hint = tk.Label(self.callout, text="Din tur: følg trinene i Claude-kortet til højre", background=P.callout_bg,
+        hint = tk.Label(self.callout, text=t("gui.work.your_turn_callout"), background=P.callout_bg,
                         foreground=P.callout_text, font="SunValleyBodyStrongFont", justify="left", anchor="w",
                         borderwidth=0, padx=0, pady=0)
         hint.grid(row=0, column=0, sticky="w")
@@ -530,11 +603,11 @@ class App:
 
         btns = ttk.Frame(v)
         btns.grid(row=7, column=0, sticky="w", pady=(18, 0))
-        self.pause_btn = ttk.Button(btns, text="Pause", width=10, command=self._toggle_pause)
+        self.pause_btn = ttk.Button(btns, text=t("gui.work.pause"), width=10, command=self._toggle_pause)
         self.pause_btn.pack(side="left")
-        self.cancel_btn = ttk.Button(btns, text="Annullér", width=10, command=self._cancel)
+        self.cancel_btn = ttk.Button(btns, text=t("gui.cancel"), width=10, command=self._cancel)
         self.cancel_btn.pack(side="left", padx=10)
-        self.pause_hint = ttk.Label(btns, text="Pause frigiver pc'en med det samme. Arbejdet fortsætter, hvor det slap.",
+        self.pause_hint = ttk.Label(btns, text=t("gui.work.pause_hint"),
                                     style="Hint.TLabel")
         self.pause_hint.pack(side="left", padx=6)
         return v
@@ -554,7 +627,7 @@ class App:
         self.d_msg.grid(row=2, column=1, sticky="new", pady=(4, 0))
         self._wrap(self.d_msg, v, 120)
 
-        self.d_main = ttk.LabelFrame(v, text=" Din nye video ", padding=12)
+        self.d_main = ttk.LabelFrame(v, text=t("gui.done.group_video"), padding=12)
         self.d_main.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(18, 0))
         self.d_main.columnconfigure(0, weight=1)
         self.d_file = ttk.Label(self.d_main, text="", font="SunValleyBodyStrongFont")
@@ -562,28 +635,28 @@ class App:
         self._wrap(self.d_file, self.d_main)
         acts = ttk.Frame(self.d_main)
         acts.grid(row=1, column=0, sticky="w", pady=(10, 0))
-        self.d_play = ttk.Button(acts, text="▶  Afspil", style="Accent.TButton", width=14,
+        self.d_play = ttk.Button(acts, text=t("gui.done.play"), style="Accent.TButton", width=14,
                                  command=lambda: self._open(self.d_target))
         self.d_play.pack(side="left")
-        ttk.Button(acts, text="Vis i mappe", width=14,
+        ttk.Button(acts, text=t("gui.show_in_folder"), width=14,
                    command=lambda: self._show_in_folder(self.d_target)).pack(side="left", padx=10)
 
-        g = ttk.LabelFrame(v, text=" Alle filer fra denne kørsel ", padding=12)
+        g = ttk.LabelFrame(v, text=t("gui.done.group_files"), padding=12)
         g.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(14, 0))
         g.columnconfigure(0, weight=1)
         self.files = tk.Listbox(g, height=4, activestyle="none", borderwidth=0, highlightthickness=0,
                                 font="SunValleyBodyFont", background=self.bg)
         self.files.grid(row=0, column=0, sticky="ew")
         self.files.bind("<Double-Button-1>", lambda e: self._open_selected())
-        ttk.Label(g, text="Dobbeltklik for at åbne. Tekstfilerne (.srt) bruges igen, hvis du laver flere udgaver.",
+        ttk.Label(g, text=t("gui.done.files_hint"),
                   style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(6, 0))
 
-        nxt = ttk.LabelFrame(v, text=" Hvad nu? ", padding=12)
+        nxt = ttk.LabelFrame(v, text=t("gui.done.group_next"), padding=12)
         nxt.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        self.d_again = ttk.Button(nxt, text="Prøv igen", style="Accent.TButton", command=self._start)
-        self.d_same = ttk.Button(nxt, text="Lav en anden udgave af samme video", command=self._same_video)
-        self.d_new = ttk.Button(nxt, text="Vælg en ny video", command=self._new_video)
-        self.d_log = ttk.Button(nxt, text="Åbn logfil", command=lambda: self._open(log_file()))
+        self.d_again = ttk.Button(nxt, text=t("gui.done.try_again"), style="Accent.TButton", command=self._start)
+        self.d_same = ttk.Button(nxt, text=t("gui.done.same_video"), command=self._same_video)
+        self.d_new = ttk.Button(nxt, text=t("gui.done.new_video"), command=self._new_video)
+        self.d_log = ttk.Button(nxt, text=t("gui.open_log"), command=lambda: self._open(log_file()))
         self.d_next_hint = ttk.Label(nxt, text="", style="Hint.TLabel", justify="left")
         self._wrap(self.d_next_hint, nxt)
         return v
@@ -614,30 +687,55 @@ class App:
         return Path(v) if v else None
 
     def _lang(self) -> Language:
-        return LANG_BY_NAME[self.lang.get()]
+        return lang_by_name(self.lang.get()) or LANG_BY_CODE["da"]
+
+    def _speech_items(self, l: Language) -> list[tuple[Language | None, str]]:
+        """The speech combobox: (None = keep the original speech, its label), then the other languages."""
+        return [(None, t("gui.setup.speech_original", singular=l.singular))] + [(x, x.name) for x in LANGUAGES if x != l]
+
+    def _subs_items(self) -> list[tuple[Language | None, str]]:
+        """The subtitles combobox: (None = no subtitles, its label), then every language."""
+        return [(None, t("gui.setup.subs_none"))] + [(x, x.word("choice")) for x in LANGUAGES]
 
     def _speech_lang(self) -> Language | None:
-        """None = keep the original speech."""
-        return LANG_BY_NAME.get(self.speech.get())
+        """None = keep the original speech. Anything that is not a language (the "Original (...)" entry, also in
+        another app language) means the original."""
+        text = self.speech.get()
+        for x, label in self._speech_items(self._lang()):
+            if label == text:
+                return x
+        return lang_by_name(text)
 
     def _subs_lang(self) -> Language | None:
-        return next((l for l in LANGUAGES if l.plural.capitalize() == self.subs.get()), None)
+        """None = no subtitles ("Ingen", also in another app language)."""
+        text = self.subs.get()
+        for x, label in self._subs_items():
+            if label == text:
+                return x
+        from .i18n import CODES
+        return next((x for x in LANGUAGES for c in CODES if x.word("choice", c) == text), None) or lang_by_name(text)
 
     def _refresh(self, lang_changed: bool = False):
         l = self._lang()
-        original = f"Original ({l.singular})"
-        self.c_speech.configure(values=[original] + [x.name for x in LANGUAGES if x != l])
-        if lang_changed or not self.speech.get() or self.speech.get() == l.name or self.speech.get().startswith("Original"):
-            self.speech.set(original)
-        if not self.subs.get() or (lang_changed and self.subs.get() != "Ingen"):
-            self.subs.set(l.plural.capitalize())
+        self.lang.set(l.name)
+        sp, su, had_subs = self._speech_lang(), self._subs_lang(), bool(self.subs.get())
+        items = self._speech_items(l)
+        self.c_speech.configure(values=[label for _, label in items])
+        if lang_changed or not self.speech.get() or sp is None or sp == l:
+            self.speech.set(items[0][1])
+        else:
+            self.speech.set(sp.name)
+        self.c_subs.configure(values=[label for _, label in self._subs_items()])
+        if not had_subs or (lang_changed and su is not None):
+            su = l
+        self.subs.set(su.word("choice") if su else t("gui.setup.subs_none"))
         v = self._video()
         mode, _ = self._cut_mode(v)
-        show_recut = bool(v and v.is_file() and self.cut.get() and textstate.cut_status(cut_name(v), v) == "ok")
+        show_recut = bool(v and v.is_file() and self.cut.get() and textstate.cut_status(cut_path(v), v) == "ok")
         if mode == "reuse":
-            v = cut_name(v)
-        has_srt = bool(v and v.is_file() and textstate.status(srt_name(v, l), v) == "ok")
-        self.redo_hint.configure(text=f"Ellers bruges de {l.plural} undertekster, der allerede er lavet.")
+            v = cut_path(v)
+        has_srt = bool(v and v.is_file() and textstate.status(srt_path(v, l), v) == "ok")
+        self.redo_hint.configure(text=t("gui.setup.redo_hint", plural=l.plural))
         for w in (self.cb_redo, self.redo_hint):
             w.grid() if has_srt else w.grid_remove()
         # Listening again always cuts again (see _cut_mode): show that instead of an option that does nothing
@@ -646,42 +744,41 @@ class App:
                 self.recut.set(True)
                 self._recut_forced = True
             self.cb_recut.state(["disabled"])
-            self.recut_hint.configure(text="Sker altid, når videoen lyttes igennem forfra.")
+            self.recut_hint.configure(text=t("gui.setup.recut_forced"))
         else:
             if self._recut_forced:
                 self.recut.set(False)
                 self._recut_forced = False
             self.cb_recut.state(["!disabled"])
-            self.recut_hint.configure(text="Ellers bruges den klippede video fra sidst.")
+            self.recut_hint.configure(text=t("gui.setup.recut_hint"))
         for w in (self.cb_recut, self.recut_hint):
             w.grid() if show_recut else w.grid_remove()
-        plan = self._plan_text()
-        first, _, rest = plan.partition("\n")
-        if first.startswith("Du får"):
-            self.plan_result.configure(text=first.replace("Du får:  ", "Du får: "))
+        result, rest = self._plan_text()
+        if result:
+            self.plan_result.configure(text=result)
             self.plan_result.grid()
             self.plan_steps.configure(text=rest)
         else:
             self.plan_result.grid_remove()
-            self.plan_steps.configure(text=plan)
+            self.plan_steps.configure(text=rest)
         v = self._video()
         self.start_btn.configure(state="normal" if v and v.is_file() else "disabled")
         if not v:
-            self.v_name.configure(text="Ingen video valgt", foreground=P.hint)
-            self.v_dir.configure(text="Vælg den video, der skal have undertekster eller dubbes.", foreground="")
-            self.v_btn.configure(text="Vælg video...", style="Accent.TButton")
+            self.v_name.configure(text=t("gui.setup.no_video"), foreground=P.hint)
+            self.v_dir.configure(text=t("gui.setup.pick_video_hint"), foreground="")
+            self.v_btn.configure(text=t("gui.setup.pick_video"), style="Accent.TButton")
         else:
             self.v_name.configure(text=v.name, foreground="")
-            self.v_dir.configure(text=str(v.parent) if v.is_file() else "Filen findes ikke længere. Vælg den igen.",
+            self.v_dir.configure(text=str(v.parent) if v.is_file() else t("gui.setup.video_gone"),
                                  foreground="" if v.is_file() else P.error)
-            self.v_btn.configure(text="Skift video...", style="TButton")
+            self.v_btn.configure(text=t("gui.setup.change_video"), style="TButton")
 
     def _claude_plan(self, v: Path, lang: Language, transcribe: bool, targets) -> tuple[bool, list[Language]]:
         """(check the spoken-language text?, languages to translate to) for the Claude round.
 
         Claude checks the text once (after that it is reused, also if the user edited it by hand), and a
         translation is reused when it matches the spoken-language subtitles' time codes."""
-        orig = srt_name(v, lang)
+        orig = srt_path(v, lang)
         check = transcribe or not textstate.is_checked(orig)
         orig_cues = None
         if not transcribe and orig.exists():
@@ -691,9 +788,9 @@ class App:
                 orig_cues = None
         needed = []
         for target in dict.fromkeys(x for x in targets if x and x != lang):
-            existing = srt_name(v, target)
+            existing = find_srt(v, target)
             ok = False
-            if orig_cues is not None and existing.exists():
+            if orig_cues is not None and existing:
                 try:
                     ok = engine.compare(orig_cues, read_srt(existing)) is None
                 except Exception:
@@ -707,14 +804,14 @@ class App:
             return dub_name(v, sp, su)
         if su:
             return burned_name(v, su)
-        return srt_name(v, l)
+        return srt_path(v, l)
 
     def _cut_mode(self, v: Path | None) -> tuple[str | None, Path | None]:
         """(None | "new" | "reuse", the cut video's path). "reuse": the cut video made earlier from this video
         is used again (for another language), unless the user asks to cut again or to listen again."""
         if not v or not v.is_file() or not self.cut.get():
             return None, None
-        edited = cut_name(v)
+        edited = cut_path(v)
         if not self.recut.get() and not self.redo.get() and textstate.cut_status(edited, v) == "ok":
             return "reuse", edited
         return "new", edited
@@ -724,50 +821,51 @@ class App:
         self.settings.save()
         self._refresh()
 
-    def _plan_text(self) -> str:
+    def _plan_text(self) -> tuple[str, str]:
+        """(the "Du får: ..." line or "" when there is nothing to make, the lines under it)."""
         v = self._video()
         if not v:
-            return "Vælg den video, der skal have undertekster eller dubbes."
+            return "", t("gui.setup.pick_video_hint")
         if not v.is_file():
-            return "Videoen findes ikke. Vælg den igen."
+            return "", t("gui.plan.video_missing")
         l, sp, su = self._lang(), self._speech_lang(), self._subs_lang()
         mode, edited = self._cut_mode(v)
         if mode == "reuse":
             if not sp and not su:
-                return (f"Den klippede video findes allerede: {edited.name}\n"
-                        "Vælg tale eller undertekster, eller sæt flueben i \"Klip videoen forfra\".")
+                return "", t("gui.plan.cut_exists", name=edited.name, recut=t("gui.setup.recut"))
             v = edited
         base = edited if mode else v
         if mode == "new" and not sp and not su:
-            lines = [f"Du får:  {edited.name}  (og de {l.plural} undertekster til den)"]
+            result = t("gui.plan.you_get_cut", name=edited.name, plural=l.plural)
+        elif sp or su:
+            result = t("gui.plan.you_get", name=self._result_name(base, l, sp, su).name)
         else:
-            lines = [f"Du får:  {self._result_name(base, l, sp, su).name}" + ("" if sp or su else "  (kun tekstfilen)")]
+            result = t("gui.plan.you_get_text", name=self._result_name(base, l, sp, su).name)
+        lines = []
         if mode == "reuse":
-            lines.append(f"Den klippede video ({edited.name}) genbruges.")
-        state = textstate.status(srt_name(v, l), v)
+            lines.append(t("gui.plan.cut_reused", name=edited.name))
+        state = textstate.status(srt_path(v, l), v)
         transcribe = self.redo.get() or state != "ok"
         if state == "changed" and not self.redo.get():
-            lines.append(f"Videoen er ændret, siden teksten blev lavet, så de {l.plural} undertekster laves forfra.")
+            lines.append(t("gui.plan.video_changed", plural=l.plural))
         elif state == "old" and not self.redo.get():
-            lines.append(f"De {l.plural} undertekster er lavet af en ældre version af programmet, så de laves forfra.")
+            lines.append(t("gui.plan.old_version", plural=l.plural))
         elif transcribe:
-            lines.append(f"Programmet lytter videoen igennem og skriver de {l.plural} undertekster.")
+            lines.append(t("gui.plan.transcribe", plural=l.plural))
         check, need = self._claude_plan(v, l, transcribe, [sp, su])
         if mode == "new" and not check and not need:
             check = True
-        todo = ([f"retter de {l.plural} undertekster"] if check else []) + \
-               ([f"oversætter til {' og '.join(x.name.lower() for x in need)}"] if need else []) + \
-               (["foreslår, hvad der skal klippes væk"] if mode == "new" else [])
+        todo = ([t("gui.plan.task_check", plural=l.plural)] if check else []) + \
+               ([t("gui.plan.task_translate", langs=join_and([x.singular for x in need]))] if need else []) + \
+               ([t("gui.plan.task_cut")] if mode == "new" else [])
         if todo:
-            lines.append(f"Claude {', '.join(todo[:-1]) + ' og ' if len(todo) > 1 else ''}{todo[-1]} "
-                         "(i Claude-kortet til højre, når det er din tur).")
+            lines.append(t("gui.plan.claude", tasks=join_and(todo)))
         if mode == "new":
-            lines.append("Programmet finder selv lange pauser. Du ser alle klip på en tidslinje og retter dem, "
-                         "før videoen bliver klippet.")
-        return "\n".join(lines)
+            lines.append(t("gui.plan.cut_review"))
+        return result, "\n".join(lines)
 
     def _pick_video(self):
-        p = filedialog.askopenfilename(parent=self.root, title="Vælg video", filetypes=VIDEO_TYPES,
+        p = filedialog.askopenfilename(parent=self.root, title=t("gui.setup.pick_video_title"), filetypes=video_types(),
                                        initialdir=self.settings.last_dir)
         if p:
             self.redo.set(False)
@@ -802,7 +900,7 @@ class App:
         if not v or not v.is_file():
             self._auto_reason = "Videoen findes ikke."
             if not auto:
-                boxes.showwarning(APP_NAME, "Vælg først en video.", parent=self._owner())
+                boxes.showwarning(APP_NAME, t("gui.validate.pick_first"), parent=self._owner())
             return None
         lang = self._lang()
         speech, subs = self._speech_lang(), self._subs_lang()
@@ -812,22 +910,20 @@ class App:
             if not speech and not subs:
                 self._auto_reason = f"Den klippede video findes allerede ({edited.name}). Vælg tale eller undertekster."
                 if not auto:
-                    boxes.showinfo(APP_NAME, f"Den klippede video findes allerede:\n{edited.name}\n\n"
-                                        "Vælg tale eller undertekster, eller sæt flueben i \"Klip videoen forfra\".",
-                                        parent=self._owner())
+                    boxes.showinfo(APP_NAME, t("gui.validate.cut_exists", name=edited.name, recut=t("gui.setup.recut")),
+                                   parent=self._owner())
                 return None
             v = edited
-        orig_srt = srt_name(v, lang)
+        orig_srt = srt_path(v, lang)
         job = {"video": v, "original": original, "lang": lang, "speech": speech, "subs": subs, "outputs": [],
                "translate": [], "cut": mode == "new", "edited": edited, "cut_reused": mode == "reuse"}
         job["transcribe"] = self.redo.get() or textstate.status(orig_srt, v) != "ok"
         if not speech and not subs and not job["transcribe"] and not job["cut"]:
-            self._auto_reason = f"De {lang.plural} undertekster findes allerede ({orig_srt.name}). Vælg tale eller undertekster."
+            self._auto_reason = f"De {lang.word('plural', 'da')} undertekster findes allerede ({orig_srt.name}). Vælg tale eller undertekster."
             if auto:
                 return None
-            boxes.showinfo(APP_NAME, f"De {lang.plural} undertekster findes allerede:\n{orig_srt.name}\n\n"
-                                "Vælg et andet sprog til tale eller undertekster, eller sæt flueben i \"Lyt videoen igennem forfra\".",
-                                parent=self._owner())
+            boxes.showinfo(APP_NAME, t("gui.validate.srt_exists", plural=lang.plural, name=orig_srt.name,
+                                       redo=t("gui.setup.redo")), parent=self._owner())
             return None
         if job["transcribe"]:
             job["outputs"].append(orig_srt)
@@ -842,9 +938,9 @@ class App:
         if speech or subs:
             job["outputs"].append(job["result"])
         exists = [o for o in job["outputs"] if o.exists()]
-        if exists and not auto and not boxes.askyesno(APP_NAME, "Disse filer findes allerede og bliver lavet forfra:\n\n"
-                                              + "\n".join(o.name for o in exists) + "\n\nFortsæt?",
-                                              parent=self._owner()):
+        if exists and not auto and not boxes.askyesno(APP_NAME, t("gui.validate.overwrite",
+                                                                  files="\n".join(o.name for o in exists)),
+                                                      parent=self._owner()):
             return None
         # Models
         need = []
@@ -872,10 +968,7 @@ class App:
             if mem is not None and mem < 1.5 and auto:
                 log.warning("only %.1f GB free memory; starting anyway (job from Claude)", mem)
             elif mem is not None and mem < 1.5:
-                if not boxes.askyesno(APP_NAME, f"Der er kun {mem:.1f} GB ledig hukommelse. Transskriptionen bruger "
-                                           "ca. 1,5 GB og bliver meget langsom, hvis der er for lidt.\n\n"
-                                           "Luk gerne andre programmer (fx Teams og browserfaner) først.\n\nFortsæt alligevel?",
-                                           parent=self._owner()):
+                if not boxes.askyesno(APP_NAME, t("gui.validate.low_memory", gb=f"{mem:.1f}"), parent=self._owner()):
                     return None
         if speech:
             job["voice"] = engine.find_model(speech.voice + ".onnx")
@@ -890,26 +983,26 @@ class App:
         their own (Claude, the cut review) are in self.manual_steps."""
         names = []
         if job["transcribe"] or job["cut"]:
-            names.append("Trækker lyden ud")
+            names.append(t("gui.step.extract"))
         if job["transcribe"]:
-            names.append("Lytter og skriver tekst")
+            names.append(t("gui.step.transcribe"))
         claude_at = -1
         self.review_at = -1
         if job["check"] or job["translate"]:
             claude_at = len(names)
-            what = (["retter teksten"] if job["check"] else []) + \
-                   ([f"oversætter til {' og '.join(t.name.lower() for t in job['translate'])}"] if job["translate"] else []) + \
-                   (["foreslår klip"] if job["cut"] else [])
-            what = (", ".join(what[:-1]) + " og " if len(what) > 1 else "") + what[-1]
-            names.append(f"Claude {what}" + (" - i chatten" if job.get("mcp") else " - din tur"))
+            what = ([t("gui.step.task_check")] if job["check"] else []) + \
+                   ([t("gui.step.task_translate", langs=join_and([x.singular for x in job["translate"]]))]
+                    if job["translate"] else []) + \
+                   ([t("gui.step.task_cut")] if job["cut"] else [])
+            names.append(t("gui.step.claude_chat" if job.get("mcp") else "gui.step.claude_turn", tasks=join_and(what)))
         if job["cut"]:
             self.review_at = len(names)
-            names += ["Du gennemser klippene - din tur", "Klipper videoen"]
+            names += [t("gui.step.review"), t("gui.step.cut")]
         self.manual_steps = [i for i in (claude_at, self.review_at) if i >= 0]
         if job["speech"]:
-            names += [f"Indtaler på {job['speech'].name.lower()}", "Laver den dubbede video"]
+            names += [t("gui.step.voice_in", singular=job["speech"].singular), t("gui.step.dub")]
         elif job["subs"]:
-            names += ["Brænder undertekster ind"]
+            names += [t("gui.step.burn")]
         return names, claude_at
 
     def _start(self, auto: bool = False):
@@ -950,13 +1043,13 @@ class App:
             self._draw_icon(row)
         self.active_step = -1
         self.w_video.configure(text=job["video"].name)
-        self.w_result.configure(text=f"Du får:  {job['result'].name}")
+        self.w_result.configure(text=t("gui.work.you_get", name=job["result"].name))
         self.bar.configure(value=0)
         self.w_pct.configure(text="0%")
-        self.status.configure(text="Starter...")
+        self.status.configure(text=t("gui.work.starting"))
         self.detail.configure(text="")
         self.callout.grid_remove()
-        self.pause_btn.configure(state="normal", text="Pause")
+        self.pause_btn.configure(state="normal", text=t("gui.work.pause"))
         self.cancel_btn.configure(state="normal")
         self._running = True
         self._user_turn(False)   # the hint may be hidden from a run stopped during the user's turn
@@ -986,7 +1079,7 @@ class App:
             log.info("job %s cancelled from Claude", self.mcp_job)
             self.pause_btn.configure(state="disabled")
             self.cancel_btn.configure(state="disabled")
-            self.status.configure(text="Claude stopper kørslen...")
+            self.status.configure(text=t("gui.work.claude_stops"))
             self.runner.cancel()
         else:
             self._jstatus(state="cancelled", message="Stoppet fra Claude.")
@@ -1011,12 +1104,13 @@ class App:
             self.cut.set(bool(req.get("cut")))
             self.recut.set(bool(req.get("cut")) and bool(req.get("redo")))
             self.video.set(req["video"])
-            self.lang.set(req.get("lang") or "Dansk")
+            # A language code, or (requests before 2.1) its Danish name
+            self.lang.set((lang_by_name(req.get("lang")) or LANG_BY_CODE["da"]).name)
             self._refresh(lang_changed=True)
-            speech = req.get("speech")
-            self.speech.set(speech if speech in LANG_BY_NAME else f"Original ({self._lang().singular})")
-            subs = req.get("subs")
-            self.subs.set(LANG_BY_NAME[subs].plural.capitalize() if subs in LANG_BY_NAME else "Ingen")
+            speech = lang_by_name(req.get("speech"))
+            self.speech.set(speech.name if speech else self._speech_items(self._lang())[0][1])
+            subs = lang_by_name(req.get("subs"))
+            self.subs.set(subs.word("choice") if subs else t("gui.setup.subs_none"))
             self._refresh()
             self._show("setup")
             # after_idle: _poll reschedules itself before a dialog in _validate (models) can block it
@@ -1075,9 +1169,8 @@ class App:
 
     def _on_close(self):
         if self._busy():
-            if not boxes.askyesno(APP_NAME, "Programmet arbejder stadig. Vil du stoppe og lukke?\n\n"
-                                       "Det, der er nået, går tabt. Vil du bare frigive pc'en, så brug Pause i stedet.",
-                                       parent=self._owner()):
+            if not boxes.askyesno(APP_NAME, t("gui.work.close_running", pause=t("gui.work.pause")),
+                                  parent=self._owner()):
                 return
             if self.runner:
                 self.runner.cancel()
@@ -1089,13 +1182,13 @@ class App:
             return
         if r.paused:
             r.resume()
-            self.pause_btn.configure(text="Pause")
+            self.pause_btn.configure(text=t("gui.work.pause"))
             self.status.configure(text=self._status_before_pause)
         else:
             r.pause()
-            self.pause_btn.configure(text="Fortsæt", style="Accent.TButton")
+            self.pause_btn.configure(text=t("gui.work.resume"), style="Accent.TButton")
             self._status_before_pause = self.status.cget("text")
-            self.status.configure(text="Sat på pause. Tryk \"Fortsæt\", når pc'en er ledig igen.")
+            self.status.configure(text=t("gui.work.paused", resume=t("gui.work.resume")))
         if not r.paused:
             self.pause_btn.configure(style="TButton")
         self._jstatus(state="paused" if r.paused else "running")
@@ -1118,12 +1211,11 @@ class App:
 
     def _cancel(self):
         if self.runner:
-            if not boxes.askyesno(APP_NAME, "Vil du stoppe kørslen?\n\nDet, programmet er i gang med, går tabt. "
-                                       "Vil du bare frigive pc'en, så brug Pause.", parent=self._owner()):
+            if not boxes.askyesno(APP_NAME, t("gui.work.cancel_ask", pause=t("gui.work.pause")), parent=self._owner()):
                 return
             self.pause_btn.configure(state="disabled")
             self.cancel_btn.configure(state="disabled")
-            self.status.configure(text="Annullerer...")
+            self.status.configure(text=t("gui.work.cancelling"))
             self.runner.cancel()
 
     # --- Worker -------------------------------------------------------------------------
@@ -1134,26 +1226,31 @@ class App:
         lang: Language = job["lang"]
         speech, subs = job["speech"], job["subs"]
         cut = job["cut"]
+        # The step names are shown in the status line and are how prog.start finds a step: read them once, so a
+        # switch of the app's language during the run cannot make them differ
+        s_extract, s_transcribe, s_cut = t("gui.step.extract"), t("gui.step.transcribe"), t("gui.step.cut")
+        s_voice, s_dub, s_burn = t("gui.step.voice"), t("gui.step.dub"), t("gui.step.burn")
         steps = []
         if job["transcribe"] or cut:
-            steps.append(("Trækker lyden ud", 1))
+            steps.append((s_extract, 1))
         if job["transcribe"]:
-            steps.append(("Lytter og skriver tekst", 20))
+            steps.append((s_transcribe, 20))
         if cut:
-            steps.append(("Klipper videoen", 6))
+            steps.append((s_cut, 6))
         if speech:
-            steps += [("Indtaler", 4), ("Laver den dubbede video", 6 if subs else 1)]
+            steps += [(s_voice, 4), (s_dub, 6 if subs else 1)]
         elif subs:
-            steps += [("Brænder undertekster ind", 6)]
+            steps += [(s_burn, 6)]
+        self._progress_names = [n for n, _ in steps]
         prog = engine.Progress(lambda o, s, d: post(("progress", o, s, d, prog.step)), steps, runner)
         work = Path(tempfile.mkdtemp(prefix="sdl-"))
         log.info("JOB video=%s lang=%s speech=%s subs=%s transcribe=%s check=%s translate=%s cut=%s reused_cut=%s", v,
                  lang.code, speech and speech.code, subs and subs.code, job["transcribe"], job["check"],
                  [t.code for t in job["translate"]], cut, job["cut_reused"])
-        orig_srt = srt_name(v, lang)
+        orig_srt = srt_path(v, lang)
 
         def srt_of(l: Language) -> Path:
-            return srt_name(v, l)
+            return srt_path(v, l)
 
         try:
             info = engine.probe(runner, v)
@@ -1161,15 +1258,15 @@ class App:
             wav = work / "audio.wav"
             if job["transcribe"] or cut:
                 if not info.has_audio:
-                    raise ToolError("Videoen har ingen lyd.")
-                prog.start("Trækker lyden ud")
+                    raise ToolError(t("gui.error.no_audio"))
+                prog.start(s_extract)
                 engine.extract_audio(runner, v, wav)
             if job["transcribe"]:
-                prog.start("Lytter og skriver tekst")
+                prog.start(s_transcribe)
                 cues = engine.transcribe(runner, wav, lang, job["model"], info.duration_ms,
                                          self.settings.use_gpu, prog, work)
                 if not cues:
-                    raise ToolError("Der blev ikke fundet nogen tale i videoen.")
+                    raise ToolError(t("gui.error.no_speech"))
                 write_srt(orig_srt, cues)
                 textstate.record(orig_srt, v)
                 post(("file", orig_srt))
@@ -1181,23 +1278,22 @@ class App:
                     runner.check()
                 runner.check()
                 if not self._translation_ok:
-                    post(("skipped", f"Claude-trinnet blev afbrudt, så videoen er ikke lavet endnu. "
-                                     f"De {lang.plural} undertekster er gemt, så næste gang går det hurtigere."))
+                    post(("skipped", t("gui.done.claude_skipped", plural=lang.plural)))
                     return
             if cut:
-                v, info = self._cut_step(job, v, info, wav, prog, runner, work)
+                v, info = self._cut_step(job, v, info, wav, prog, runner, work, s_cut)
                 if v is None:   # nothing cut and nothing else to make
                     post(("done", orig_srt))
                     return
             if speech:
                 out = dub_name(v, speech, subs)
                 engine.dub(runner, v, read_srt(srt_of(speech)), job["voice"], out, srt_of(subs) if subs else None,
-                           self.settings.keep_original_audio, info, prog, work, "Indtaler", "Laver den dubbede video",
+                           self.settings.keep_original_audio, info, prog, work, s_voice, s_dub,
                            voices=job.get("voices"), palette=job.get("palette"),
                            speaker_model=job.get("speaker_model"))
                 post(("file", out))
             elif subs:
-                prog.start("Brænder undertekster ind")
+                prog.start(s_burn)
                 out = burned_name(v, subs)
                 engine.burn(runner, v, srt_of(subs), out, info, prog, work)
                 post(("file", out))
@@ -1210,17 +1306,17 @@ class App:
             post(("error", str(e)))
         except Exception as e:
             log.error("crash: %s", traceback.format_exc())
-            post(("error", f"Der skete en uventet fejl: {e}\n\nSend gerne logfilen til Kasper."))
+            post(("error", t("gui.error.unexpected", error=e)))
         finally:
             shutil.rmtree(work, ignore_errors=True)
 
-    def _cut_step(self, job: dict, v: Path, info, wav: Path, prog, runner: Runner, work: Path):
+    def _cut_step(self, job: dict, v: Path, info, wav: Path, prog, runner: Runner, work: Path, step_name: str):
         """Suggest cuts (silent pauses + Claude's), let the user review them, cut, and move the subtitles over.
         Returns (the video to carry on with, its info), or (None, None) when nothing was cut and the job only
         asked for cutting."""
         post = self.events.put
         lang = job["lang"]
-        cues = read_srt(srt_name(v, lang))
+        cues = read_srt(srt_path(v, lang))
         try:
             env = cutting.envelope(wav)
         except Exception:
@@ -1247,15 +1343,15 @@ class App:
             post(("result", job["result"]))
             return v, info
         edited: Path = job["edited"]
-        prog.start("Klipper videoen")
+        prog.start(step_name)
         cutting.cut_video(runner, v, ranges, edited, info.duration_ms, info.has_audio, prog, work)
         textstate.record_cut(edited, v, ranges)
         post(("file", edited))
         # The subtitles that belong to the original (and match its blocks) are moved to the cut video.
-        checked = textstate.is_checked(srt_name(v, lang))
+        checked = textstate.is_checked(srt_path(v, lang))
         for l in LANGUAGES:
-            src = srt_name(v, l)
-            if not src.exists():
+            src = find_srt(v, l)
+            if not src:
                 continue
             try:
                 these = read_srt(src)
@@ -1263,7 +1359,7 @@ class App:
                 continue
             if l != lang and engine.compare(cues, these) is not None:
                 continue
-            out = srt_name(edited, l)
+            out = srt_path(edited, l)
             write_srt(out, cutting.remap_cues(these, ranges))
             textstate.record(out, edited)
             if l == lang and checked:
@@ -1276,6 +1372,15 @@ class App:
         """The worker's progress steps leave out the steps without progress (Claude, the cut review)."""
         shown = [k for k in range(len(self.step_rows)) if k not in self.manual_steps]
         return shown[i] if 0 <= i < len(shown) else i
+
+    def _without_step_number(self, status: str, step: int | None) -> str:
+        """The worker's status from the step's name on, without the step number Progress puts in front."""
+        names = self._progress_names
+        if step is not None and 0 <= step < len(names):
+            i = status.find(names[step])
+            if i > 0:
+                return status[i:]
+        return status
 
     def _poll(self):
         self._inbox_tick += 1
@@ -1298,19 +1403,19 @@ class App:
                     if overall is not None:
                         self.bar.configure(value=overall * 1000)
                         self.w_pct.configure(text=f"{overall * 100:.0f}%")
-                    self.status.configure(text=status.split(": ", 1)[-1] if status.startswith("Trin ") else status)
+                    step_txt = self._without_step_number(status, step)
+                    self.status.configure(text=step_txt)
                     if detail:
-                        self.detail.configure(text=f"Lige nu:  “{detail.strip()}”")
+                        self.detail.configure(text=t("gui.work.now", text=detail.strip()))
                     if self.mcp_job and overall is not None and time.time() - self._status_written > 1.5:
                         self._status_written = time.time()
-                        step_txt = status.split(": ", 1)[-1] if status.startswith("Trin ") else status
                         name, _, eta = step_txt.partition(" - ")
                         self._jstatus(state="running", percent=int(overall * 100), step=name, eta=eta)
                 elif kind == "file":
                     self.add_file(ev[1])
                 elif kind == "result":
                     self.job["result"] = ev[1]
-                    self.w_result.configure(text=f"Du får:  {ev[1].name}")
+                    self.w_result.configure(text=t("gui.work.you_get", name=ev[1].name))
                     self._jstatus(result=str(ev[1]))
                 elif kind == "review":
                     self._start_review(*ev[1:])
@@ -1327,11 +1432,11 @@ class App:
                     skin.skin_cards(self.main)
                     self._user_turn(True)
                     if self.mcp_job:
-                        self.status.configure(text="Claude retter og oversætter i chatten")
+                        self.status.configure(text=t("gui.work.claude_in_chat"))
                         self._jstatus(state="claude_turn", step="Claude retter og oversætter", eta="",
                                       percent=int(float(self.bar.cget("value")) / 10), message="Teksten er klar til dig.")
                     else:
-                        self.status.configure(text="Venter på dig")
+                        self.status.configure(text=t("gui.work.waiting_for_you"))
                         self.callout.grid()
                         self._pulsing = True
                         self._call_attention()
@@ -1350,8 +1455,8 @@ class App:
                         self._jstatus(state="cancelled", message=ev[1] or "Stoppet i appen.")
                     self.mcp_job = None
                     self._show_result(kind, ev[1])
-                    if self._theme_pending:
-                        self.root.after(300, lambda: self._apply_theme(self._theme_pending))
+                    if self._theme_pending or self._language_pending:
+                        self.root.after(300, self._apply_pending)
                 elif kind == "selfcheck":
                     self._show_selfcheck(ev[1])
         except queue.Empty:
@@ -1367,30 +1472,28 @@ class App:
         self.d_banner.grid() if kind == "done" else self.d_banner.grid_remove()
         self.d_icon.grid_remove() if kind == "done" else self.d_icon.grid()
         if kind == "done":
-            self.status.configure(text="Færdig.")
+            self.status.configure(text=t("gui.done.status"))
             target: Path = info
             self.d_target = target
             self.d_icon.configure(text="✓", foreground=P.success)
-            self.d_title.configure(text="Færdig!")
+            self.d_title.configure(text=t("gui.done.title"))
             if target.suffix.lower() == ".srt":
-                self.d_msg.configure(text="Teksten er klar.")
-                self.d_main.configure(text=" Din tekstfil ")
-                self.d_play.configure(text="Åbn")
+                self.d_msg.configure(text=t("gui.done.text_ready"))
+                self.d_main.configure(text=t("gui.done.group_text"))
+                self.d_play.configure(text=t("gui.done.open"))
             else:
                 learned = ", ".join(f"{w} → {r}" for w, r in self.learned_words)
-                self.d_msg.configure(text="Din nye video er klar. Se den igennem, før du deler den."
-                                     + (f"\n\nClaude rettede disse ord, og programmet husker dem fremover: {learned}"
-                                        if learned else ""))
-                self.d_main.configure(text=" Din nye video ")
-                self.d_play.configure(text="▶  Afspil")
+                self.d_msg.configure(text=t("gui.done.video_ready")
+                                     + ("\n\n" + t("gui.done.learned", words=learned) if learned else ""))
+                self.d_main.configure(text=t("gui.done.group_video"))
+                self.d_play.configure(text=t("gui.done.play"))
             self.d_file.configure(text=target.name)
             self.d_main.grid()
             if self._skill_warning and not replay:
                 reason, have = self._skill_warning
                 self._skill_warning = None
                 self.root.after(1200, lambda: self.show_skill_guide(reason, have))
-            self.d_next_hint.configure(text="Skal den samme video også have andre sprog? Så genbruges teksten, "
-                                            "og det går meget hurtigere.")
+            self.d_next_hint.configure(text=t("gui.done.next_hint"))
             self.d_next_hint.pack(anchor="w", pady=(0, 8))
             self.d_same.configure(style="Accent.TButton")
             self.d_same.pack(side="left")
@@ -1400,20 +1503,20 @@ class App:
         else:
             if kind == "cancelled":
                 self.d_icon.configure(text="■", foreground=P.hint)
-                self.d_title.configure(text="Annulleret")
+                self.d_title.configure(text=t("gui.done.cancelled"))
                 self.d_msg.configure(text=self._cancelled_text())
             elif kind == "skipped":
                 self.d_icon.configure(text="!", foreground=P.warning)
-                self.d_title.configure(text="Ikke færdig")
+                self.d_title.configure(text=t("gui.done.not_finished"))
                 self.d_msg.configure(text=info)
             else:
                 self.d_icon.configure(text="!", foreground=P.error)
-                self.d_title.configure(text="Noget gik galt")
+                self.d_title.configure(text=t("gui.done.failed"))
                 self.d_msg.configure(text=info)
                 self._call_attention()
             self.status.configure(text=self.d_title.cget("text"))
             self.d_same.configure(style="TButton")
-            self.d_again.configure(text="Fortsæt" if kind == "skipped" else "Prøv igen")
+            self.d_again.configure(text=t("gui.done.continue") if kind == "skipped" else t("gui.done.try_again"))
             self.d_again.pack(side="left")
             self.d_same.pack(side="left", padx=10)
             self.d_new.pack(side="left")
@@ -1431,12 +1534,12 @@ class App:
         kept = any(p.suffix.lower() == ".srt" for p in self.created)
         if not kept and lang and job.get("video") and not job.get("transcribe"):
             try:
-                kept = textstate.status(srt_name(job["video"], lang), job["video"]) == "ok"
+                kept = textstate.status(srt_path(job["video"], lang), job["video"]) == "ok"
             except Exception:
                 kept = False
         if kept and lang:
-            return f"Kørslen blev stoppet. De {lang.plural} undertekster er gemt, så næste gang går det hurtigere."
-        return "Kørslen blev stoppet. Intet blev gemt."
+            return t("gui.done.cancelled_kept", plural=lang.plural)
+        return t("gui.done.cancelled_nothing")
 
     # --- Results ------------------------------------------------------------------------
 
@@ -1471,12 +1574,12 @@ class App:
                                 ("Piper", PIPER(), ["--help"])):
             try:
                 if not exe.exists():
-                    problems.append(f"{name}: filen mangler ({exe})")
+                    problems.append(t("gui.selfcheck.missing", name=name, path=exe))
                     continue
                 subprocess.run([str(exe)] + args, capture_output=True, timeout=60, creationflags=NO_WINDOW,
                                cwd=str(exe.parent))
             except OSError as e:
-                problems.append(f"{name}: kan ikke starte ({e})")
+                problems.append(t("gui.selfcheck.cannot_start", name=name, error=e))
             except subprocess.TimeoutExpired:
                 pass
         log.info("self check: %s", problems or "ok")
@@ -1484,16 +1587,13 @@ class App:
             self.events.put(("selfcheck", problems))
 
     def _show_selfcheck(self, problems):
-        boxes.showerror(APP_NAME, "Programmet kan ikke starte alle sine værktøjer på denne pc:\n\n"
-                             + "\n".join(problems)
-                             + "\n\nHvis der står \"blokeret\" eller \"group policy\", stopper EG's sikkerhedspolitik "
-                             "programmet. Send denne besked og logfilen til Kasper.\n\nLogfil: " + str(log_file()),
-                             parent=self._owner())
+        boxes.showerror(APP_NAME, t("gui.selfcheck.message", problems="\n".join(problems), log=log_file()),
+                        parent=self._owner())
 
     # --- Dialogs and the Claude panel ---------------------------------------------------
 
     def _settings_dialog(self):
-        SettingsDialog(self.root, self.settings, on_theme=self.set_theme)
+        SettingsDialog(self.root, self.settings, on_theme=self.set_theme, on_language=self.set_language)
 
     # --- The Claude skill's version ---------------------------------------------------------
 
@@ -1523,7 +1623,7 @@ class App:
         self._close_claude_panel()
         if ok and 0 <= self.claude_at < len(self.step_rows):
             self._set_step(self.claude_at + 1)
-            self.status.configure(text="Tak! Programmet fortsætter selv.")
+            self.status.configure(text=t("gui.work.thanks_continues"))
         self._translation_done.set()
 
     # --- The cut review ---------------------------------------------------------------------
@@ -1539,7 +1639,7 @@ class App:
             frame.grid_remove()
         self.view = "review"
         self._user_turn(True)
-        self.status.configure(text="Venter på dig: gennemse klippene")
+        self.status.configure(text=t("gui.work.waiting_review"))
         # Nothing to do in the Claude card meanwhile: the review gets the whole width
         self.claude_wrap.grid_remove()
         self.left.grid_configure(columnspan=2, padx=0)
@@ -1557,7 +1657,7 @@ class App:
         self._user_turn(False)
         if 0 <= self.review_at < len(self.step_rows):
             self._set_step(self.review_at + 1)
-        self.status.configure(text="Tak! Programmet klipper videoen." if chosen else "Ingen klip. Programmet fortsætter.")
+        self.status.configure(text=t("gui.work.thanks_cutting") if chosen else t("gui.work.no_cuts"))
         self._jstatus(state="running", message=f"{len(chosen)} klip godkendt." if chosen else "Ingen klip valgt.")
         self._review_done.set()
 
@@ -1667,70 +1767,6 @@ class SegmentBar(tk.Canvas):
             self.create_rectangle(x0, pad, x0 + seg, h - pad, fill=colour, outline="")
 
 
-class ThemePicker(ttk.Frame):
-    """Lys, Nat and Følg Windows as three pixel icons in the header (Indstillinger -> Udseende has the same)."""
-    CHOICES = (("light", "theme-light", "Lys"), ("night", "theme-night", "Nat"),
-               ("system", "theme-system", "Følg Windows"))
-
-    def __init__(self, parent, app):
-        super().__init__(parent, style="Picker.TFrame", padding=4)
-        self.app = app
-        self.items = {}
-        for choice, icon, label in self.CHOICES:
-            item = tk.Label(self, image=IMG.get(f"icons/{icon}"), background=P.button_secondary_bg, borderwidth=0,
-                            padx=6, pady=4, cursor="hand2")
-            item.pack(side="left")
-            item.bind("<Button-1>", lambda e, c=choice: app.set_theme(c))
-            item.bind("<Enter>", lambda e, c=choice: self._hover(c, True))
-            item.bind("<Leave>", lambda e, c=choice: self._hover(c, False))
-            Tooltip(item, lambda c=choice, l=label: self._tip(c, l))
-            self.items[choice] = (item, icon)
-        self.refresh()
-
-    def _tip(self, choice: str, label: str) -> str:
-        if choice == "system":
-            now = "Lys" if theme.resolve("system") == "light" else "Nat"
-            return f"{label} (nu: {now}) · skift udseende"
-        return f"{label} · skift udseende"
-
-    def _hover(self, choice: str, on: bool):
-        item, icon = self.items[choice]
-        if choice != self.app.settings.theme:
-            item.configure(background=P.picker_hover_bg if on else P.button_secondary_bg)
-
-    def refresh(self):
-        current = self.app.settings.theme
-        for choice, (item, icon) in self.items.items():
-            selected = choice == current
-            item.configure(image=IMG.get(f"icons/{icon}{'-selected' if selected else ''}"),
-                           background=P.picker_selected_bg if selected else P.button_secondary_bg)
-
-
-class Tooltip:
-    """A small label under a widget while the mouse is over it, in the theme's tooltip colours."""
-
-    def __init__(self, widget, text):
-        self.widget, self.text, self.tip = widget, text, None
-        widget.bind("<Enter>", self._show, add="+")
-        widget.bind("<Leave>", self._hide, add="+")
-
-    def _show(self, e=None):
-        self._hide()
-        self.tip = tk.Toplevel(self.widget)
-        self.tip.wm_overrideredirect(True)
-        text = self.text() if callable(self.text) else self.text
-        tk.Label(self.tip, text=text, background=P.tooltip_bg, foreground=P.tooltip_text, padx=8, pady=4,
-                 font="SunValleyCaptionFont").pack()
-        x = self.widget.winfo_rootx()
-        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
-        self.tip.wm_geometry(f"+{x}+{y}")
-
-    def _hide(self, e=None):
-        if self.tip:
-            self.tip.destroy()
-            self.tip = None
-
-
 class SkillGuide(tk.Toplevel):
     """How to put the new Claude skill into Claude: after an update (this version ships a newer skill), or when
     Claude worked without the skill or with an old one."""
@@ -1739,30 +1775,21 @@ class SkillGuide(tk.Toplevel):
         super().__init__(parent)
         self.withdraw()   # shown by place_over, so it never flashes in Windows' default spot
         self.app = app
-        heading = "Læg Claude-skill'en ind" if reason == "first" else "Opdatér Claude-skill'en"
+        heading = t("gui.skill.heading_first") if reason == "first" else t("gui.skill.heading_update")
         self.title(heading)
         self.transient(parent)
         self.resizable(False, False)
-        n = claude.SKILL_VERSION
-        intro = {
-            "first": f"Claude skal have {APP_NAME}-skill'en, så den kender reglerne og EG's fagord. Det gør du én gang.",
-            "update": f"Denne version af {APP_NAME} kommer med en ny Claude-skill. Den skal lægges ind i "
-                      "Claude én gang, så Claude kender de nye regler.",
-            "missing": f"Claude arbejdede uden {APP_NAME}-skill'en i den sidste runde. Det gik, men med skill'en kender "
-                       "Claude reglerne og EG's fagord bedre.",
-            "old": f"Claude brugte en ældre udgave af skill'en (version {have}) i den sidste runde. Den nyeste er "
-                   f"version {n}.",
-        }[reason]
+        intro = t(f"gui.skill.intro_{reason}", app=APP_NAME, have=have, newest=claude.SKILL_VERSION)
         f = ttk.Frame(self, padding=18)
         f.pack(fill="both", expand=True)
         wrap = int(520 * app.scale)
         ttk.Label(f, text=heading, style="Section.TLabel", foreground=P.heading).pack(anchor="w")
         ttk.Label(f, text=intro, wraplength=wrap, justify="left").pack(anchor="w", pady=(6, 12))
-        steps = ["Klik \"Gem skill-filen\". Den lægges i din Overførsler-mappe.",
-                 "Åbn Claude, og gå til Customize -> Skills.",
-                 "Slet de gamle: " + " og ".join(f"\"{n}\"" for n in (claude.SKILL_NAME,) + claude.OLD_SKILL_NAMES)
-                 + ", hvis de er der.",
-                 f"Klik \"Upload skill\", og vælg \"{claude.SKILL_NAME}-skill.zip\"."]
+        old = (claude.SKILL_NAME,) + claude.OLD_SKILL_NAMES
+        steps = [t("gui.skill.step_save", save=t("gui.skill.save")),
+                 t("gui.skill.step_open"),
+                 t("gui.skill.step_delete", names=f" {t('gui.and')} ".join(f"\"{n}\"" for n in old)),
+                 t("gui.skill.step_upload", file=f"{claude.SKILL_NAME}-skill.zip")]
         # The delete step stays on "first" too: skill_installed 0 means unknown, not absent (installed through
         # Settings, "Senere", or before tracking), and uploading over an existing one is what it prevents. The skill
         # under the app's earlier name would otherwise answer next to the new one.
@@ -1772,10 +1799,10 @@ class SkillGuide(tk.Toplevel):
         self.status.pack(anchor="w", pady=(10, 0))
         b = ttk.Frame(f)
         b.pack(anchor="w", pady=(14, 0))
-        save_btn = ttk.Button(b, text="Gem skill-filen", style="Accent.TButton", command=self._save, default="active")
+        save_btn = ttk.Button(b, text=t("gui.skill.save"), style="Accent.TButton", command=self._save, default="active")
         save_btn.pack(side="left")
-        ttk.Button(b, text="Jeg har gjort det", command=self._done).pack(side="left", padx=8)
-        ttk.Button(b, text="Senere", command=self.destroy).pack(side="left")
+        ttk.Button(b, text=t("gui.skill.done"), command=self._done).pack(side="left", padx=8)
+        ttk.Button(b, text=t("gui.skill.later"), command=self.destroy).pack(side="left")
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Return>", lambda e: self._save())
         place_over(self, parent.winfo_toplevel())
@@ -1786,9 +1813,9 @@ class SkillGuide(tk.Toplevel):
         try:
             claude.skill_zip(dest)
         except OSError as e:
-            self.status.configure(text=f"Kunne ikke gemme filen: {e}", foreground=P.error)
+            self.status.configure(text=t("gui.skill.save_failed", error=e), foreground=P.error)
             return
-        self.status.configure(text=f"Gemt: {dest}", foreground=P.success)
+        self.status.configure(text=t("gui.skill.saved", path=dest), foreground=P.success)
         subprocess.Popen(["explorer", "/select,", str(dest)])
 
     def _done(self):
@@ -1798,50 +1825,60 @@ class SkillGuide(tk.Toplevel):
 
 
 class SettingsDialog(tk.Toplevel):
-    def __init__(self, parent, settings: Settings, on_theme=None):
+    """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles, then text and voices."""
+
+    def __init__(self, parent, settings: Settings, on_theme=None, on_language=None):
         super().__init__(parent)
         self.withdraw()
-        self.title("Indstillinger")
+        self.title(t("gui.settings.title"))
         self.transient(parent)
         self.resizable(False, False)
         self.s = settings
-        self.on_theme = on_theme
-        f = ttk.Frame(self, padding=14)
-        f.pack(fill="both")
-        look = ttk.LabelFrame(f, text="Udseende", padding=10)
-        look.grid(row=9, column=0, sticky="ew", pady=(14, 0))
+        self.on_theme, self.on_language = on_theme, on_language
+        outer = ttk.Frame(self, padding=14)
+        outer.pack(fill="both")
+        lang = ttk.LabelFrame(outer, text=t("pickers.lang_title"), padding=12)
+        lang.pack(fill="x")
+        ttk.Label(lang, text=t("pickers.lang_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
+        self.ui_language = tk.StringVar(value=i18n.current())
+        language_tiles(lang, self.ui_language).pack(fill="x")
+        look = ttk.LabelFrame(outer, text=t("gui.settings.look"), padding=12)
+        look.pack(fill="x", pady=(14, 0))
+        ttk.Label(look, text=t("pickers.look_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
         self.look = tk.StringVar(value=settings.theme)
-        for value, label in (("system", "Følg Windows"), ("light", "Lys"), ("night", "Nat")):
-            ttk.Radiobutton(look, text=label, value=value, variable=self.look).pack(side="left", padx=(0, 18))
-        ttk.Label(f, text="Model til at skrive tekst:").grid(row=0, column=0, sticky="w")
+        theme_tiles(look, self.look).pack(fill="x")
+        f = ttk.LabelFrame(outer, text=t("pickers.text_voices"), padding=12)
+        f.pack(fill="x", pady=(14, 0))
+        ttk.Label(f, text=t("gui.settings.model")).grid(row=0, column=0, sticky="w")
         self.model = tk.StringVar(value=settings.whisper_model)
-        for i, (key, (label, _)) in enumerate(engine.WHISPER_MODELS.items(), 1):
-            ttk.Radiobutton(f, text=label, value=key, variable=self.model).grid(row=i, column=0, sticky="w", padx=12)
+        for i, key in enumerate(engine.WHISPER_MODELS, 1):
+            ttk.Radiobutton(f, text=engine.model_label(key), value=key, variable=self.model).grid(row=i, column=0, sticky="w", padx=12)
         self.gpu = tk.BooleanVar(value=settings.use_gpu)
-        ttk.Checkbutton(f, text="Brug grafikkortet, hvis det kan (meget hurtigere på nogle pc'er)", variable=self.gpu).grid(row=4, column=0, sticky="w", pady=(10, 0))
+        ttk.Checkbutton(f, text=t("gui.settings.gpu"), variable=self.gpu).grid(row=4, column=0, sticky="w", pady=(10, 0))
         self.keep = tk.BooleanVar(value=settings.keep_original_audio)
         self.voice_mode = tk.StringVar(value=settings.voice_mode)
         dubopts = ttk.Frame(f)
         dubopts.grid(row=5, column=0, sticky="w")
-        ttk.Checkbutton(dubopts, text="Behold den originale lyd svagt under dubben", variable=self.keep).pack(anchor="w")
-        ttk.Label(dubopts, text="Stemmer i dubben:").pack(anchor="w", pady=(8, 0))
-        for value, label in (("person", "Én stemme pr. person (programmet hører selv, hvem der taler)"),
-                             ("gender", "Dyb stemme til mænd og lys stemme til kvinder (svensk og engelsk)"),
-                             ("one", "Samme stemme til alle")):
-            ttk.Radiobutton(dubopts, text=label, value=value, variable=self.voice_mode).pack(anchor="w", padx=12)
+        ttk.Checkbutton(dubopts, text=t("gui.settings.keep_audio"), variable=self.keep).pack(anchor="w")
+        ttk.Label(dubopts, text=t("gui.settings.voices")).pack(anchor="w", pady=(8, 0))
+        for value in ("person", "gender", "one"):
+            ttk.Radiobutton(dubopts, text=t(f"gui.settings.voice_{value}"), value=value,
+                            variable=self.voice_mode).pack(anchor="w", padx=12)
         links = ttk.Frame(f)
         links.grid(row=6, column=0, sticky="w", pady=(12, 0))
-        ttk.Button(links, text="Åbn modelmappe", command=lambda: self._open(model_dirs()[0])).pack(side="left")
-        ttk.Button(links, text="Rediger rettelser", command=lambda: self._open(engine.corrections_file())).pack(side="left", padx=6)
-        ttk.Button(links, text="Gem Claude-skill...", command=self._save_skill).pack(side="left", padx=(0, 6))
-        ttk.Button(links, text="Forbind med Claude", command=self._connect_claude).pack(side="left", padx=(0, 6))
-        ttk.Button(links, text="Åbn logfil", command=lambda: self._open(log_file())).pack(side="left")
-        ttk.Label(f, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").grid(row=7, column=0, sticky="w", pady=(12, 0))
-        b = ttk.Frame(f)
-        b.grid(row=10, column=0, sticky="e", pady=(12, 0))
-        save_btn = ttk.Button(b, text="Gem", style="Accent.TButton", command=self._save, default="active")
+        ttk.Button(links, text=t("gui.open_model_dir"), command=lambda: self._open(model_dirs()[0])).pack(side="left")
+        ttk.Button(links, text=t("gui.settings.edit_corrections"), command=lambda: self._open(engine.corrections_file())).pack(side="left", padx=6)
+        ttk.Button(links, text=t("gui.settings.save_skill"), command=self._save_skill).pack(side="left", padx=(0, 6))
+        ttk.Button(links, text=t("gui.settings.connect"), command=self._connect_claude).pack(side="left", padx=(0, 6))
+        ttk.Button(links, text=t("gui.open_log"), command=lambda: self._open(log_file())).pack(side="left")
+        foot = ttk.Frame(outer)
+        foot.pack(fill="x", pady=(14, 0))
+        ttk.Label(foot, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").pack(side="left")
+        b = ttk.Frame(foot)
+        b.pack(side="right")
+        ttk.Button(b, text=t("gui.cancel"), command=self.destroy).pack(side="left", padx=(0, 6))
+        save_btn = ttk.Button(b, text=t("gui.save"), style="Accent.TButton", command=self._save, default="active")
         save_btn.pack(side="left")
-        ttk.Button(b, text="Annullér", command=self.destroy).pack(side="left", padx=6)
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Return>", lambda e: self._save())
         place_over(self, parent.winfo_toplevel())
@@ -1862,33 +1899,29 @@ class SettingsDialog(tk.Toplevel):
             path = connect_claude_desktop()
         except Exception as e:
             log.exception("connect to Claude failed")
-            boxes.showerror("Forbind med Claude", f"Det lykkedes ikke: {e}", parent=self)
+            boxes.showerror(t("gui.settings.connect"), t("gui.settings.connect_failed", error=e), parent=self)
             return
-        boxes.showinfo("Forbind med Claude", "Klar. Luk Claude helt (højreklik på Claude-ikonet ved uret -> Quit), "
-                            "og åbn Claude igen.\n\nSå kan du skrive fx: \"Lav denne video på svensk med norske "
-                            "undertekster: C:\\...\\video.mp4\"\n\n" + str(path), parent=self)
+        boxes.showinfo(t("gui.settings.connect"), t("gui.settings.connect_done", path=path), parent=self)
 
     def _save_skill(self):
-        dest = filedialog.asksaveasfilename(parent=self, title="Gem Claude-skill", defaultextension=".zip",
+        dest = filedialog.asksaveasfilename(parent=self, title=t("gui.settings.save_skill_title"), defaultextension=".zip",
                                             initialdir=str(Path.home() / "Downloads"),
                                             initialfile=f"{claude.SKILL_NAME}.zip", filetypes=[("Zip", "*.zip")])
         if not dest:
             return
         claude.skill_zip(Path(dest))
-        boxes.showinfo("Claude-skill", "Gemt. Sådan lægger du den ind i Claude:\n\n"
-                            "1. Åbn Claude (Chat eller Cowork), og gå til Customize -> Skills.\n"
-                            "2. Klik \"Upload skill\", og vælg zip-filen.\n\n"
-                            "Har du en ældre udgave, så slet den først. Den nye har alle de ord, programmet har lært.",
-                            parent=self)
+        boxes.showinfo(t("gui.settings.skill_title"), t("gui.settings.skill_saved"), parent=self)
 
     def _save(self):
         self.s.whisper_model, self.s.use_gpu, self.s.keep_original_audio = self.model.get(), self.gpu.get(), self.keep.get()
         self.s.voice_mode = self.voice_mode.get()
         self.s.save()
-        look = self.look.get()
+        look, code = self.look.get(), self.ui_language.get()
         self.destroy()
         if self.on_theme and look != self.s.theme:
             self.on_theme(look)
+        if self.on_language and code != i18n.current():
+            self.on_language(code)
 
 
 class ModelDialog(tk.Toplevel):
@@ -1897,7 +1930,7 @@ class ModelDialog(tk.Toplevel):
     def __init__(self, parent, missing: list[engine.ModelFile], scale: float = 1.0):
         super().__init__(parent)
         self.withdraw()
-        self.title("Programmet skal hente nogle filer")
+        self.title(t("gui.models.title"))
         wrap = int(560 * scale)
         self.minsize(wrap, 0)
         self.transient(parent)
@@ -1908,29 +1941,28 @@ class ModelDialog(tk.Toplevel):
         f = ttk.Frame(self, padding=14)
         f.pack(fill="both", expand=True)
         mb = sum(m.approx_mb for m in missing)
-        ttk.Label(f, text=f"Programmet skal bruge disse filer (ca. {mb} MB). Det er kun første gang.",
+        ttk.Label(f, text=t("gui.models.intro", mb=mb),
                   wraplength=wrap).pack(anchor="w")
         for m in missing:
             row = ttk.Frame(f)
             row.pack(anchor="w", fill="x", pady=1)
             ttk.Label(row, text="•  " + m.filename).pack(side="left")
-            lnk = ttk.Label(row, text="link", foreground="#0645ad", cursor="hand2")
+            lnk = ttk.Label(row, text=t("gui.models.link"), foreground="#0645ad", cursor="hand2")
             lnk.pack(side="left", padx=8)
             lnk.bind("<Button-1>", lambda e, u=m.url: webbrowser.open(u))
         ttk.Label(f, wraplength=wrap, style="Hint.TLabel",
-                  text="Virker \"Hent automatisk\" ikke (fx hvis netværket blokerer), så klik på linkene, "
-                       "og læg de hentede filer i modelmappen.").pack(anchor="w", pady=(8, 4))
+                  text=t("gui.models.manual", download=t("gui.models.download"))).pack(anchor="w", pady=(8, 4))
         self.bar = ttk.Progressbar(f, maximum=1000)
         self.bar.pack(fill="x", pady=4)
         self.status = ttk.Label(f, text="")
         self.status.pack(anchor="w")
         b = ttk.Frame(f)
         b.pack(anchor="e", pady=(10, 0))
-        self.get_btn = ttk.Button(b, text="Hent automatisk", style="Accent.TButton", command=self._download)
+        self.get_btn = ttk.Button(b, text=t("gui.models.download"), style="Accent.TButton", command=self._download)
         self.get_btn.pack(side="left")
-        ttk.Button(b, text="Åbn modelmappe", command=self._open_dir).pack(side="left", padx=6)
-        ttk.Button(b, text="Jeg har lagt filerne der", command=self._check).pack(side="left")
-        ttk.Button(b, text="Annullér", command=self._close).pack(side="left", padx=6)
+        ttk.Button(b, text=t("gui.open_model_dir"), command=self._open_dir).pack(side="left", padx=6)
+        ttk.Button(b, text=t("gui.models.placed"), command=self._check).pack(side="left")
+        ttk.Button(b, text=t("gui.cancel"), command=self._close).pack(side="left", padx=6)
         self.protocol("WM_DELETE_WINDOW", self._close)
         self.bind("<Escape>", lambda e: self._close())
         self.bind("<Return>", lambda e: self._download() if self.get_btn.instate(["!disabled"]) else self._check())
@@ -1949,7 +1981,8 @@ class ModelDialog(tk.Toplevel):
     def _check(self):
         still = [m.filename for m in self.missing if not engine.find_model(m.filename)]
         if still:
-            boxes.showwarning("Der mangler filer", "Disse filer findes stadig ikke i modelmappen:\n\n" + "\n".join(still), parent=self)
+            boxes.showwarning(t("gui.models.still_missing_title"), t("gui.models.still_missing", files="\n".join(still)),
+                              parent=self)
         else:
             self.result = True
             self.destroy()
@@ -1988,7 +2021,7 @@ class ModelDialog(tk.Toplevel):
                     return
                 else:
                     self.get_btn.configure(state="normal")
-                    boxes.showerror("Kunne ikke hente", f"Hentningen fejlede:\n{ev[1]}\n\nBrug linkene i stedet.", parent=self)
+                    boxes.showerror(t("gui.models.failed_title"), t("gui.models.failed", error=ev[1]), parent=self)
         except queue.Empty:
             pass
         except tk.TclError:
@@ -2021,8 +2054,8 @@ class ClaudePanel(ttk.Frame):
         self.cues = read_srt(src_srt)
         self.words: list[tuple[str, str]] = []
         self.job_id = uuid.uuid4().hex[:10]
-        self.work_file = output_path(video, "til Claude.txt")
-        self.answer_name = output_path(video, "fra Claude.txt").name
+        self.work_file = output_path(video, t("file.task"))
+        self.answer_name = output_path(video, t("file.answer")).name
         self.started = time.time()
         self.mode = "file"
         self.watching: int | None = None
@@ -2032,13 +2065,13 @@ class ClaudePanel(ttk.Frame):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
 
-        todo = ([f"rette de {src.plural} undertekster"] if check else []) + \
-               ([f"oversætte dem til {' og '.join(t.name.lower() for t in self.targets)}"] if self.targets else []) + \
-               (["foreslå, hvad der skal klippes væk"] if cut else [])
-        todo = [", ".join(todo[:-1]), todo[-1]] if len(todo) > 2 else todo
-        self.head = ttk.Label(self, text="Din tur", style="Big.TLabel", foreground=P.your_turn_title)
+        todo = ([t("gui.claude.task_check", plural=src.plural)] if check else []) + \
+               ([t("gui.claude.task_translate", langs=join_and([x.singular for x in self.targets]))]
+                if self.targets else []) + \
+               ([t("gui.claude.task_cut")] if cut else [])
+        self.head = ttk.Label(self, text=t("gui.claude.your_turn"), style="Big.TLabel", foreground=P.your_turn_title)
         self.head.grid(row=0, column=0, sticky="w")
-        intro = ttk.Label(self, justify="left", text=f"Claude skal {' og '.join(todo)}.")
+        intro = ttk.Label(self, justify="left", text=t("gui.claude.intro", tasks=join_and(todo)))
         intro.grid(row=1, column=0, sticky="ew", pady=(2, 12))
         app._wrap(intro, self, 10)
         self.body = ttk.Frame(self)
@@ -2047,10 +2080,10 @@ class ClaudePanel(ttk.Frame):
         self.footer = ttk.Frame(self)
         self.footer.grid(row=3, column=0, sticky="ew", pady=(12, 0))
         self.footer.columnconfigure(0, weight=1)
-        self.switch_btn = ttk.Button(self.footer, text="Brug kopiér/indsæt i dele i stedet", command=self._to_parts)
+        self.switch_btn = ttk.Button(self.footer, text=t("gui.claude.to_parts"), command=self._to_parts)
         self.switch_btn.grid(row=0, column=0, sticky="w")
-        ttk.Button(self.footer, text="Afbryd", command=self._close).grid(row=0, column=1, padx=(0, 8))
-        self.save_btn = ttk.Button(self.footer, text="Gem og fortsæt", command=self._save_parts)
+        ttk.Button(self.footer, text=t("gui.claude.stop"), command=self._close).grid(row=0, column=1, padx=(0, 8))
+        self.save_btn = ttk.Button(self.footer, text=t("gui.claude.save_continue"), command=self._save_parts)
         # Whatever is on the clipboard now is old (maybe an answer from an earlier round): never accept it.
         try:
             self._seen_clip = self.clipboard_get()
@@ -2066,7 +2099,7 @@ class ClaudePanel(ttk.Frame):
 
     def _build_mcp_mode(self):
         self.mode = "mcp"
-        self.head.configure(text="Claude arbejder")
+        self.head.configure(text=t("gui.claude.working"))
         d = jobs.job_dir(self.mcp_job)
         jobs.write_json(d / "source.json", jobs.cues_to_json(self.cues))
         jobs.write_json(d / "task.json", {
@@ -2075,9 +2108,7 @@ class ClaudePanel(ttk.Frame):
             "cut": self.cut, "duration": self.duration,
             "rules": [list(r) for r in claude.word_rules()[:80]]})
         b = self.body
-        msg = ttk.Label(b, justify="left", text=(
-            "Claude henter teksten, retter og oversætter den og sender den tilbage hertil. Du skal ikke gøre noget her.\n\n"
-            "Følg med i chatten. Er Claude stoppet undervejs, så skriv \"fortsæt\" til Claude."))
+        msg = ttk.Label(b, justify="left", text=t("gui.claude.mcp_intro"))
         msg.grid(row=0, column=0, sticky="ew")
         self.app._wrap(msg, b, 10)
         names = {l.code: l.name for l in LANGUAGES}
@@ -2086,24 +2117,25 @@ class ClaudePanel(ttk.Frame):
             row = ttk.Frame(b, padding=(0, 10, 0, 0))
             row.grid(row=i, column=0, sticky="ew")
             row.columnconfigure(1, weight=1)
-            ttk.Label(row, text=names[code] + (" (rettet)" if code == self.src.code else ""), width=16).grid(row=0, column=0, sticky="w")
+            label = t("gui.claude.corrected", name=names[code]) if code == self.src.code else names[code]
+            ttk.Label(row, text=label, width=16).grid(row=0, column=0, sticky="w")
             bar = ttk.Progressbar(row, maximum=len(self.cues))
             bar.grid(row=0, column=1, sticky="ew", padx=8)
-            lab = ttk.Label(row, text=f"0 af {len(self.cues)}", style="Hint.TLabel", width=12)
+            lab = ttk.Label(row, text=t("gui.claude.n_of", n=0, total=len(self.cues)), style="Hint.TLabel", width=12)
             lab.grid(row=0, column=2, sticky="e")
             self.mcp_bars[code] = (bar, lab)
         self.mcp_cut_lbl = None
         if self.cut:
-            self.mcp_cut_lbl = ttk.Label(b, text="Klipforslag: ikke modtaget endnu", style="Hint.TLabel")
+            self.mcp_cut_lbl = ttk.Label(b, text=t("gui.claude.cuts_none"), style="Hint.TLabel")
             self.mcp_cut_lbl.grid(row=len(self.codes) + 1, column=0, sticky="w", pady=(10, 0))
-        self.switch_btn.configure(text="Gør det selv med en fil i stedet", command=self._mcp_to_file)
+        self.switch_btn.configure(text=t("gui.claude.to_file"), command=self._mcp_to_file)
 
     def _mcp_to_file(self):
         self.mode = "file"
-        self.head.configure(text="Din tur")
+        self.head.configure(text=t("gui.claude.your_turn"))
         for w in self.body.winfo_children():
             w.destroy()
-        self.switch_btn.configure(text="Brug kopiér/indsæt i dele i stedet", command=self._to_parts)
+        self.switch_btn.configure(text=t("gui.claude.to_parts"), command=self._to_parts)
         self.app.callout.grid()
         self.app._pulsing = True
         self._build_file_mode()
@@ -2113,11 +2145,11 @@ class ClaudePanel(ttk.Frame):
         for code, (bar, lab) in self.mcp_bars.items():
             n = len(jobs.read_json(d / "parts" / f"{code}.json", {}) or {})
             bar.configure(value=n)
-            lab.configure(text=f"{n} af {len(self.cues)}")
+            lab.configure(text=t("gui.claude.n_of", n=n, total=len(self.cues)))
         if self.mcp_cut_lbl is not None:
             k = jobs.read_json(d / "parts" / "cuts.json", {}) or {}
             n = len(k.get("lines") or [])
-            self.mcp_cut_lbl.configure(text=f"Klipforslag: {n} modtaget" + (" (færdig)" if k.get("done") else ""))
+            self.mcp_cut_lbl.configure(text=t("gui.claude.cuts_done" if k.get("done") else "gui.claude.cuts_got", n=n))
         done = jobs.read_json(d / "complete.json")
         if done:
             self.words = [tuple(w) for w in done.get("words", [])]
@@ -2136,7 +2168,7 @@ class ClaudePanel(ttk.Frame):
                                                             self.job_id, self.answer_name, self.cut), encoding="utf-8")
         except OSError as e:
             log.error("could not write work file: %s", e)
-            boxes.showwarning("Claude", f"Kunne ikke skrive arbejdsfilen ({e}). Brug kopiér/indsæt i dele.",
+            boxes.showwarning("Claude", t("gui.claude.work_file_failed", error=e),
                                    parent=self.app.root)
             self._to_parts()
             return
@@ -2144,11 +2176,9 @@ class ClaudePanel(ttk.Frame):
         self.fsteps = []
         k = self.app.scale
         texts = [
-            ("Kopiér arbejdsfilen", f"\"{self.work_file.name}\""),
-            ("Indsæt den i en ny chat i Claude (Ctrl+V), og tryk send",
-             "Kan du ikke indsætte den, så træk filen fra mappen ind i Claude."),
-            ("Hent Claudes svarfil", "Klik på filen i Claudes svar, og tryk Download. Programmet finder den selv "
-                                     "i din Overførsler-mappe."),
+            (t("gui.claude.step_copy"), f"\"{self.work_file.name}\""),
+            (t("gui.claude.step_paste"), t("gui.claude.step_paste_hint")),
+            (t("gui.claude.step_download"), t("gui.claude.step_download_hint")),
         ]
         for i, (title, sub) in enumerate(texts):
             row = ttk.Frame(b, padding=(0, 6))
@@ -2156,31 +2186,32 @@ class ClaudePanel(ttk.Frame):
             row.columnconfigure(1, weight=1)
             icon = tk.Canvas(row, width=int(26 * k), height=int(26 * k), highlightthickness=0, background=P.card)
             icon.grid(row=0, column=0, rowspan=2, sticky="nw", pady=(2, 0))
-            t = ttk.Label(row, text=f"{title}", font="SunValleyBodyStrongFont")
-            t.grid(row=0, column=1, sticky="w", padx=(10, 0))
+            head = ttk.Label(row, text=f"{title}", font="SunValleyBodyStrongFont")
+            head.grid(row=0, column=1, sticky="w", padx=(10, 0))
             s = ttk.Label(row, text=sub, style="Hint.TLabel", justify="left")
             s.grid(row=1, column=1, sticky="ew", padx=(10, 0))
             self.app._wrap(s, row, int(60 * k))
-            self.fsteps.append({"icon": icon, "title": t, "sub": s, "row": row, "state": "todo"})
+            self.fsteps.append({"icon": icon, "title": head, "sub": s, "row": row, "state": "todo"})
         acts = ttk.Frame(self.fsteps[0]["row"])
         acts.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(8, 0))
-        self.copy_file_btn = ttk.Button(acts, text="Kopiér fil", command=self._copy_file, width=12)
+        self.copy_file_btn = ttk.Button(acts, text=t("gui.claude.copy_file"), command=self._copy_file, width=12)
         self.copy_file_btn.pack(side="left")
-        ttk.Button(acts, text="Vis i mappe", command=lambda: self.app._show_in_folder(self.work_file)).pack(side="left", padx=8)
+        ttk.Button(acts, text=t("gui.show_in_folder"), command=lambda: self.app._show_in_folder(self.work_file)).pack(side="left", padx=8)
         acts3 = ttk.Frame(self.fsteps[2]["row"])
         acts3.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(8, 0))
-        ttk.Button(acts3, text="Vælg svarfilen selv...", command=self._pick_answer).pack(side="left")
+        ttk.Button(acts3, text=t("gui.claude.pick_answer"), command=self._pick_answer).pack(side="left")
         # What the program is doing about step 3 right now (waiting, found a file, checking it)
         self.wait_lbl = ttk.Label(self.fsteps[2]["row"], text="", style="Hint.TLabel", justify="left")
         self.wait_lbl.grid(row=3, column=1, sticky="ew", padx=(10, 0), pady=(6, 0))
         self.app._wrap(self.wait_lbl, self.fsteps[2]["row"], int(60 * k))
         self._wait_since: float | None = None
+        self._answer_found = False   # the waiting line shows a found answer (file or clipboard), not the wait
         self.result = ttk.Label(b, text="", justify="left")
         self.result.grid(row=3, column=0, sticky="ew", pady=(14, 0))
         self.app._wrap(self.result, b, 10)
         self.problem_detail = ttk.Label(b, text="", style="Hint.TLabel", foreground=P.hint, justify="left")
         self.app._wrap(self.problem_detail, b, 10)
-        self.followup_btn = ttk.Button(b, text="Kopiér besked til Claude", command=self._copy_followup)
+        self.followup_btn = ttk.Button(b, text=t("gui.claude.copy_followup"), command=self._copy_followup)
         self._set_fstep(0)
 
     def _set_fstep(self, active: int, failed: bool = False):
@@ -2216,19 +2247,20 @@ class ClaudePanel(ttk.Frame):
 
     def _copy_file(self):
         if copy_file_to_clipboard(self.work_file):
-            self.fsteps[0]["sub"].configure(text=f"Kopieret: \"{self.work_file.name}\"")
+            self.fsteps[0]["sub"].configure(text=t("gui.claude.copied_file", name=self.work_file.name))
             # Step 2 (paste it into Claude) stays open until an answer file shows up: the program cannot see the chat
             if self.fsteps[2]["state"] not in ("active", "failed"):
                 self._set_fstep(1)
             if self._wait_since is None:
                 self._wait_since = time.time()
         else:
-            self.fsteps[0]["sub"].configure(text="Kunne ikke kopiere filen. Klik \"Vis i mappe\", og træk filen ind i Claude.")
+            self.fsteps[0]["sub"].configure(text=t("gui.claude.copy_failed", show=t("gui.show_in_folder")))
             self.app._show_in_folder(self.work_file)
 
     def _pick_answer(self):
-        p = filedialog.askopenfilename(parent=self.app.root, title="Vælg Claudes svarfil",
-                                       initialdir=str(downloads_dir()), filetypes=[("Tekst", "*.txt *.srt *.md"), ("Alle filer", "*.*")])
+        p = filedialog.askopenfilename(parent=self.app.root, title=t("gui.claude.pick_answer_title"),
+                                       initialdir=str(downloads_dir()),
+                                       filetypes=[(t("gui.filetype.text"), "*.txt *.srt *.md"), (t("gui.filetype.all"), "*.*")])
         if p:
             self._try_answer_file(Path(p), picked=True)
 
@@ -2261,19 +2293,18 @@ class ClaudePanel(ttk.Frame):
     def _try_answer_file(self, f: Path, picked: bool = False):
         # An answer file means steps 1 and 2 happened, whatever was clicked here
         self._set_fstep(2)
-        self.wait_lbl.configure(text=f"Fundet: {f.name} - tjekker...")
+        self._answer_found = True
+        self.wait_lbl.configure(text=t("gui.claude.found_checking", name=f.name))
         self.update_idletasks()
         try:
             text = f.read_text(encoding="utf-8-sig", errors="replace")
         except OSError as e:
-            self._show_problem(f"Kunne ikke læse {f.name}: {e}",
-                               plain="Programmet kunne ikke læse svarfilen. Hent den igen fra Claude.", followup=False)
+            self._show_problem(t("gui.claude.read_failed_detail", name=f.name, error=e),
+                               plain=t("gui.claude.read_failed"), followup=False)
             return
         aid = claude.answer_id(text)
         if picked and aid not in (None, self.job_id):
-            self._show_problem("Det er en svarfil til en anden video eller en tidligere runde.",
-                               plain="Den fil hører til en anden video eller en tidligere runde. Vælg svaret fra "
-                                     "denne runde.", followup=False)
+            self._show_problem(t("gui.claude.other_round_detail"), plain=t("gui.claude.other_round"), followup=False)
             return
         have, words, msg = claude.check_file_answer(self.cues, self.codes, text, self.cut)
         log.info("answer file %s: %s", f.name, msg or "ok")
@@ -2284,8 +2315,8 @@ class ClaudePanel(ttk.Frame):
         self.app.cut_lines = claude.answer_cuts(text) or []
         self.app.note_skill(claude.answer_skill(text))
         self._set_fstep(3)
-        self.wait_lbl.configure(text=f"Fundet: {f.name}")
-        self.result.configure(text=f"✓  Svaret er i orden ({len(self.cues)} blokke). Programmet fortsætter...",
+        self.wait_lbl.configure(text=t("gui.claude.found", name=f.name))
+        self.result.configure(text=t("gui.claude.answer_ok_blocks", n=len(self.cues)),
                               foreground=P.success, font="SunValleyBodyStrongFont")
         self.problem_detail.grid_remove()
         self.followup_btn.grid_remove()
@@ -2296,11 +2327,11 @@ class ClaudePanel(ttk.Frame):
         log.info("answer problem: %s", msg)
         self._followup = claude.followup_text(self.answer_name, msg, self.cut)
         self._set_fstep(2, failed=True)
+        self._answer_found = False
         self.wait_lbl.configure(text="")
-        self.result.configure(text=plain or ("Claudes svar var ikke helt færdigt. Klik \"Kopiér besked til Claude\", "
-                                             "indsæt den i samme chat (Ctrl+V), og hent den nye fil."),
+        self.result.configure(text=plain or t("gui.claude.answer_incomplete", button=t("gui.claude.copy_followup")),
                               foreground=P.error, font="SunValleyBodyFont")
-        self.problem_detail.configure(text=f"Detaljer: {msg}")
+        self.problem_detail.configure(text=t("gui.claude.details", text=msg))
         self.problem_detail.grid(row=4, column=0, sticky="ew", pady=(4, 0))
         if followup:
             self.followup_btn.grid(row=5, column=0, sticky="w", pady=(8, 0))
@@ -2314,8 +2345,8 @@ class ClaudePanel(ttk.Frame):
         self.clipboard_clear()
         self.clipboard_append(self._followup)
         self.update()
-        self.followup_btn.configure(text="Kopieret - indsæt i Claude", style="TButton")
-        self.after(3000, lambda: self.winfo_exists() and self.followup_btn.configure(text="Kopiér besked til Claude"))
+        self.followup_btn.configure(text=t("gui.claude.followup_copied"), style="TButton")
+        self.after(3000, lambda: self.winfo_exists() and self.followup_btn.configure(text=t("gui.claude.copy_followup")))
 
     def _tick(self):
         if not self.winfo_exists():
@@ -2326,11 +2357,10 @@ class ClaudePanel(ttk.Frame):
             if self.fsteps[2]["state"] != "done":
                 # Also before "Kopiér fil": the user may have dragged the file into Claude themselves
                 self._scan_downloads()
-            if self._wait_since is not None and self.fsteps[2]["state"] != "done" and \
-                    not self.wait_lbl.cget("text").startswith("Fundet"):
+            if self._wait_since is not None and self.fsteps[2]["state"] != "done" and not self._answer_found:
                 mins = int((time.time() - self._wait_since) // 60)
-                self.wait_lbl.configure(text="Venter på Claudes svarfil i Overførsler..."
-                                             + (f" ({mins} min)" if mins else ""))
+                self.wait_lbl.configure(text=t("gui.claude.waiting_minutes", mins=mins) if mins
+                                        else t("gui.claude.waiting"))
             # Claude's answer pasted as text also counts (if Claude wrote it in the chat instead of a file)
             try:
                 text = self.clipboard_get()
@@ -2344,9 +2374,10 @@ class ClaudePanel(ttk.Frame):
                     self.app.cut_lines = claude.answer_cuts(text) or []
                     self.app.note_skill(claude.answer_skill(text))
                     self._set_fstep(3)
-                    self.wait_lbl.configure(text="Fundet: Claudes svar (kopieret fra chatten)")
+                    self._answer_found = True
+                    self.wait_lbl.configure(text=t("gui.claude.found_clipboard"))
                     self.problem_detail.grid_remove()
-                    self.result.configure(text="✓  Svaret er i orden. Programmet fortsætter...", foreground=P.success)
+                    self.result.configure(text=t("gui.claude.answer_ok"), foreground=P.success)
                     self.after(1200, lambda: self._finish(have))
         elif self.mode == "parts":
             self._watch_clipboard()
@@ -2374,8 +2405,7 @@ class ClaudePanel(ttk.Frame):
                                  foreground=P.heading, justify="left", anchor="w")
         self.next_lbl.grid(row=0, column=0, sticky="ew")
         self.next_box.bind("<Configure>", lambda e: self.next_lbl.configure(wraplength=max(150, e.width - 30)))
-        ttk.Label(b, text=(f"Teksten er delt i {len(self.parts)} dele, så Claudes svar ikke bliver afkortet. "
-                           "Næste del kan sendes i samme chat." if len(self.parts) > 1 else ""),
+        ttk.Label(b, text=(t("gui.parts.split", n=len(self.parts)) if len(self.parts) > 1 else ""),
                   style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(8, 4))
         holder = ttk.Frame(b)
         holder.grid(row=2, column=0, sticky="nsew")
@@ -2406,11 +2436,12 @@ class ClaudePanel(ttk.Frame):
             box = ttk.Frame(rows, padding=(0, 8))
             box.grid(row=i, column=0, sticky="ew")
             box.columnconfigure(0, weight=1)
-            title = ttk.Label(box, text=f"Del {i + 1}  (blok {n0}-{n0 + len(part) - 1})", font="SunValleyBodyStrongFont")
+            title = ttk.Label(box, text=t("gui.parts.title", n=i + 1, first=n0, last=n0 + len(part) - 1),
+                              font="SunValleyBodyStrongFont")
             title.grid(row=0, column=0, sticky="w")
-            cb = ttk.Button(box, text="Kopiér", width=9, command=lambda i=i: self._copy(i))
+            cb = ttk.Button(box, text=t("gui.parts.copy"), width=9, command=lambda i=i: self._copy(i))
             cb.grid(row=0, column=1, padx=6)
-            pb = ttk.Button(box, text="Indsæt svar", width=11, command=lambda i=i: self._paste(i))
+            pb = ttk.Button(box, text=t("gui.parts.paste"), width=11, command=lambda i=i: self._paste(i))
             pb.grid(row=0, column=2)
             lab = ttk.Label(box, text="", justify="left", foreground=P.hint)
             lab.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(2, 0))
@@ -2428,23 +2459,22 @@ class ClaudePanel(ttk.Frame):
             b.configure(style="TButton")
         self.save_btn.configure(style="TButton", state="disabled")
         nxt = next((i for i, a in enumerate(self.answers) if a is None), None)
-        for i, t in enumerate(self.part_titles):
-            t.configure(foreground=P.success if self.answers[i] else (P.step_active if i == nxt else ""))
+        for i, title in enumerate(self.part_titles):
+            title.configure(foreground=P.success if self.answers[i] else (P.step_active if i == nxt else ""))
         if nxt is None:
             self.watching = None
             self.save_btn.configure(state="normal", style="Accent.TButton")
             self.save_btn.focus_set()
-            self.next_lbl.configure(text="Alt er klar. Tryk \"Gem og fortsæt\" nederst, så laver programmet resten.")
+            self.next_lbl.configure(text=t("gui.parts.all_ready", save=t("gui.claude.save_continue")))
             return
-        n = f"del {nxt + 1}" if len(self.parts) > 1 else "teksten"
+        n = t("gui.parts.part", n=nxt + 1) if len(self.parts) > 1 else t("gui.parts.the_text")
         if not self.copied[nxt]:
             self.copy_btns[nxt].configure(style="Accent.TButton")
             self.copy_btns[nxt].focus_set()
-            self.next_lbl.configure(text=f"Næste: klik \"Kopiér\" ud for {n}, og indsæt den i Claude (Ctrl+V).")
+            self.next_lbl.configure(text=t("gui.parts.next_copy", copy=t("gui.parts.copy"), part=n))
         else:
             self.paste_btns[nxt].configure(style="Accent.TButton")
-            self.next_lbl.configure(text=f"Venter på Claudes svar på {n}. Når Claude er færdig, så klik på kopiknappen "
-                                         "øverst på Claudes kodeblok - programmet opdager det selv.")
+            self.next_lbl.configure(text=t("gui.parts.waiting", part=n))
 
     def _watch_clipboard(self):
         if self.watching is None:
@@ -2469,7 +2499,7 @@ class ClaudePanel(ttk.Frame):
         self._prompt_text = text
         self.copied[i] = True
         self.watching = i
-        self.state_labels[i].configure(text="Kopieret. Indsæt i Claude med Ctrl+V og send.", foreground=P.hint)
+        self.state_labels[i].configure(text=t("gui.parts.copied"), foreground=P.hint)
         self._guide()
 
     def _paste(self, i: int, text: str | None = None):
@@ -2486,13 +2516,16 @@ class ClaudePanel(ttk.Frame):
         self.words += words
         if msg:
             self.answers[i] = None
-            got = [claude.LANG_BY_CODE[c].name.lower() for c in self.codes if c in have]
-            prefix = f"Har {', '.join(got)}. " if got and len(self.codes) > 1 else ""
+            got = [claude.LANG_BY_CODE[c].singular for c in self.codes if c in have]
+            prefix = t("gui.parts.have", langs=", ".join(got)) + " " if got and len(self.codes) > 1 else ""
             self.state_labels[i].configure(text="✗ " + prefix + msg, foreground=P.error)
         else:
             self.answers[i] = have
-            extra = f", {len(set(self.words))} ord rettet" if self.words else ""
-            self.state_labels[i].configure(text=f"✓ {len(self.parts[i])} blokke ok{extra}", foreground=P.success)
+            if self.words:
+                ok = t("gui.parts.ok_words", n=len(self.parts[i]), words=len(set(self.words)))
+            else:
+                ok = t("gui.parts.ok", n=len(self.parts[i]))
+            self.state_labels[i].configure(text="✓ " + ok, foreground=P.success)
             if self.watching == i:
                 self.watching = None
         self._guide()
@@ -2507,8 +2540,7 @@ class ClaudePanel(ttk.Frame):
 
     def _close(self):
         if self.on_finish:
-            if not boxes.askyesno("Claude", "Claude-trinnet er ikke færdigt, så videoen bliver ikke lavet.\n\n"
-                                       "Afbryd alligevel?", parent=self.app.root):
+            if not boxes.askyesno("Claude", t("gui.claude.stop_ask"), parent=self.app.root):
                 return
             done, self.on_finish = self.on_finish, None
             try:
@@ -2523,7 +2555,7 @@ class ClaudePanel(ttk.Frame):
         written = []
         for code in self.codes:
             lang = claude.LANG_BY_CODE[code]
-            out = srt_name(self.video, lang)
+            out = srt_path(self.video, lang)
             write_srt(out, by_code[code])
             written.append(out)
             if code == self.src.code:
@@ -2592,6 +2624,8 @@ def main():
         windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
+    settings = Settings()
+    i18n.set_language(i18n.resolve(settings.ui_language))
     from .installer import offer_install
     if "--from-claude" not in sys.argv and not offer_install():   # installed (or the installed copy started); this copy stops here
         return

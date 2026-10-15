@@ -1,0 +1,22 @@
+{
+ "installer.installed.title": "{app} is already installed",
+ "installer.installed.text": "This version is already installed. Do you want to start the installed one?",
+ "installer.installed.button": "Start the installed one",
+ "installer.renamed.title": "Update to {app} {version}?",
+ "installer.renamed.text": "Videosprog is now called {app}. Version {have} is installed. Do you want to update?\nYour settings, word list and downloaded files are kept, and the shortcuts are moved.",
+ "installer.renamed.button": "Update",
+ "installer.update.title": "Update to version {version}?",
+ "installer.update.text": "Version {have} is installed. Do you want to update it to {version}?\nYour settings, word list and downloaded files are kept.",
+ "installer.update.button": "Update",
+ "installer.install.title": "Install {app}?",
+ "installer.install.text": "The program goes into your own programs folder (no administrator needed), and you get a shortcut in Start and on the desktop.\n\nAfterwards you can delete the folder you unzipped.",
+ "installer.install.button": "Install",
+ "installer.connect_claude": "Connect to Claude, so you can ask Claude to make videos",
+ "installer.app_open": "{app} is open. Close it first (wait if it is working on a video), then press again.",
+ "installer.in_use": "The program is in use. Close {app}, and quit Claude completely (right-click the Claude icon by the clock -> Quit). Then press again.",
+ "installer.failed": "That did not work: {error}",
+ "installer.done": "Version {version} is installed.",
+ "installer.restart_claude": "Restart Claude (Quit and open it again), so Claude uses the new version.",
+ "installer.run_without": "Run without installing",
+ "installer.copy_incomplete": "The copy is incomplete ({name} is missing)."
+}

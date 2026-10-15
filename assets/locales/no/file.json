@@ -1,0 +1,9 @@
+{
+ "file.srt": "{plural} undertekster.srt",
+ "file.burned": "med {plural} undertekster.mp4",
+ "file.dub": "{singular} dubbing.mp4",
+ "file.dub_subs": "{singular} dubbing med {plural} undertekster.mp4",
+ "file.cut": "klippet.mp4",
+ "file.task": "til Claude.txt",
+ "file.answer": "fra Claude.txt"
+}

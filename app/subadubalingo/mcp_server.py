@@ -11,8 +11,9 @@
     find_videos    recent videos in the usual folders
 
 Tool names, parameters and texts are English (the domain language, docs/glossary.md); Claude answers the user in
-Danish. The job lives in the app, so if the chat stops, "status" picks it up again. Started as
-"SubaDubaLingo.exe --mcp" by Claude desktop (claude_desktop_config.json), no extra dependencies.
+the app's own language (i18n), read from the app's settings at every call, since this is a process of its own. The
+messages the app writes for the user are in that language too, and are labelled so. The job lives in the app, so if
+the chat stops, "status" picks it up again. Started as "SubaDubaLingo.exe --mcp" by Claude desktop (claude_desktop_config.json), no extra dependencies.
 """
 from __future__ import annotations
 
@@ -27,17 +28,19 @@ import time
 import traceback
 from pathlib import Path
 
-from . import cutting, jobs
+from . import cutting, i18n, jobs
 # Imported here, not inside the tools: a frozen exe reads modules from its own file on first import, and once an
 # update has replaced that file, a late import reads the new file at the old offsets (zlib error -3).
-from .claude import CUT_RULES, SKILL_NAME, SKILL_VERSION
-from .common import APP_NAME, APP_VERSION, LANGUAGES, downloads_dir, format_srt, log, parse_srt_text
+from .claude import SKILL_NAME, SKILL_VERSION, cut_rules, user_language
+from .common import APP_NAME, APP_VERSION, LANGUAGES, data_dir, downloads_dir, format_srt, log, parse_srt_text
 
+# Claude may name a language by code, in English, or in any of the app's languages ("svenska", "norske")
 LANG_ALIASES = {}
 for _l in LANGUAGES:
-    for alias in (_l.name, _l.code, _l.plural, _l.singular, {"da": "danish", "sv": "swedish", "no": "norwegian",
-                                                            "en": "english"}[_l.code]):
-        LANG_ALIASES[alias.lower()] = _l
+    LANG_ALIASES[_l.code] = _l
+    for _c in i18n.CODES:
+        for _form in ("name", "plural", "singular"):
+            LANG_ALIASES[_l.word(_form, _c).lower()] = _l
 LANG_ALIASES["nb"] = LANG_ALIASES["no"]
 VIDEO_EXT = {".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm", ".wmv"}
 LANGS = "danish, swedish, norwegian or english"
@@ -127,6 +130,22 @@ TOOLS = [
 
 # --- Helpers -------------------------------------------------------------------------
 
+def _use_ui_language() -> str:
+    """Set i18n to the language the user has picked in the app (empty or missing: Windows' language) and return its
+    English name. Read at every call: the user may switch it while Claude keeps this process running."""
+    try:
+        choice = json.loads((data_dir() / "settings.json").read_text(encoding="utf-8-sig")).get("ui_language")
+    except Exception:
+        choice = None
+    i18n.set_language(i18n.resolve(choice if isinstance(choice, str) else None))
+    return user_language()
+
+
+def _button(name: str) -> str:
+    """A button's label in the app, as the user sees it."""
+    return i18n.t(f"mcp.button.{name}")
+
+
 def _lang(value: str | None, allow_none: tuple[str, ...] = ()):
     v = (value or "").strip().lower()
     if v in allow_none or not v:
@@ -166,19 +185,19 @@ def _describe(job_id: str, st: dict) -> str:
     if state in ("running", "paused") and st.get("percent") is not None:
         lines.append(f"Progress: {st['percent']} % - {st.get('step', '')} {st.get('eta', '')}".rstrip())
     if st.get("message"):
-        lines.append(f"Message from the app (Danish): {st['message']}")
+        lines.append(f"Message from the app (in {user_language()}): {st['message']}")
     if state == "review_cuts":
         lines += _cut_list(job_id)
     hint = {
         "queued": "Call 'wait' again.",
         "running": "Call 'wait' again.",
-        "paused": "The user has paused the job in the app. Call 'wait' again once they press Fortsæt.",
+        "paused": f"The user has paused the job in the app. Call 'wait' again once they press '{_button('resume')}'.",
         "claude_turn": "Your turn: call 'get_text' from block 1, correct/translate, and hand back with 'save_text'.",
         "review_cuts": ("The user is reviewing the cuts in the app. Tell them briefly what will be cut and ask whether "
                         "it is right. If they correct something in the chat, use 'approve_cuts'. If they approve in "
                         "the app, it carries on by itself: call 'wait'."),
         "done": "Tell the user the video is ready and can be played from the app.",
-        "error": "Tell the user about the error. The log file can be opened from the app's Indstillinger.",
+        "error": f"Tell the user about the error. The log file can be opened from the app's '{_button('settings')}'.",
         "cancelled": "The job has stopped.",
         "busy": ("The app is busy with another video. Try again when it is done. If that other video hangs, ask the "
                  "user whether to stop it with 'cancel'."),
@@ -202,7 +221,7 @@ def _cut_list(job_id: str) -> list[str]:
         out.append(f"{i}. {cutting.fmt_clock(c['start'])}-{cutting.fmt_clock(c['end'])} "
                    f"({cutting.fmt_length(c['end'] - c['start'])}) {what}{state}{text}")
     if data.get("summary"):
-        out.append(f"Summary shown to the user (Danish): {data['summary']}")
+        out.append(f"Summary shown to the user (in {user_language()}): {data['summary']}")
     return out
 
 # --- Tools ---------------------------------------------------------------------------
@@ -216,13 +235,15 @@ def tool_start_video(video: str, speech: str, subtitles: str, spoken_language: s
     if not p.is_file():
         return f"The video does not exist: {p}. Ask the user for the full path, or use 'find_videos'."
     lang = _lang(spoken_language) or LANG_ALIASES["danish"]
-    new_speech = _lang(speech, ("original", "keep", "same", "none", "originalt", "behold", "samme"))
-    subs = _lang(subtitles, ("none", "no", "no subtitles", "ingen", "nej"))
+    new_speech = _lang(speech, ("original", "keep", "same", "none", "originalt", "originalet", "behold", "beholde",
+                                "behåll", "samme", "samma"))
+    subs = _lang(subtitles, ("none", "no", "no subtitles", "ingen", "inga", "nej", "nei"))
     if new_speech == lang:
         new_speech = None
     if not cut and not new_speech and not subs and not relisten:
         return "Choose at least one thing: new speech, subtitles or cutting (cut=true)."
-    job_id = jobs.new_request(str(p), lang.name, new_speech and new_speech.name, subs and subs.name, bool(relisten),
+    # Language codes: the app reads them with lang_by_name, whatever its UI language (before 2.1: Danish names)
+    job_id = jobs.new_request(str(p), lang.code, new_speech and new_speech.code, subs and subs.code, bool(relisten),
                               bool(cut))
     started = False
     if not _app_running():
@@ -295,7 +316,7 @@ def tool_cancel(job_id: str | None = None) -> str:
     if not _app_running():
         # Nobody will finish it: the app was closed while the job was open
         Path(jobs.root() / "inbox" / f"{job_id}.json").unlink(missing_ok=True)
-        jobs.set_status(job_id, state="cancelled", message="Stoppet fra Claude (appen kørte ikke).")
+        jobs.set_status(job_id, state="cancelled", message=i18n.t("mcp.cancelled_app_not_running"))
         return f"Job {job_id} has been stopped. The app was not running, so there was nothing to close."
     jobs.write_json(jobs.root() / job_id / "cancel.json", {"time": time.time()})
     deadline = time.time() + 20
@@ -304,8 +325,8 @@ def tool_cancel(job_id: str | None = None) -> str:
         if st.get("state") not in ACTIVE:
             return _describe(job_id, st)
         time.sleep(0.5)
-    return (f"I asked the app to stop job {job_id}, but it has not done so yet. Ask the user to press Annullér in "
-            "the app.")
+    return (f"I asked the app to stop job {job_id}, but it has not done so yet. Ask the user to press "
+            f"'{_button('cancel')}' in the app.")
 
 
 def tool_status(job_id: str | None = None) -> str:
@@ -359,9 +380,9 @@ def _skill_note(job_id: str, skill) -> str:
         return ""
     what = f"do not have the {SKILL_NAME} skill" if have is None else f"have an old version of the skill ({have})"
     return (f"NOTE: You {what}; the newest is version {SKILL_VERSION}. Carry on with the task, but tell the user at the "
-            f"end that the Claude skill needs updating: in {APP_NAME} under Indstillinger -> 'Gem Claude-skill...', "
-            "then upload the file in Claude under Customize -> Skills (delete the old one first, also one called "
-            "'videosprog').\n")
+            f"end that the Claude skill needs updating: in {APP_NAME} under '{_button('settings')}' -> "
+            f"'{_button('save_skill')}', then upload the file in Claude under Customize -> Skills (delete the old one "
+            "first, also one called 'videosprog').\n")
 
 
 def tool_get_text(job_id: str, start: int = 1, count: int = 120, skill: int | None = None) -> str:
@@ -393,7 +414,7 @@ def tool_get_text(job_id: str, start: int = 1, count: int = 120, skill: int | No
     if task.get("rules"):
         lines.append("Typical mishearings: " + "; ".join(f"{w} => {r}" for w, r in task["rules"]))
     if task.get("cut"):
-        lines += CUT_RULES
+        lines += cut_rules()
         lines.append("The video is " + cutting.fmt_clock(task.get("duration", 0)) + " long.")
     lines += ["", format_srt(part, start).rstrip()]
     if start - 1 + count < len(src):
@@ -510,24 +531,39 @@ def tool_approve_cuts(job_id: str, keep: list | None = None, add: str = "", wait
     if decision.exists():
         return "The app has not picked it up yet (is it closed?). Call 'status' in a moment."
     data = jobs.read_json(jobs.root() / job_id / "cuts.json") or {}
-    head = (f"Message from the app (Danish): {data['decision_message']}" if data.get("decision_message")
+    head = (f"Message from the app (in {user_language()}): {data['decision_message']}" if data.get("decision_message")
             else "The app has updated the cuts.")
     if wait_for_user:
-        return head + "\n" + "\n".join(_cut_list(job_id)) + "\nThe user approves in the app (the button 'Klip videoen'). Call 'wait'."
+        return (head + "\n" + "\n".join(_cut_list(job_id))
+                + f"\nThe user approves in the app (the button '{_button('cut_video')}'). Call 'wait'.")
     return head + "\nThe app is now cutting the video. Call 'wait' until it is done."
+
+
+def _our_video_names() -> tuple[str, ...]:
+    """Name endings (" - ... .mp4", lower case) of the videos the app makes, in every UI language, so find_videos
+    skips them."""
+    tails = set()
+    for c in i18n.CODES:
+        tails.add(i18n.t("file.cut", c))
+        for a in LANGUAGES:
+            tails.add(i18n.t("file.burned", c, plural=a.word("plural", c)))
+            tails.add(i18n.t("file.dub", c, singular=a.word("singular", c)))
+            for b in LANGUAGES:
+                tails.add(i18n.t("file.dub_subs", c, singular=a.word("singular", c), plural=b.word("plural", c)))
+    return tuple(sorted(f" - {x}".lower() for x in tails))
 
 
 def tool_find_videos(folder: str | None = None) -> str:
     dirs = [Path(folder)] if folder else [Path.home() / "Videos", downloads_dir(), Path.home() / "Desktop",
                                           Path.home() / "OneDrive - EG A S" / "Recordings"]
-    ours = re.compile(r" - (med \w+ undertekster|\w+ dub( med \w+ undertekster)?)$")
+    ours = _our_video_names()
     found = []
     for d in dirs:
         if not d.is_dir():
             continue
         try:
             for f in d.rglob("*"):
-                if f.suffix.lower() in VIDEO_EXT and f.is_file() and not ours.search(f.stem):
+                if f.suffix.lower() in VIDEO_EXT and f.is_file() and not f.name.lower().endswith(ours):
                     found.append(f)
         except OSError:
             continue
@@ -584,13 +620,15 @@ def _outdated() -> str | None:
             f"({APP_VERSION}) and cannot drive the app. Ask the user to quit Claude completely (right-click the Claude "
             "icon by the clock -> Quit) and open it again, then ask for the same thing again in a new chat.")
 
-INSTRUCTIONS = (f"{APP_NAME} cuts, subtitles and dubs videos locally on the user's pc. Use start_video (cut=true if "
-                "the video is to be cut first), follow the job with wait (tell the user about every 10 %), and on your "
-                "turn (claude_turn) fetch the text with get_text in chunks, correct/translate it with the "
-                f"{SKILL_NAME} skill, hand it back with save_text, and cut suggestions with suggest_cuts. While the "
-                "user reviews the cuts (review_cuts), you can change them with approve_cuts. If the user wants to "
-                "stop, or a job hangs, use cancel (ask first). The app checks everything and does the rest. Answer "
-                "the user briefly, in Danish.")
+def instructions() -> str:
+    return (f"{APP_NAME} cuts, subtitles and dubs videos locally on the user's pc. Use start_video (cut=true if "
+            "the video is to be cut first), follow the job with wait (tell the user about every 10 %), and on your "
+            "turn (claude_turn) fetch the text with get_text in chunks, correct/translate it with the "
+            f"{SKILL_NAME} skill, hand it back with save_text, and cut suggestions with suggest_cuts. While the "
+            "user reviews the cuts (review_cuts), you can change them with approve_cuts. If the user wants to "
+            "stop, or a job hangs, use cancel (ask first). The app checks everything and does the rest. Answer "
+            f"the user briefly, in {user_language()} (the language of the user's app; if they write to you in "
+            "another language, use that).")
 
 # --- JSON-RPC over stdio -------------------------------------------------------------------
 
@@ -607,11 +645,12 @@ def _send(msg: dict):
 def _handle(req: dict):
     method, rid, params = req.get("method"), req.get("id"), req.get("params") or {}
     try:
+        _use_ui_language()
         if method == "initialize":
             result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
                       "capabilities": {"tools": {}},
                       "serverInfo": {"name": SKILL_NAME, "version": APP_VERSION},
-                      "instructions": INSTRUCTIONS}
+                      "instructions": instructions()}
         elif method == "tools/list":
             result = {"tools": TOOLS}
         elif method == "tools/call":

@@ -10,6 +10,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
+from subadubalingo import claude  # noqa: E402
+
 root = Path(__file__).resolve().parent.parent
 video = sys.argv[1]
 
@@ -57,7 +60,7 @@ for _ in range(200):
         break
 
 if "Claude's turn" in text:
-    first = tool("get_text", job_id=job, start=1, count=150, **({} if "--no-skill" in sys.argv else {"skill": 4}))
+    first = tool("get_text", job_id=job, start=1, count=150, **({} if "--no-skill" in sys.argv else {"skill": claude.SKILL_VERSION}))
     srt = first.split("\n\n", 1)[1]
     srt = srt.split("\n\nNext:")[0]
     codes = re.findall(r"hand (?:it )?back as '(\w\w)'", first)

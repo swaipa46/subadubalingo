@@ -17,18 +17,41 @@ from pathlib import Path
 import numpy as np
 
 from .common import FFMPEG, Cue, Runner, ToolError, log
+from .i18n import t
 
-# Cut kinds (the domain's words; Claude writes them in its suggestions). key: (label shown to the user, strong
-# colour, light fill)
-KINDS = {
-    "start": ("Før mødet går i gang", "#5c2e91", "#efe6f8"),
-    "pause": ("Pause", "#486991", "#e3ebf4"),
-    "end": ("Efter mødet", "#5c2e91", "#efe6f8"),
-    "inappropriate": ("Upassende", "#c42b1c", "#fde7e9"),
-    "offtopic": ("Off-topic", "#9d5d00", "#fff4ce"),
-    "unclear": ("Uklart", "#00666d", "#ddf1ef"),
-    "manual": ("Dit eget klip", "#0f6cbd", "#e1effa"),
-}
+def kind_label(kind: str) -> str:
+    """A cut kind's name shown to the user, in the UI language."""
+    return t(f"cutting.kind.{kind}")
+
+
+class _Kinds(dict):
+    """kind -> (label, strong colour, light fill). The label is looked up when read, so it follows the UI language
+    (new code: use kind_label(kind))."""
+
+    def __getitem__(self, kind):
+        return (kind_label(kind),) + super().__getitem__(kind)
+
+    def get(self, kind, default=None):
+        return self[kind] if kind in self else default
+
+    def values(self):
+        return [self[k] for k in self]
+
+    def items(self):
+        return [(k, self[k]) for k in self]
+
+
+# Cut kinds (the domain's words; Claude writes them in its suggestions). Stored: (strong colour, light fill);
+# KINDS[kind] gives (label, strong, light).
+KINDS = _Kinds({
+    "start": ("#5c2e91", "#efe6f8"),
+    "pause": ("#486991", "#e3ebf4"),
+    "end": ("#5c2e91", "#efe6f8"),
+    "inappropriate": ("#c42b1c", "#fde7e9"),
+    "offtopic": ("#9d5d00", "#fff4ce"),
+    "unclear": ("#00666d", "#ddf1ef"),
+    "manual": ("#0f6cbd", "#e1effa"),
+})
 # Also the Danish words the skill used before v2.0 (skill version 3), and what Claude writes when it improvises
 KIND_ALIASES = {
     "start": "start", "before": "start", "intro": "start", "waiting": "start",
@@ -202,8 +225,9 @@ def find_pauses(cues: list[Cue], duration: int, env: np.ndarray | None, min_ms: 
                 continue
         start = 0 if kind == "start" else a + PAUSE_MARGIN_MS
         end = duration if kind == "end" else b - PAUSE_MARGIN_MS
-        what = {"start": f"Ingen tale de første {fmt_length(end)}",
-                "end": f"Ingen tale de sidste {fmt_length(end - start)}"}.get(kind, f"Ingen tale i {fmt_length(b - a)}")
+        what = (t("cutting.pause.start", length=fmt_length(end)) if kind == "start" else
+                t("cutting.pause.end", length=fmt_length(end - start)) if kind == "end" else
+                t("cutting.pause.middle", length=fmt_length(b - a)))
         out.append(Cut(start, end, kind, what, True, "auto"))
     return out
 
@@ -349,8 +373,8 @@ def cut_video(runner: Runner, video: Path, ranges: list[tuple[int, int]], out: P
         tmp_out.unlink(missing_ok=True)
         if n + 1 < len(attempts):
             log.info("cut: encoder attempt %d failed, trying the next", n + 1)
-            prog.update(0.0, "Prøver en anden måde at lave videoen på")
-    raise ToolError(f"Kunne ikke klippe videoen ({out.name}). Se logfilen for detaljer.")
+            prog.update(0.0, t("cutting.encode_retry"))
+    raise ToolError(t("cutting.error.cut", file=out.name))
 
 
 def frame_png(runner: Runner, video: Path, ms: int, out: Path, width: int) -> bool:

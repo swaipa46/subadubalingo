@@ -23,11 +23,16 @@ messagebox.showinfo = messagebox.showerror = messagebox.showwarning = lambda *a,
 downloads = Path(tempfile.mkdtemp(prefix="sdl-downloads-"))
 gui.downloads_dir = lambda: downloads
 out = Path(sys.argv[2])
+out.mkdir(parents=True, exist_ok=True)
 ctypes.windll.shcore.SetProcessDpiAwareness(1)
 from subadubalingo import theme  # noqa: E402
 if "--theme" in sys.argv:   # light or night, whatever Windows and the settings say
     _forced = sys.argv[sys.argv.index("--theme") + 1]
     theme.resolve = lambda choice: _forced
+if "--lang" in sys.argv:    # da, sv, no or en, whatever the settings say
+    from subadubalingo import i18n  # noqa: E402
+    _lang = sys.argv[sys.argv.index("--lang") + 1]
+    i18n.resolve = lambda choice: _lang
 theme.load_fonts()
 import _screen  # noqa: E402
 root = tk.Tk()
@@ -47,9 +52,7 @@ def take(name):
     root.attributes("-topmost", True)
     pump(0.8)
     hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
-    r = wt.RECT()
-    ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
-    _screen.grab((r.left, r.top, r.right, r.bottom)).save(out / name)
+    _screen.grab_window(hwnd).save(out / name)
     root.attributes("-topmost", False)
     print("saved", name)
 

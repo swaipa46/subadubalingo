@@ -1,0 +1,164 @@
+SUBADUBALINGO - subtitles and dubbing for videos
+================================================
+(The program was called Videosprog until version 2.0.)
+
+The program makes subtitles for videos and can dub them into Swedish, Norwegian,
+Danish or English with a computer voice. It can also cut out waiting time,
+pauses and things that shouldn't be in, for example from a Teams recording.
+Everything happens on your own PC. The video isn't sent anywhere.
+
+Start the program by double-clicking "SubaDubaLingo.exe" in the folder.
+If you already have Videosprog, it offers to update: press "Update". Your
+settings and words are kept, and the shortcuts are moved. If Claude is
+open, close Claude completely afterwards and open it again.
+The first time, the program offers to install itself; press "Install".
+Tip: right-click it and choose "Pin to Start" so it's easy to find.
+
+At the top right you can change the program's language (DA, SV, NO, EN) and look
+(Light, Night or Follow Windows). The cog wheel at the far right opens the
+settings.
+
+
+THE FIRST TIME
+--------------
+The first time you press Start, the program says some files are missing
+(about 1.1 GB, plus 63 MB per voice for dubbing). Press "Download automatically".
+If that doesn't work, click the links, download the files and put them in the model
+folder (the "Open model folder" button).
+
+Also add the Claude skill to Claude (once). The program shows the
+"Add the Claude skill" window by itself, with four steps:
+1. Click "Save skill file". It goes into your Downloads folder.
+2. Open Claude and go to Customize -> Skills.
+3. Delete the old "subadubalingo" and "videosprog" skills if they are there.
+4. Click "Upload skill" and choose "subadubalingo-skill.zip".
+Then click "I've done it". The skill teaches Claude the rules and EG's product
+terms (such as Membercare).
+
+
+HOW TO MAKE A VIDEO
+-------------------
+1. Click "Choose video..." and pick the video.
+2. Choose the language spoken in the video.
+3. Choose what the new video should have:
+     Speech:        Original, or a language to dub it into
+     Subtitles:     None, or the language the subtitles should be in
+   Below your choices it says which file you will get.
+4. Press Start. You can get on with other work in the meantime.
+
+While the program works, it shows the steps and how far it has got.
+When the text is written, the program comes to the front, and the "Claude" panel
+on the right lights up with "Your turn" (see CLAUDE below). After that the program
+does the rest by itself, and when the video is ready it says "Done!" with buttons
+to play it, show it in the folder or make a new one.
+
+Examples:
+  Speech: Original,  Subtitles: Danish     -> the video with Danish subtitles
+  Speech: Original,  Subtitles: Swedish    -> the video with Swedish subtitles
+  Speech: Swedish,   Subtitles: Norwegian  -> Swedish dub with Norwegian subtitles
+
+The new files go in the same folder as the video. The original is never changed.
+The text is saved, so the next video from the same recording (say, another language)
+is much faster. If the video has changed since, the text is redone automatically.
+
+It takes time: on an ordinary laptop it can take a couple of minutes per minute
+of video. The program shows how much time is left and lets other programs
+go first, so you can keep working. If the PC still gets too
+slow (in a Teams meeting, say), press "Pause". The program then stops using
+the PC completely, and when you press "Resume" it carries on where it
+left off. Don't close the program while it's working - it would have to start over.
+While it's your turn (Claude or the cuts), "Pause" is greyed out: the program
+is just waiting for you.
+
+"Cancel" asks first whether you want to stop. Afterwards it tells you whether anything
+was saved (such as the Danish subtitles, so next time is faster).
+
+
+CLAUDE
+------
+Claude fixes misheard words (product names, for example) and translates into the
+languages the new video needs. It works with one file there and one file back:
+1. Click "Copy file" in the Claude card.
+2. Open a new chat in Claude, paste (Ctrl+V) and send. (If you can't paste
+   the file, click "Show in folder" and drag the file into Claude.)
+3. Claude makes a reply file ("... - fra Claude.txt"). Click it in Claude's reply
+   and press Download.
+4. The program finds the file in your Downloads folder by itself, checks it and
+   carries on. There's nothing to save or move. Meanwhile, step 3 shows
+   that the program is waiting for the reply file, and for how long.
+
+If the reply file isn't right (for example if Claude didn't finish), it tells you what
+to do: click "Copy message for Claude", paste the message into the same chat, and
+download the new file. (The technical reason is in small grey text below.) If it keeps acting up, you can use "Use copy/paste in parts instead".
+
+The program remembers the words Claude corrects, so they come out right next time.
+Every now and then you can give Claude the new words: the cog wheel at the top right ->
+"Save Claude skill...", then upload the saved file to Claude as described under
+THE FIRST TIME (delete the old skill first).
+
+
+FIXING MISTAKES IN THE TEXT
+---------------------------
+The computer doesn't always hear correctly, especially names and technical terms.
+
+If it gets the same word wrong every time (a product name, for example), add it to
+the list of corrections: the cog wheel -> "Edit corrections". One line per word,
+for example:   member care = Membercare
+Then tick "Listen through the video again" and press Start.
+
+You can fix the odd mistake directly in the text file (for example "... - Danish subtitles.srt")
+in Notepad. Only change the text, not the numbers and timecodes. Then press Start again.
+
+If you're in a hurry, you can choose "Fastest" under the cog wheel. It's about 1.5
+times faster, but gets a few more words wrong.
+
+
+CUT THE VIDEO FIRST (for example a Teams recording)
+---------------------------------------------------
+Tick "Cut the video first" before you press Start. The program then
+finds long pauses by itself, and Claude suggests what to cut out:
+the waiting time before the meeting gets going, interruptions, the end where the recording
+drags on, and anything inappropriate, off-topic or impossible to make out.
+
+When Claude is done, the program shows a timeline with all the cuts in colour.
+Nothing is cut until you have approved it:
+- Cut 1 is selected to begin with. Click a cut to see the frame just before
+  and just after it, and press
+  "Watch the transition" to see how the cut will look.
+- Drag the edges to move a cut. Drag on an empty spot to make
+  your own cut. Double-click a cut (or press "Keep in the video") if
+  it should stay in the video after all.
+- Scroll the mouse wheel to zoom in (Shift + mouse wheel scrolls sideways).
+- In the list: Space keeps a cut or cuts it out again, and Delete
+  removes it.
+Press "Cut the video" when you're happy. You get "... - cut.mp4", and
+the subtitles and dub are made for the cut video. If you just want
+the video cut, choose Speech: Original and Subtitles: None.
+
+If you later make another language of the same video, the cut video is reused.
+To cut it again, tick "Cut the video again".
+
+
+USE THE PROGRAM FROM CLAUDE (optional)
+--------------------------------------
+You can also ask Claude to do the whole thing in an ordinary chat:
+1. The cog wheel -> "Connect to Claude" (once). Close Claude completely
+   (right-click the Claude icon by the clock -> Quit) and open Claude again.
+2. Write something like this to Claude:
+     Make this video in Swedish with Norwegian subtitles:
+     C:\Users\you\Videos\webinar.mp4
+Claude starts the program, tells you how far it has got, corrects and translates
+the text itself and lets you know when the video is ready. You can follow along in
+the program meanwhile. If Claude stops along the way, write "continue".
+If the video should be cut, say so, for example "Cut out the waiting time and the pauses and
+make English subtitles". When you see the cuts in the program, you can change them
+there or tell Claude, for example "keep the one at 14:20".
+To stop a video, write "stop the video" to Claude.
+If you updated the program while Claude was open, Claude will tell you. Then
+close Claude completely (Quit, as in step 1) and open Claude again.
+
+
+IF SOMETHING GOES WRONG
+-----------------------
+Under the cog wheel at the top right there's an "Open log file" button. Send the file to
+Kasper.

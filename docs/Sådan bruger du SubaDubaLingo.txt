@@ -14,6 +14,10 @@ indstillinger og ord bliver bevaret, og genvejene bliver flyttet. Er Claude
 Første gang tilbyder programmet at installere sig selv; tryk "Installér".
 Tip: højreklik på den og vælg "Fastgør til Start", så er den nem at finde.
 
+Øverst til højre kan du skifte programmets sprog (DA, SV, NO, EN) og udseende
+(Lys, Nat eller Følg Windows). Tandhjulet helt ude til højre åbner
+indstillingerne.
+
 
 FØRSTE GANG
 -----------
@@ -88,8 +92,8 @@ skal gøre: klik "Kopiér besked til Claude", indsæt beskeden i samme chat, og
 hent den nye fil. (Den tekniske grund står med lille grå skrift under.) Driller det, kan du bruge "Brug kopiér/indsæt i dele i stedet".
 
 Programmet husker de ord, Claude retter, så de bliver rigtige næste gang.
-Engang imellem kan du give Claude de nye ord: Indstillinger -> "Gem
-Claude-skill...", og upload den gemte fil i Claude som beskrevet under
+Engang imellem kan du give Claude de nye ord: tandhjulet øverst til højre ->
+"Gem Claude-skill...", og upload den gemte fil i Claude som beskrevet under
 FØRSTE GANG (slet den gamle skill først).
 
 
@@ -98,14 +102,14 @@ RETTE FEJL I TEKSTEN
 Computeren hører ikke altid rigtigt, især ved navne og fagord.
 
 Hører den det samme ord forkert hver gang (fx et produktnavn), så skriv det i
-listen over rettelser: Indstillinger -> "Rediger rettelser". Én linje pr. ord,
+listen over rettelser: tandhjulet -> "Rediger rettelser". Én linje pr. ord,
 fx:   memberkær = Membercare
 Sæt så flueben i "Lyt videoen igennem forfra" og tryk Start.
 
 Enkelte fejl kan du rette direkte i tekstfilen (fx "... - danske undertekster.srt")
 i Notesblok. Ret kun teksten, ikke tallene og tidskoderne. Tryk så Start igen.
 
-Har du travlt, kan du under Indstillinger vælge "Hurtigst". Den er ca. 1,5
+Har du travlt, kan du under tandhjulet vælge "Hurtigst". Den er ca. 1,5
 gange hurtigere, men hører lidt flere ord forkert.
 
 
@@ -138,7 +142,7 @@ Vil du klippe om, så sæt flueben i "Klip videoen forfra".
 BRUG PROGRAMMET FRA CLAUDE (valgfrit)
 -------------------------------------
 Du kan også bede Claude om det hele i en almindelig chat:
-1. Indstillinger -> "Forbind med Claude" (én gang). Luk Claude helt
+1. Tandhjulet -> "Forbind med Claude" (én gang). Luk Claude helt
    (højreklik på Claude-ikonet ved uret -> Quit), og åbn Claude igen.
 2. Skriv fx til Claude:
      Lav denne video på svensk med norske undertekster:
@@ -156,4 +160,5 @@ så Claude helt (Quit, som i trin 1), og åbn Claude igen.
 
 HVIS NOGET GÅR GALT
 -------------------
-Under Indstillinger er der en knap "Åbn logfil". Send den til Kasper.
+Under tandhjulet øverst til højre er der en knap "Åbn logfil". Send filen til
+Kasper.

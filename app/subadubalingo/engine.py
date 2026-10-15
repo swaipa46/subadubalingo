@@ -16,6 +16,7 @@ from typing import Callable
 import numpy as np
 
 from .common import (FFMPEG, PIPER, WHISPER, Cue, Language, Runner, ToolError, log, model_dirs)
+from .i18n import t
 
 # --- Models ----------------------------------------------------------------------
 
@@ -23,9 +24,10 @@ HF_WHISPER = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{f}?down
 HF_PIPER = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/{path}/{f}?download=true"
 
 # large-v3 heard the superbruger webinar better in 3 of 4 one-minute clips (12.10.2026); turbo is ~1.5x faster on CPU.
+# key: (i18n key of the label shown in Indstillinger, file). Show the label with model_label(key).
 WHISPER_MODELS = {
-    "large": ("Bedst (large-v3, anbefalet)", "ggml-large-v3-q5_0.bin"),
-    "turbo": ("Hurtigst (large-v3-turbo, ca. 1,5x hurtigere, lidt flere fejl)", "ggml-large-v3-turbo-q5_0.bin"),
+    "large": ("engine.model.large", "ggml-large-v3-q5_0.bin"),
+    "turbo": ("engine.model.turbo", "ggml-large-v3-turbo-q5_0.bin"),
 }
 PIPER_PATHS = {
     "da_DK-talesyntese-medium": "da/da_DK/talesyntese/medium",
@@ -60,6 +62,11 @@ class ModelFile:
     filename: str
     url: str
     approx_mb: int
+
+
+def model_label(key: str) -> str:
+    """The Whisper model's label for Indstillinger, in the UI language."""
+    return t(WHISPER_MODELS[key][0])
 
 
 def whisper_model_file(key: str) -> ModelFile:
@@ -105,7 +112,7 @@ def download(mf: ModelFile, progress: Callable[[float, str], None], runner: Runn
             f.write(chunk)
             done += len(chunk)
             if total:
-                progress(done / total, f"Henter {mf.filename}: {done >> 20} af {total >> 20} MB")
+                progress(done / total, t("engine.download", file=mf.filename, done=done >> 20, total=total >> 20))
     part.replace(dest)
     return dest
 
@@ -128,7 +135,7 @@ def probe(runner: Runner, video: Path) -> MediaInfo:
         if re.search(r"Stream #.*Audio:", l):
             has_audio = True
     if not dur:
-        raise ToolError("Kunne ikke læse videoen. Er det en videofil?")
+        raise ToolError(t("engine.error.probe"))
     return MediaInfo(dur, has_audio)
 
 # --- Progress ----------------------------------------------------------------------
@@ -162,8 +169,8 @@ class Progress:
             elapsed -= self.runner.paused_seconds() - self.paused_at_start
         if frac > 0.03 and elapsed > 5:
             secs = elapsed / frac * (1 - frac)
-            left = "ca. 1 min tilbage af dette trin" if secs < 90 else f"ca. {round(secs / 60)} min tilbage af dette trin"
-        label = f"Trin {self.step + 1} af {len(self.weights)}: {self.weights[self.step][0]}"
+            left = t("engine.progress.left_1min") if secs < 90 else t("engine.progress.left_min", min=round(secs / 60))
+        label = t("engine.progress.step", n=self.step + 1, total=len(self.weights), name=self.weights[self.step][0])
         self.report(overall, label + (f" - {left}" if left else ""), text)
 
 # --- Transcription ---------------------------------------------------------------------
@@ -172,7 +179,7 @@ def extract_audio(runner: Runner, video: Path, wav: Path):
     code, _ = runner.run([FFMPEG(), "-hide_banner", "-v", "error", "-y", "-i", video,
                           "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", wav])
     if code != 0 or not wav.exists():
-        raise ToolError("Kunne ikke trække lyden ud af videoen.")
+        raise ToolError(t("engine.error.extract_audio"))
 
 
 _GPU_DEVICE: int | None = None
@@ -243,12 +250,12 @@ def transcribe(runner: Runner, wav: Path, lang: Language, model: Path, duration_
     if code != 0 and use_gpu:
         gpu_used = False
         log.warning("whisper with GPU failed (exit %s); retrying on CPU", code)
-        prog.update(0.0, "Grafikkortet kunne ikke bruges - prøver igen med processoren")
+        prog.update(0.0, t("engine.gpu_retry"))
         seen[0] = 0.0
         started = time.time()
         code, tail = runner.run(args(False), on_line)
     if code != 0:
-        raise ToolError("Transskriptionen fejlede. Se logfilen for detaljer.")
+        raise ToolError(t("engine.error.transcribe"))
     log.info("transcribed %.1f min audio in %.1f min (gpu setting=%s, device=%s, threads=%d)",
              duration_ms / 60000, (time.time() - started) / 60, use_gpu, (device[0] if gpu_used else "") or "CPU", threads)
     words = words_from_json(Path(str(out_base) + ".json"))
@@ -348,13 +355,9 @@ def drop_hallucinations(text: str) -> str:
     return " ".join(text.split())
 
 
+# The rules a new corrections.txt starts with (Danish words Whisper mishears: data, not UI text). The explanation
+# on top of the file is in the UI language, see default_corrections().
 DEFAULT_CORRECTIONS = """\
-# Rettelser til ord, som computeren hører forkert.
-# Én rettelse pr. linje:  forkert = rigtigt
-# Store/små bogstaver er ligegyldige i "forkert". "forkert" skal stå sidst i et ord, men må gerne være
-# sidste del af et sammensat ord (fløv retter også tilmeldingsfløv). Linjer med # foran bliver ikke brugt.
-# Rettelserne bruges, næste gang der laves undertekster.
-
 fløvet = flowet
 fløve = flow
 fløv = flow
@@ -371,12 +374,17 @@ rebatkode = rabatkode
 """
 
 
+def default_corrections() -> str:
+    """A new corrections.txt: how the file works (# lines, in the UI language), then the default rules."""
+    return t("engine.corrections.header").rstrip("\n") + "\n\n" + DEFAULT_CORRECTIONS
+
+
 def corrections_file() -> Path:
     from .common import data_dir
     f = data_dir() / "corrections.txt"
     if not f.exists():
         try:
-            f.write_text(DEFAULT_CORRECTIONS, encoding="utf-8")
+            f.write_text(default_corrections(), encoding="utf-8")
         except OSError:
             pass
     return f
@@ -464,8 +472,8 @@ def encode(runner: Runner, inputs: list, filter_complex: str | None, vf_srt: Pat
         tmp_out.unlink(missing_ok=True)
         if n + 1 < len(attempts):
             log.info("encoder attempt %d failed, trying the next", n + 1)
-            prog.update(0.0, "Prøver en anden måde at lave videoen på")
-    raise ToolError(f"Kunne ikke lave {out.name}. Se logfilen for detaljer.")
+            prog.update(0.0, t("engine.encode_retry"))
+    raise ToolError(t("engine.error.encode", file=out.name))
 
 
 AUDIO_AAC = ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
@@ -501,7 +509,7 @@ def run_piper(runner: Runner, voice: Path, items: list[tuple[str, Path]], length
 
     code, _ = runner.run(args, on_line, cwd=PIPER().parent, stdin_text=lines)
     if code != 0:
-        raise ToolError("Talesyntesen (Piper) fejlede. Se logfilen for detaljer.")
+        raise ToolError(t("engine.error.piper"))
 
 
 def read_wav(path: Path) -> tuple[np.ndarray, int]:
@@ -637,16 +645,16 @@ def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, bu
     tts_dir.mkdir(exist_ok=True)
     sents = sentences(cues)
     if not sents:
-        raise ToolError("Den oversatte .srt-fil indeholder ingen tekst.")
+        raise ToolError(t("engine.error.empty_srt"))
 
     prog.start(step_tts)
     total = len(sents)
     voice_of = [Voice(voice)] * total
     if speaker_model and palette and info.has_audio:
-        prog.update(0.0, "Finder ud af, hvem der taler hvornår")
+        prog.update(0.0, t("engine.dub.who_speaks"))
         voice_of, _, _ = per_person_voices(runner, video, sents, workdir, speaker_model, palette)
     elif voices and len(voices) > 1 and info.has_audio:
-        prog.update(0.0, "Finder ud af, om det er en mand eller en kvinde, der taler")
+        prog.update(0.0, t("engine.dub.gender"))
         genders = speaker_genders(runner, video, sents, workdir)
         voice_of = [Voice(voices.get(g, voice)) for g in genders]
         log.info("dub voices: %s", {g: genders.count(g) for g in set(genders)})
@@ -658,7 +666,7 @@ def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, bu
         idxs = [i for i in range(total) if model_of[i] == v]
         base = done
         run_piper(runner, v, [(sents[i].text, tts_dir / f"s{i}.wav") for i in idxs], None,
-                  lambda n: prog.update((base + n) / total * 0.5, f"Indtaler sætning {base + n} af {total}"))
+                  lambda n: prog.update((base + n) / total * 0.5, t("engine.dub.speaking", n=base + n, total=total)))
         done += len(idxs)
 
     # Measure each dubbed sentence against the time the speaker took, and speak it again at the pace that makes
@@ -682,13 +690,13 @@ def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, bu
         base = done_redo
         run_piper(runner, v, [(sents[i].text, tts_dir / f"s{i}.wav") for i in idxs], scale_of[v] / tempo,
                   lambda n: prog.update(0.5 + 0.5 * (base + n) / max(1, n_redo),
-                                        f"Tilpasser tempoet: sætning {base + n} af {n_redo}"))
+                                        t("engine.dub.tempo", n=base + n, total=n_redo)))
         done_redo += len(idxs)
 
     shifted = [i for i, v in enumerate(voice_of) if v.semitones]
     for k, i in enumerate(shifted):
         shift_pitch(runner, tts_dir / f"s{i}.wav", voice_of[i].semitones)
-        prog.update(1.0, f"Giver stemmerne hver sin tone: {k + 1} af {len(shifted)}")
+        prog.update(1.0, t("engine.dub.pitch", n=k + 1, total=len(shifted)))
 
     # Place every sentence at its first block's start (or right after the previous one) on one track.
     cfg = json.loads(Path(str(voice) + ".json").read_text(encoding="utf-8"))
@@ -732,17 +740,16 @@ def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, bu
 def compare(original: list[Cue], translated: list[Cue]) -> str | None:
     """None if the translation matches the original's blocks and time codes, else a message."""
     if not translated:
-        return "Der blev ikke fundet nogen undertekster i teksten."
+        return t("engine.compare.none")
     for n, (a, b) in enumerate(zip(original, translated), 1):
         if abs(a.start - b.start) > 1 or abs(a.end - b.end) > 1:
-            return (f"Blok {n} har en anden tidskode end originalen "
-                    f"({a.start / 1000:.1f} s mod {b.start / 1000:.1f} s). Bed Claude om at beholde tidskoderne præcist.")
+            return t("engine.compare.timecode", n=n, orig=f"{a.start / 1000:.1f}", got=f"{b.start / 1000:.1f}")
     if len(translated) < len(original):
-        return (f"Der mangler {len(original) - len(translated)} blokke (fik {len(translated)} af {len(original)}). "
-                "Svaret er nok blevet afkortet.")
+        return t("engine.compare.missing", missing=len(original) - len(translated), got=len(translated),
+                 total=len(original))
     if len(translated) > len(original):
-        return f"Der er {len(translated) - len(original)} blokke for mange. Bed Claude om ikke at dele blokke op."
+        return t("engine.compare.extra", extra=len(translated) - len(original))
     for n, b in enumerate(translated, 1):
         if not b.text.strip():
-            return f"Blok {n} er tom."
+            return t("engine.compare.empty", n=n)
     return None

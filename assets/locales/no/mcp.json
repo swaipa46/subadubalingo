@@ -1,0 +1,8 @@
+{
+ "mcp.cancelled_app_not_running": "Stoppet fra Claude (appen kjørte ikke).",
+ "mcp.button.resume": "Fortsett",
+ "mcp.button.cancel": "Avbryt",
+ "mcp.button.settings": "Innstillinger",
+ "mcp.button.save_skill": "Lagre Claude-skill...",
+ "mcp.button.cut_video": "Klipp videoen"
+}

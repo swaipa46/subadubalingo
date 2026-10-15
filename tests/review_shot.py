@@ -18,11 +18,11 @@ import tkinter as tk
 from PIL import ImageGrab
 
 from subadubalingo import cutting, gui
-from subadubalingo.common import FFMPEG, LANG_BY_NAME, read_srt, srt_name
+from subadubalingo.common import FFMPEG, LANG_BY_CODE, find_srt, read_srt
 
 video, out = Path(sys.argv[1]), Path(sys.argv[2])
 out.mkdir(parents=True, exist_ok=True)
-cues = read_srt(srt_name(video, LANG_BY_NAME["Dansk"]))
+cues = read_srt(find_srt(video, LANG_BY_CODE["da"]))
 wav = Path(tempfile.mkdtemp()) / "a.wav"
 subprocess.run([str(FFMPEG()), "-v", "error", "-y", "-i", str(video), "-ac", "1", "-ar", "16000", str(wav)], check=True)
 env = cutting.envelope(wav)

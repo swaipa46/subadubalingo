@@ -167,22 +167,56 @@ FFMPEG = lambda: bin_dir() / "ffmpeg" / "ffmpeg.exe"
 
 @dataclass(frozen=True)
 class Language:
-    name: str        # "Dansk" (shown in the GUI)
+    """A language a video can be spoken in, subtitled or dubbed to. Its words come from the app's current language
+    (i18n), so in Swedish the Danish language is "Danska" and its subtitles "danska undertexter"."""
     code: str        # Whisper language code
-    plural: str      # "danske" -> "danske undertekster"
-    singular: str    # "dansk" -> "dansk dub"
     voice: str       # Piper voice file stem
+
+    def word(self, form: str, lang: str | None = None) -> str:
+        from .i18n import t
+        return t(f"lang.{self.code}.{form}", lang)
+
+    @property
+    def name(self) -> str:
+        """"Dansk": the language's name, shown in the GUI."""
+        return self.word("name")
+
+    @property
+    def plural(self) -> str:
+        """"danske", as in "de danske undertekster"."""
+        return self.word("plural")
+
+    @property
+    def singular(self) -> str:
+        """"dansk", as in "dansk dub"."""
+        return self.word("singular")
 
 
 LANGUAGES = [
-    Language("Dansk", "da", "danske", "dansk", "da_DK-talesyntese-medium"),
-    Language("Svensk", "sv", "svenske", "svensk", "sv_SE-nst-medium"),
-    Language("Norsk", "no", "norske", "norsk", "no_NO-talesyntese-medium"),
-    Language("Engelsk", "en", "engelske", "engelsk", "en_US-lessac-medium"),
+    Language("da", "da_DK-talesyntese-medium"),
+    Language("sv", "sv_SE-nst-medium"),
+    Language("no", "no_NO-talesyntese-medium"),
+    Language("en", "en_US-lessac-medium"),
 ]
-LANG_BY_NAME = {l.name: l for l in LANGUAGES}
+LANG_BY_CODE = {l.code: l for l in LANGUAGES}
+
+
+def lang_by_name(name: str | None) -> Language | None:
+    """The language with this code, or this name in any of the app's languages (settings and Claude's job requests
+    before 2.1 used the Danish names)."""
+    if not name:
+        return None
+    if name in LANG_BY_CODE:
+        return LANG_BY_CODE[name]
+    from .i18n import CODES
+    for l in LANGUAGES:
+        if any(name.lower() == l.word("name", c).lower() for c in CODES):
+            return l
+    return None
 
 # --- Output file names (next to the original, never overwriting it) ----------
+# Named in the app's language ("danske undertekster.srt", "Danish subtitles.srt"). Files are also found by their
+# name in the other languages, so switching the app's language does not lose the subtitles already made.
 
 MAX_PATH_CHARS = 240   # Windows' limit is 260; ffmpeg and Explorer fail above it
 TEAMS_SUFFIX = re.compile(r"-\d{8}_\d{6}-Meeting Recording$|-Meeting Recording$", re.I)
@@ -203,29 +237,57 @@ def output_path(video: Path, tail: str) -> Path:
     return video.with_name(f"{stem} - {tail}")
 
 
+def _file(key: str, lang: str | None = None, **kw) -> str:
+    from .i18n import t
+    return t(f"file.{key}", lang, **kw)
+
+
 def srt_name(video: Path, lang: Language) -> Path:
-    return output_path(video, f"{lang.plural} undertekster.srt")
+    """Where new subtitles in lang are written. To find ones already made, use find_srt."""
+    return output_path(video, _file("srt", plural=lang.plural))
+
+
+def srt_names(video: Path, lang: Language) -> list[Path]:
+    """Every name subtitles in lang may have: in the current app language first, then the others."""
+    from .i18n import CODES, current
+    codes = [current()] + [c for c in CODES if c != current()]
+    return list(dict.fromkeys(output_path(video, _file("srt", c, plural=lang.word("plural", c))) for c in codes))
+
+
+def find_srt(video: Path, lang: Language) -> Path | None:
+    """The subtitles in lang already made for video, whatever language the app had when they were made."""
+    return next((p for p in srt_names(video, lang) if p.exists()), None)
 
 
 def burned_name(video: Path, lang: Language) -> Path:
-    return output_path(video, f"med {lang.plural} undertekster.mp4")
+    return output_path(video, _file("burned", plural=lang.plural))
 
 
 def dub_name(video: Path, lang: Language, subs: Language | None) -> Path:
     if subs:
-        return output_path(video, f"{lang.singular} dub med {subs.plural} undertekster.mp4")
-    return output_path(video, f"{lang.singular} dub.mp4")
+        return output_path(video, _file("dub_subs", singular=lang.singular, plural=subs.plural))
+    return output_path(video, _file("dub", singular=lang.singular))
 
 
 def cut_name(video: Path) -> Path:
-    return output_path(video, "klippet.mp4")
+    """Where a new cut video is written. To find one already made, use find_cut."""
+    return output_path(video, _file("cut"))
+
+
+def find_cut(video: Path) -> Path | None:
+    from .i18n import CODES, current
+    codes = [current()] + [c for c in CODES if c != current()]
+    return next((p for p in dict.fromkeys(output_path(video, _file("cut", c)) for c in codes) if p.exists()), None)
 
 
 def guess_srt_language(path: Path) -> Language | None:
+    """The language of a subtitle file named by this app, in any of its languages."""
+    from .i18n import CODES
     name = path.name.lower()
     for l in LANGUAGES:
-        if f"{l.plural} undertekster" in name:
-            return l
+        for c in CODES:
+            if _file("srt", c, plural=l.word("plural", c)).lower().removesuffix(".srt") in name:
+                return l
     return None
 
 # --- Logging -----------------------------------------------------------------

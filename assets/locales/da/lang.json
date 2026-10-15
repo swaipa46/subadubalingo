@@ -1,0 +1,18 @@
+{
+ "lang.da.name": "Dansk",
+ "lang.da.plural": "danske",
+ "lang.da.singular": "dansk",
+ "lang.da.choice": "Danske",
+ "lang.sv.name": "Svensk",
+ "lang.sv.plural": "svenske",
+ "lang.sv.singular": "svensk",
+ "lang.sv.choice": "Svenske",
+ "lang.no.name": "Norsk",
+ "lang.no.plural": "norske",
+ "lang.no.singular": "norsk",
+ "lang.no.choice": "Norske",
+ "lang.en.name": "Engelsk",
+ "lang.en.plural": "engelske",
+ "lang.en.singular": "engelsk",
+ "lang.en.choice": "Engelske"
+}

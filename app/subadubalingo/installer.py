@@ -31,6 +31,8 @@ from pathlib import Path
 from tkinter import messagebox, ttk
 
 from .common import APP_NAME, APP_VERSION, NO_WINDOW, app_dir, data_dir, log, set_app_icon, set_app_id
+from . import i18n
+from .i18n import current, t
 
 EXE_NAME = f"{APP_NAME}.exe"
 INSTALL_FOLDER = APP_NAME
@@ -42,6 +44,14 @@ CURRENT = "current.txt"
 VERSION_DIR = re.compile(r"^\d+(\.\d+)+$")
 FLAT_ITEMS = (EXE_NAME, "_internal", "version.txt")   # the layout up to v1.9.9
 MODEL_FOLDERS = ("models", "modeller")   # next to the exe in the zip (modeller before v2.0)
+# The user guide next to the exe in the zip, one per UI language (in docs/, copied by build.ps1)
+GUIDE_NAMES = {"da": f"Sådan bruger du {APP_NAME}.txt", "sv": f"Så använder du {APP_NAME}.txt",
+               "no": f"Slik bruker du {APP_NAME}.txt", "en": f"How to use {APP_NAME}.txt"}
+
+
+def guide_name(code: str | None = None) -> str:
+    """The user guide's file name in the given UI language (default: the current one)."""
+    return GUIDE_NAMES.get(code or current(), GUIDE_NAMES["en"])
 
 
 def install_dir() -> Path:
@@ -276,7 +286,7 @@ def install(connect_claude: bool) -> Path:
     for need in ((EXE_NAME,), ("_internal", "base_library.zip")):
         if (src.joinpath(*need)).exists() and not staging.joinpath(*need).exists():
             shutil.rmtree(staging, ignore_errors=True)
-            raise RuntimeError(f"Kopieringen er ufuldstændig ({need[-1]} mangler).")
+            raise RuntimeError(t("installer.copy_incomplete", name=need[-1]))
     staging.rename(dst)
     tmp = base / (CURRENT + ".tmp")
     tmp.write_text(APP_VERSION, encoding="utf-8")
@@ -321,41 +331,122 @@ def offer_install() -> bool:
     if have and _vtuple(have) > _vtuple(APP_VERSION):
         return True  # an older zip: just run it
     set_app_id()
+    settings = _read_settings()
+    from . import skin, theme
+    theme.load_fonts()
     root = tk.Tk()
     root.title(APP_NAME)
     set_app_icon(root)
     root.resizable(False, False)
     try:
-        import sv_ttk
-        sv_ttk.set_theme("light", root)
+        skin.apply(root, theme.resolve(settings.get("theme", "system")), root.winfo_fpixels("1i") / 96)
+        skin.dialog(root)
     except Exception:
-        pass
+        log.exception("could not theme the install window")
     result = {"go": True}
+    if not settings.get("ui_language"):
+        # The very first start: the app's language before anything else (page 1/2), preselected from Windows
+        _language_page(root, settings, lambda: _main_page(root, have, result, "2/2"))
+    else:
+        _main_page(root, have, result)
+    root.protocol("WM_DELETE_WINDOW", root.destroy)
+    root.update_idletasks()
+    x = (root.winfo_screenwidth() - root.winfo_reqwidth()) // 2
+    y = (root.winfo_screenheight() - root.winfo_reqheight()) // 3
+    root.geometry(f"+{x}+{y}")
+    root.mainloop()
+    return result["go"]
+
+
+def _read_settings() -> dict:
+    try:
+        return json.loads((data_dir() / "settings.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_ui_language(code: str):
+    """Programmets sprog into the app's settings (gui.Settings reads it; other keys are kept)."""
+    data = _read_settings()
+    data["ui_language"] = code
+    try:
+        (data_dir() / "settings.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    except Exception:
+        log.exception("could not save the language")
+
+
+def _brand(parent, step: str | None = None):
+    """The logo as in the app's header, and the page number on the right."""
+    from .theme import IMG
+    top = ttk.Frame(parent)
+    top.pack(fill="x", pady=(0, 16))
+    try:
+        ttk.Label(top, image=IMG.get("art/header-logo")).pack(side="left")
+    except Exception:
+        ttk.Label(top, text=APP_NAME, style="Title.TLabel").pack(side="left")
+    if step:
+        ttk.Label(top, text=step, style="Pixel.TLabel").pack(side="right", anchor="n")
+
+
+def _language_page(root, settings: dict, then):
+    from .pickers import language_tiles
     f = ttk.Frame(root, padding=24)
     f.pack(fill="both", expand=True)
+    _brand(f, "1/2")
+    title = ttk.Label(f, text=t("pickers.first_title"), style="Section.TLabel")
+    title.pack(anchor="w", pady=(0, 12))
+    # Someone who used the app before 2.1 had it in Danish; a new user gets Windows' language
+    choice = tk.StringVar(value=settings.get("ui_language") or ("da" if settings else i18n.windows_language()))
+    hint = ttk.Label(f, style="Hint.TLabel", justify="left")
+    buttons = ttk.Frame(f)
+    go = ttk.Button(buttons, style="Accent.TButton")
+    skip = ttk.Button(buttons, command=root.destroy)
+
+    def show(code=None):
+        # The page speaks the picked language at once, so the user sees what they chose
+        code = choice.get()
+        i18n.set_language(code)
+        hint.configure(text=t("pickers.first_hint"))
+        go.configure(text=t("pickers.continue"))
+        skip.configure(text=t("installer.run_without"))
+
+    def next_page():
+        _save_ui_language(choice.get())
+        f.destroy()
+        then()
+
+    language_tiles(f, choice, columns=2, on_change=show).pack(fill="x")
+    hint.pack(anchor="w", pady=(10, 0))
+    buttons.pack(anchor="e", pady=(24, 0))
+    skip.pack(side="left", padx=(0, 8))
+    go.configure(command=next_page)
+    go.pack(side="left")
+    show()
+    go.focus_set()
+
+
+def _main_page(root, have: str | None, result: dict, step: str | None = None):
+    """Install, update or start the installed copy (page 2/2 on the first start)."""
+    f = ttk.Frame(root, padding=24)
+    f.pack(fill="both", expand=True)
+    _brand(f, step)
     if have == APP_VERSION:
-        title, text, btn = (f"{APP_NAME} er allerede installeret",
-                            "Denne version er allerede installeret. Vil du starte den installerede?", "Start den installerede")
+        page = "installed"
     elif have and installed_under_old_name():
-        title, text, btn = (f"Opdatér til {APP_NAME} {APP_VERSION}?",
-                            f"Videosprog hedder nu {APP_NAME}. Version {have} er installeret. Vil du opdatere?\n"
-                            "Dine indstillinger, ordliste og hentede filer bliver bevaret, og genvejene bliver flyttet.",
-                            "Opdatér")
+        page = "renamed"
     elif have:
-        title, text, btn = (f"Opdatér til version {APP_VERSION}?",
-                            f"Version {have} er installeret. Vil du opdatere den til {APP_VERSION}?\n"
-                            "Dine indstillinger, ordliste og hentede filer bliver bevaret.", "Opdatér")
+        page = "update"
     else:
-        title, text, btn = (f"Installér {APP_NAME}?",
-                            "Programmet bliver lagt i din egen programmappe (det kræver ikke administrator), "
-                            "og der kommer en genvej i Start og på skrivebordet.\n\n"
-                            "Bagefter kan du slette den mappe, du har pakket ud.", "Installér")
-    ttk.Label(f, text=title, font=("Segoe UI Variable Display Semibold", 16)).pack(anchor="w")
+        page = "install"
+    title, text, btn = (t(f"installer.{page}.{part}", app=APP_NAME, version=APP_VERSION, have=have or "")
+                        for part in ("title", "text", "button"))
+    ttk.Label(f, text=title, style="Section.TLabel").pack(anchor="w")
     ttk.Label(f, text=text, wraplength=460, justify="left").pack(anchor="w", pady=(10, 14))
     connect = tk.BooleanVar(value=True)
     if have != APP_VERSION:
-        ttk.Checkbutton(f, text="Forbind med Claude, så du kan bede Claude om at lave videoer", variable=connect).pack(anchor="w")
-    msg = ttk.Label(f, text="", foreground="#c42b1c", wraplength=460, justify="left")
+        ttk.Checkbutton(f, text=t("installer.connect_claude"), variable=connect).pack(anchor="w")
+    from .theme import P
+    msg = ttk.Label(f, text="", foreground=P.error, wraplength=460, justify="left")
     msg.pack(anchor="w", pady=(8, 0))
     b = ttk.Frame(f)
     b.pack(anchor="e", pady=(16, 0))
@@ -368,21 +459,21 @@ def offer_install() -> bool:
             return
         if app_window_open():
             # The new one would only bring the old window forward (one window at a time), and it may be working
-            msg.configure(text=f"{APP_NAME} er åben. Luk den først (vent, hvis den er i gang med en video), "
-                               "og tryk så igen.")
+            msg.configure(text=t("installer.app_open", app=APP_NAME))
             return
         try:
             exe = install(connect.get())
         except PermissionError:
-            msg.configure(text=f"Programmet er i brug. Luk {APP_NAME}, og luk Claude helt (højreklik på "
-                               "Claude-ikonet ved uret -> Quit). Tryk så igen.")
+            msg.configure(text=t("installer.in_use", app=APP_NAME))
             return
         except Exception as e:
             log.exception("install failed")
-            msg.configure(text=f"Det lykkedes ikke: {e}")
+            msg.configure(text=t("installer.failed", error=e))
             return
-        extra = ("\n\nGenstart Claude (Quit og åbn igen), så Claude bruger den nye version." if connect.get() else "")
-        messagebox.showinfo(APP_NAME, f"Version {APP_VERSION} er installeret.{extra}", parent=root)
+        done = t("installer.done", version=APP_VERSION)
+        if connect.get():
+            done += "\n\n" + t("installer.restart_claude")
+        messagebox.showinfo(APP_NAME, done, parent=root)
         subprocess.Popen([str(exe)], close_fds=True)
         result["go"] = False
         root.destroy()
@@ -390,12 +481,5 @@ def offer_install() -> bool:
     def skip():
         root.destroy()
 
-    ttk.Button(b, text="Kør uden at installere", command=skip).pack(side="left", padx=(0, 8))
+    ttk.Button(b, text=t("installer.run_without"), command=skip).pack(side="left", padx=(0, 8))
     ttk.Button(b, text=btn, style="Accent.TButton", command=do_install).pack(side="left")
-    root.protocol("WM_DELETE_WINDOW", skip)
-    root.update_idletasks()
-    x = (root.winfo_screenwidth() - root.winfo_reqwidth()) // 2
-    y = (root.winfo_screenheight() - root.winfo_reqheight()) // 3
-    root.geometry(f"+{x}+{y}")
-    root.mainloop()
-    return result["go"]

@@ -1,0 +1,7 @@
+{
+ "claude.language_problem": "{language}: {problem}",
+ "claude.no_answer": "There is no answer from Claude on the clipboard. Click the copy button at the top of Claude's code block (or below the whole answer) and try again.",
+ "claude.still_missing": "Still missing: {languages}.",
+ "claude.answer_no_cuts": "The answer file is missing the === cuts === section with cut suggestions (it may be empty).",
+ "claude.answer_no_end": "The answer file does not end with === end ===, so it was probably not finished."
+}

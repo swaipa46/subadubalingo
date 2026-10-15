@@ -1,0 +1,14 @@
+{
+ "cutting.kind.start": "Before the meeting starts",
+ "cutting.kind.pause": "Pause",
+ "cutting.kind.end": "After the meeting",
+ "cutting.kind.inappropriate": "Inappropriate",
+ "cutting.kind.offtopic": "Off-topic",
+ "cutting.kind.unclear": "Unclear",
+ "cutting.kind.manual": "Your own cut",
+ "cutting.pause.start": "No speech in the first {length}",
+ "cutting.pause.end": "No speech in the last {length}",
+ "cutting.pause.middle": "No speech for {length}",
+ "cutting.encode_retry": "Trying another way to make the video",
+ "cutting.error.cut": "Could not cut the video ({file}). See the log file for details."
+}

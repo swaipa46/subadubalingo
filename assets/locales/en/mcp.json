@@ -1,0 +1,8 @@
+{
+ "mcp.cancelled_app_not_running": "Stopped from Claude (the app was not running).",
+ "mcp.button.resume": "Resume",
+ "mcp.button.cancel": "Cancel",
+ "mcp.button.settings": "Settings",
+ "mcp.button.save_skill": "Save Claude skill...",
+ "mcp.button.cut_video": "Cut the video"
+}

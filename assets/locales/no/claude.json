@@ -1,0 +1,7 @@
+{
+ "claude.language_problem": "{language}: {problem}",
+ "claude.no_answer": "Det er ikke noe svar fra Claude på utklippstavlen. Klikk på kopieringsknappen øverst i Claudes kodeblokk (eller under hele svaret) og prøv igjen.",
+ "claude.still_missing": "Mangler fortsatt: {languages}.",
+ "claude.answer_no_cuts": "Svarfilen mangler avsnittet === cuts === med klippforslag (det kan gjerne være tomt).",
+ "claude.answer_no_end": "Svarfilen slutter ikke med === end ===, så den ble nok ikke skrevet ferdig."
+}

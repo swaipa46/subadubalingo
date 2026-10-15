@@ -152,6 +152,33 @@ def apply(root: tk.Tk, name: str, scale: float):
     style.layout("Picker.TFrame", [(f"Btn2.border{suffix}", {"sticky": "nsew", "children": [
         ("Frame.padding", {"sticky": "nsew"})]})])
     style.configure("Picker.TFrame", background=P.header_band, padding=(6 * k, 4 * k, 9 * k, 7 * k))
+    # One item in a picker: no background, picker-item frames for hover, current and keyboard focus (README "Header")
+    hover = IMG.get("frames/picker-item-hover")
+    blank = _blank(root, hover)
+    try:
+        style.element_create(f"PickItem.border{suffix}", "image", blank,
+                             ("selected", IMG.get("frames/picker-item-selected")),
+                             ("focus", IMG.get("frames/picker-item-focus")), ("active", hover),
+                             border=P.nine_slice("picker-item-hover", IMG.two), sticky="nsew")
+    except tk.TclError:
+        pass
+    style.layout("PickItem.TLabel", [(f"PickItem.border{suffix}", {"sticky": "nsew", "children": [
+        ("Label.padding", {"sticky": "nsew", "children": [("Label.label", {"sticky": "nsew"})]})]})])
+    style.configure("PickItem.TLabel", background=P.button_secondary_bg, foreground=P.button_secondary_text,
+                    font=(PIXEL_FONT, 12), padding=(4 * k, 4 * k, 4 * k, 3 * k), anchor="center")
+    style.map("PickItem.TLabel", foreground=[("selected", P.picker_selected_text), ("!selected", P.button_secondary_text)])
+    # Settings in the header: the cog alone in a square secondary button
+    style.configure("Icon.TButton", background=P.header_band, padding=(2 * k, 2 * k))
+    # Choice tiles (Programmets sprog, Udseende, the first start): tile frames with hover, chosen and focus
+    _element(style, f"Tile.border{suffix}", "tile", {"selected": "tile-selected", "focus": "tile-focus",
+                                                    "active": "tile-hover"})
+    style.layout("Tile.TFrame", [(f"Tile.border{suffix}", {"sticky": "nsew", "children": [
+        ("Frame.padding", {"sticky": "nsew"})]})])
+    style.configure("Tile.TFrame", background=P.card, padding=(14 * k, 10 * k, 18 * k, 14 * k))
+    style.configure("Tile.Inner.TFrame", background=P.card)
+    for nm, font, fg in (("TileCode.TLabel", (PIXEL_FONT, 14), P.heading), ("TileName.TLabel", "SunValleyBodyStrongFont", P.text),
+                         ("TileHint.TLabel", "SunValleyCaptionFont", P.hint)):
+        style.configure(nm, background=P.card, foreground=fg, font=font)
 
     # Combobox: the input frame (with a focus state) and the theme's colours, also in its drop-down list
     _element(style, f"Input.field{suffix}", "input", {"focus": "input-focus"})
@@ -171,6 +198,13 @@ def apply(root: tk.Tk, name: str, scale: float):
     root.option_add("*TCombobox*Listbox.foreground", P.text)
     root.option_add("*TCombobox*Listbox.selectBackground", P.selection_bg)
     root.option_add("*TCombobox*Listbox.selectForeground", P.selection_text)
+
+
+def _blank(root, like: tk.PhotoImage) -> tk.PhotoImage:
+    """A transparent image the size of like (a picker item without a frame), kept referenced with the theme's images."""
+    img = tk.PhotoImage(master=root, width=like.width(), height=like.height())
+    IMG._cache[f"blank-{like.width()}x{like.height()}"] = img
+    return img
 
 
 def skin_cards(widget):

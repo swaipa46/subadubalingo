@@ -1,0 +1,12 @@
+{
+ "pickers.first_title": "Vælg sprog · Välj språk · Velg språk · Choose language",
+ "pickers.lang_tip": "{name} · byt programmets språk",
+ "pickers.lang_title": "Programmets språk",
+ "pickers.lang_hint": "Språket på knappar och meddelanden. Språket i videon och undertexterna väljer du för varje video.",
+ "pickers.lang_tile_hint": "Knappar och meddelanden på svenska",
+ "pickers.look_hint": "Följ Windows växlar själv mellan ljust och natt när Windows gör det.",
+ "pickers.first_hint": "Valt utifrån språket i Windows. Du kan alltid byta språk uppe till höger i programmet.\nDet är programmets språk. Vilket språk som talas i dina videor väljer du för varje video.",
+ "pickers.continue": "Fortsätt",
+ "pickers.after_run": "Språket byts när programmet är klart med videon.",
+ "pickers.text_voices": "Text och röster"
+}

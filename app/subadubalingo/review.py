@@ -1,7 +1,7 @@
 """The cut review: a timeline (loudness, speech, cuts) where the user drags the edges of the cuts, draws new ones and
 switches them off, a list of the cuts, and a preview of each (frames before/after, play the transition).
 
-Shown in the left column of the main window when the run reaches "Du gennemser klippene". When Claude drives the
+Shown in the left column of the main window when the run reaches the step where the user reviews the cuts. When Claude drives the
 job (MCP), the list is mirrored to jobs/<id>/cuts.json, and what the user tells Claude in the chat
 (godkend_klip) arrives as jobs/<id>/cut_decision.json.
 """
@@ -22,13 +22,19 @@ import numpy as np
 
 from . import cutting, jobs
 from .common import Cue, Runner, log
-from .cutting import KINDS, Cut, fmt_clock, fmt_length
+from .cutting import Cut, fmt_clock, fmt_length
+from .i18n import t
 from .theme import P
 
 
 def kind_colour(kind: str, part: str) -> str:
     """The theme's colour for a cut kind: part 'border' (outline, handles, label) or 'fill'."""
     return getattr(P, f"cut_{kind}_{part}", P.hint)
+
+
+def kind_label(kind: str) -> str:
+    """A cut kind's name in the UI language."""
+    return cutting.kind_label(kind)
 
 EDGE_PX = 7
 MIN_VIEW_MS = 8_000
@@ -72,21 +78,19 @@ class CutReview(ttk.Frame):
         head = ttk.Frame(self)
         head.grid(row=0, column=0, sticky="ew")
         head.columnconfigure(1, weight=1)
-        ttk.Label(head, text="Gennemse klippene", style="Section.TLabel", foreground=P.heading).grid(row=0, column=0, sticky="w")
+        ttk.Label(head, text=t("review.title"), style="Section.TLabel", foreground=P.heading).grid(row=0, column=0, sticky="w")
         zoom = ttk.Frame(head)
         zoom.grid(row=0, column=2, sticky="e")
         ttk.Button(zoom, text="−", width=3, command=lambda: self._zoom(1.6)).pack(side="left")
         ttk.Button(zoom, text="+", width=3, command=lambda: self._zoom(1 / 1.6)).pack(side="left", padx=4)
-        ttk.Button(zoom, text="Hele videoen", command=self._zoom_all).pack(side="left")
+        ttk.Button(zoom, text=t("review.zoom_all"), command=self._zoom_all).pack(side="left")
         self.summary = ttk.Label(self, text="", font="SunValleyBodyStrongFont", foreground=P.step_active)
         self.summary.grid(row=1, column=0, sticky="w", pady=(4, 0))
         n_claude = sum(1 for c in self.cuts if c.source == "claude")
         n_auto = sum(1 for c in self.cuts if c.source == "auto")
-        found = (f"Claude har foreslået {n_claude} klip, og programmet har fundet {n_auto} lange pauser. "
-                 if self.cuts else "Hverken Claude eller programmet har fundet noget at klippe. ")
+        found = t("review.found", claude=n_claude, auto=n_auto) if self.cuts else t("review.found_none")
         hint = ttk.Label(self, style="Hint.TLabel", justify="left", text=(
-            found + "De farvede felter klippes væk. Klik på et klip for at se det, og træk i kanterne for at rette det."
-            + (" Du kan også sige det til Claude i chatten, fx \"behold det ved 14:20\"." if self.mcp_job else "")))
+            found + " " + t("review.hint") + (" " + t("review.hint_mcp") if self.mcp_job else "")))
         hint.grid(row=2, column=0, sticky="ew", pady=(2, 8))
         self.app._wrap(hint, self, 10)
 
@@ -117,16 +121,14 @@ class CutReview(ttk.Frame):
         mid.rowconfigure(0, weight=1)
         cols = ("nr", "tid", "hvorfor")
         self.tree = ttk.Treeview(mid, columns=cols, show="headings", selectmode="browse", height=self._tree_rows())
-        for col, title, width, stretch in (("nr", "#", 48, False), ("tid", "Tid", 150, False),
-                                           ("hvorfor", "Hvorfor", 220, True)):
+        for col, title, width, stretch in (("nr", "#", 48, False), ("tid", t("review.col_time"), 150, False),
+                                           ("hvorfor", t("review.col_why"), 220, True)):
             self.tree.heading(col, text=title, anchor="w")
             self.tree.column(col, width=int(width * k), stretch=stretch, anchor="w")
         self.tree.grid(row=0, column=0, sticky="nsew")
         sb = ttk.Scrollbar(mid, orient="vertical", command=self.tree.yview)
         sb.grid(row=0, column=1, sticky="ns")
-        keys = ttk.Label(mid, style="Hint.TLabel", justify="left", text=(
-            "Mellemrum eller dobbeltklik: behold / klip væk igen  ·  Delete: slet klip  ·  "
-            "Musehjul: zoom  ·  Shift + musehjul: rul til siden"))
+        keys = ttk.Label(mid, style="Hint.TLabel", justify="left", text=t("review.keys"))
         keys.grid(row=1, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.tree.configure(yscrollcommand=sb.set)
         self.tree.tag_configure("off", foreground=P.hint)
@@ -139,7 +141,7 @@ class CutReview(ttk.Frame):
         det.grid(row=0, column=2, rowspan=2, sticky="nsew")
         self.d_title = ttk.Label(det, text="", font="SunValleyBodyStrongFont")
         self.d_title.grid(row=0, column=0, columnspan=2, sticky="w")
-        self.d_text = ttk.Label(det, text="Klik på et klip for at se det.", style="Hint.TLabel", justify="left",
+        self.d_text = ttk.Label(det, text=t("review.click_cut"), style="Hint.TLabel", justify="left",
                                 wraplength=int(340 * k))
         self.d_text.grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 6))
         self.img_a = tk.Label(det, background=P.card, borderwidth=0)
@@ -152,22 +154,22 @@ class CutReview(ttk.Frame):
         self.cap_b.grid(row=3, column=1, sticky="w", padx=(6, 0))
         acts = ttk.Frame(det)
         acts.grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
-        self.b_trans = ttk.Button(acts, text="▶  Se overgangen", command=lambda: self._play("trans"))
+        self.b_trans = ttk.Button(acts, text=t("review.play_transition"), command=lambda: self._play("trans"))
         self.b_trans.grid(row=0, column=0, sticky="w")
-        self.b_cut = ttk.Button(acts, text="▶  Se det, der klippes væk", command=lambda: self._play("cut"))
+        self.b_cut = ttk.Button(acts, text=t("review.play_cut"), command=lambda: self._play("cut"))
         self.b_cut.grid(row=0, column=1, sticky="w", padx=(6, 0))
-        self.b_toggle = ttk.Button(acts, text="Behold i videoen", command=lambda: self._toggle(self.sel))
+        self.b_toggle = ttk.Button(acts, text=t("review.keep"), command=lambda: self._toggle(self.sel))
         self.b_toggle.grid(row=1, column=0, sticky="w", pady=(6, 0))
-        self.b_delete = ttk.Button(acts, text="Slet klip", command=lambda: self._delete(self.sel))
+        self.b_delete = ttk.Button(acts, text=t("review.delete"), command=lambda: self._delete(self.sel))
         self.b_delete.grid(row=1, column=1, sticky="w", padx=(6, 0), pady=(6, 0))
         self.detail_btns = (self.b_trans, self.b_cut, self.b_toggle, self.b_delete)
 
         bottom = ttk.Frame(self)
         bottom.grid(row=7, column=0, sticky="ew", pady=(14, 0))
-        self.b_ok = ttk.Button(bottom, text="Klip videoen", style="Accent.TButton", command=self._approve)
+        self.b_ok = ttk.Button(bottom, text=t("review.approve"), style="Accent.TButton", command=self._approve)
         self.b_ok.pack(side="left", ipady=4)
-        ttk.Button(bottom, text="Spring klip over", command=self._skip).pack(side="left", padx=10)
-        ttk.Button(bottom, text="Annullér", command=self.app._cancel).pack(side="left")
+        ttk.Button(bottom, text=t("review.skip"), command=self._skip).pack(side="left", padx=10)
+        ttk.Button(bottom, text=t("review.cancel"), command=self.app._cancel).pack(side="left")
         self.b_hint = ttk.Label(bottom, text="", style="Hint.TLabel")
         self.b_hint.pack(side="left", padx=12)
         self._refresh_list()
@@ -295,7 +297,7 @@ class CutReview(ttk.Frame):
                 for x in (x0, x1):
                     c.create_rectangle(x - 3 * k, mid - 14 * k, x + 3 * k, mid + 14 * k, fill=strong if cut.on else P.hint,
                                        outline=P.timeline_bg)
-            label = f"{n}  {KINDS[cut.kind][0]}" if cut.on else f"{n}  beholdes"
+            label = f"{n}  {kind_label(cut.kind) if cut.on else t('review.kept')}"
             if x1 - x0 > 150 * k:
                 c.create_text(max(x0, m) + 6 * k, top + 4 * k, text=label, anchor="nw", fill=strong if cut.on else P.hint,
                               font="SunValleyCaptionFont")
@@ -308,14 +310,14 @@ class CutReview(ttk.Frame):
         span_s = (self.v1 - self.v0) / 1000
         px_per_s = self._width() / max(0.001, span_s)
         step = next((s for s in (1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600) if s * px_per_s >= 80 * k), 3600)
-        t = (self.v0 // 1000 // step) * step
-        while t * 1000 <= self.v1:
-            x = self.x_of(t * 1000)
+        sec = (self.v0 // 1000 // step) * step
+        while sec * 1000 <= self.v1:
+            x = self.x_of(sec * 1000)
             if x >= m - 1:
                 c.create_line(x, top - 6 * k, x, top, fill=P.timeline_ruler)
-                c.create_text(x + 3 * k, top - 4 * k, text=fmt_clock(t * 1000), anchor="sw", fill=P.timeline_ruler,
+                c.create_text(x + 3 * k, top - 4 * k, text=fmt_clock(sec * 1000), anchor="sw", fill=P.timeline_ruler,
                               font="SunValleyCaptionFont")
-            t += step
+            sec += step
         # hover line
         if self.hover_t is not None and self.v0 <= self.hover_t <= self.v1:
             x = self.x_of(self.hover_t)
@@ -328,23 +330,24 @@ class CutReview(ttk.Frame):
         """('edge', cut, 'start'|'end') or ('cut', cut) or None. The selected cut wins."""
         order = ([self.sel] if self.sel else []) + [c for c in self.cuts if c is not self.sel]
         for cut in order:
-            for side, t in (("start", cut.start), ("end", cut.end)):
-                if abs(self.x_of(t) - x) <= EDGE_PX * self.k:
+            for side, at in (("start", cut.start), ("end", cut.end)):
+                if abs(self.x_of(at) - x) <= EDGE_PX * self.k:
                     return ("edge", cut, side)
         for cut in order:
             if self.x_of(cut.start) <= x <= self.x_of(cut.end):
                 return ("cut", cut)
         return None
 
-    def _set_hover(self, t: int | None):
-        self.hover_t = t
-        if t is None:
+    def _set_hover(self, ms: int | None):
+        self.hover_t = ms
+        if ms is None:
             self.hover.configure(text=" ")
         else:
-            text = cutting.text_at(self.cues, t)
-            inside = next((c for c in self.cuts if c.start <= t <= c.end), None)
-            where = f"   [{KINDS[inside.kind][0].lower() if inside.on else 'beholdes'}]" if inside else ""
-            self.hover.configure(text=f"{fmt_clock(t)}{where}   " + (f"“{text}”" if text else "(ingen tale)"))
+            text = cutting.text_at(self.cues, ms)
+            inside = next((c for c in self.cuts if c.start <= ms <= c.end), None)
+            where = f"   [{kind_label(inside.kind) if inside.on else t('review.kept')}]" if inside else ""
+            self.hover.configure(text=f"{fmt_clock(ms)}{where}   "
+                                 + (t("review.quote", text=text) if text else t("review.no_speech")))
         self._redraw()
 
     def _on_motion(self, e):
@@ -383,7 +386,7 @@ class CutReview(ttk.Frame):
         elif d["mode"] == "new" and d["moved"]:
             a, b = sorted((self._snap(d["t0"]), t))
             if d["cut"] is None:
-                d["cut"] = Cut(a, max(b, a + 1), "manual", "Dit eget klip", True, "user")
+                d["cut"] = Cut(a, max(b, a + 1), "manual", kind_label("manual"), True, "user")
                 self.cuts.append(d["cut"])
                 self.sel = d["cut"]
             d["cut"].start, d["cut"].end = a, max(b, a + 1)
@@ -421,10 +424,10 @@ class CutReview(ttk.Frame):
         self.tree.delete(*self.tree.get_children())
         self.tree.configure(height=self._tree_rows())
         for n, cut in enumerate(self.cuts, 1):
-            why = KINDS[cut.kind][0] + (f": {cut.reason}" if cut.reason else "")
+            why = kind_label(cut.kind) + (f": {cut.reason}" if cut.reason else "")
             self.tree.insert("", "end", iid=str(n), tags=() if cut.on else ("off",), values=(
                 f"{n}." if cut.on else f"({n})", f"{fmt_clock(cut.start)} - {fmt_clock(cut.end)}  ({fmt_length(cut.length)})",
-                why if cut.on else "Beholdes - " + why))
+                why if cut.on else t("review.list_kept", why=why)))
         if self.sel in self.cuts:
             iid = str(self.cuts.index(self.sel) + 1)
             self.tree.selection_set(iid)
@@ -433,14 +436,15 @@ class CutReview(ttk.Frame):
         removed = cutting.removed_ms(ranges)
         n_on = sum(1 for c in self.cuts if c.on)
         if n_on:
-            self.summary.configure(text=f"{n_on} klip fjerner {fmt_length(removed)}. Videoen bliver "
-                                        f"{fmt_clock(self.dur - removed)} lang (nu {fmt_clock(self.dur)}).")
-            self.b_ok.configure(text=f"Klip videoen ({n_on} klip)", state="normal")
+            one = "_one" if n_on == 1 else ""   # English needs "1 cut" / "2 cuts"
+            self.summary.configure(text=t("review.summary" + one, n=n_on, removed=fmt_length(removed),
+                                          new=fmt_clock(self.dur - removed), old=fmt_clock(self.dur)))
+            self.b_ok.configure(text=t("review.approve_n" + one, n=n_on), state="normal")
             self.b_hint.configure(text="")
         else:
-            self.summary.configure(text=f"Ingen klip valgt. Videoen er {fmt_clock(self.dur)} lang.")
-            self.b_ok.configure(text="Klip videoen", state="disabled")
-            self.b_hint.configure(text="Intet at klippe? Tryk \"Spring klip over\".")
+            self.summary.configure(text=t("review.summary_none", length=fmt_clock(self.dur)))
+            self.b_ok.configure(text=t("review.approve"), state="disabled")
+            self.b_hint.configure(text=t("review.skip_hint", skip=t("review.skip")))
         self._dirty_snapshot = True
 
     def _on_tree_select(self, _=None):
@@ -495,20 +499,20 @@ class CutReview(ttk.Frame):
             b.configure(state="normal" if cut else "disabled")
         if not cut:
             self.d_title.configure(text="")
-            self.d_text.configure(text="Klik på et klip for at se det. Klik på et tomt sted for at se billedet der.")
+            self.d_text.configure(text=t("review.click_cut_or_empty"))
             return
         n = self.cuts.index(cut) + 1 if cut in self.cuts else 0
-        self.d_title.configure(text=f"Klip {n}: {KINDS[cut.kind][0]}", foreground=kind_colour(cut.kind, "border") if cut.on else P.hint)
+        self.d_title.configure(text=t("review.detail_title", n=n, kind=kind_label(cut.kind)), foreground=kind_colour(cut.kind, "border") if cut.on else P.hint)
         said = cutting.excerpt(self.cues, cut.start, cut.end, 110)   # short: the timeline needs the height
         text = ((cut.reason + "\n" if cut.reason else "")
                 + f"{fmt_clock(cut.start)} - {fmt_clock(cut.end)} ({fmt_length(cut.length)})"
-                + (f"\n“{said}”" if said else "\n(ingen tale)")
-                + ("" if cut.on else "\nBeholdes i videoen."))
+                + "\n" + (t("review.quote", text=said) if said else t("review.no_speech"))
+                + ("" if cut.on else "\n" + t("review.kept_in_video")))
         self.d_text.configure(text=text + "\n" * max(0, 3 - text.count("\n")))   # about the same height for every cut
         self.after_idle(self._hold_height)
-        self.b_toggle.configure(text="Behold i videoen" if cut.on else "Klip væk alligevel")
-        self.cap_a.configure(text=f"Lige før  {fmt_clock(cut.start)}")
-        self.cap_b.configure(text=f"Lige efter  {fmt_clock(cut.end)}")
+        self.b_toggle.configure(text=t("review.keep") if cut.on else t("review.cut_anyway"))
+        self.cap_a.configure(text=t("review.just_before", time=fmt_clock(cut.start)))
+        self.cap_b.configure(text=t("review.just_after", time=fmt_clock(cut.end)))
         self._load_frames([(max(0, cut.start - 400), self.img_a), (min(self.dur - 200, cut.end + 300), self.img_b)])
 
     def _hold_height(self):
@@ -522,11 +526,11 @@ class CutReview(ttk.Frame):
             self._mid_min = h
             self.rowconfigure(6, minsize=h)
 
-    def _show_frame_at(self, t: int):
-        self.cap_a.configure(text=f"Billedet ved {fmt_clock(t)}")
+    def _show_frame_at(self, ms: int):
+        self.cap_a.configure(text=t("review.frame_at", time=fmt_clock(ms)))
         self.cap_b.configure(text="")
         self.img_b.configure(image="")
-        self._load_frames([(t, self.img_a)])
+        self._load_frames([(ms, self.img_a)])
 
     def _load_frames(self, items):
         self._img_gen += 1
@@ -549,7 +553,7 @@ class CutReview(ttk.Frame):
             return
         btn = self.b_trans if what == "trans" else self.b_cut
         old = btn.cget("text")
-        btn.configure(text="Laver klippet ...", state="disabled")
+        btn.configure(text=t("review.making_preview"), state="disabled")
         out = self.tmp / f"{what}-{cut.start}-{cut.end}.mp4"
 
         def work():

@@ -1,0 +1,12 @@
+{
+ "pickers.first_title": "Vælg sprog · Välj språk · Velg språk · Choose language",
+ "pickers.lang_tip": "{name} · skift programmets sprog",
+ "pickers.lang_title": "Programmets sprog",
+ "pickers.lang_hint": "Det sprog, knapper og beskeder står på. Sproget i videoen og underteksterne vælger du for hver video.",
+ "pickers.lang_tile_hint": "Knapper og beskeder på dansk",
+ "pickers.look_hint": "Følg Windows skifter selv mellem lys og nat, når Windows gør.",
+ "pickers.first_hint": "Valgt ud fra sproget i Windows. Du kan altid skifte sprog øverst til højre i programmet.\nDet er programmets sprog. Hvilket sprog der tales i dine videoer, vælger du for hver video.",
+ "pickers.continue": "Fortsæt",
+ "pickers.after_run": "Sproget skifter, når programmet er færdigt med videoen.",
+ "pickers.text_voices": "Tekst og stemmer"
+}

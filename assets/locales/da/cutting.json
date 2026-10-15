@@ -1,0 +1,14 @@
+{
+ "cutting.kind.start": "Før mødet går i gang",
+ "cutting.kind.pause": "Pause",
+ "cutting.kind.end": "Efter mødet",
+ "cutting.kind.inappropriate": "Upassende",
+ "cutting.kind.offtopic": "Off-topic",
+ "cutting.kind.unclear": "Uklart",
+ "cutting.kind.manual": "Dit eget klip",
+ "cutting.pause.start": "Ingen tale de første {length}",
+ "cutting.pause.end": "Ingen tale de sidste {length}",
+ "cutting.pause.middle": "Ingen tale i {length}",
+ "cutting.encode_retry": "Prøver en anden måde at lave videoen på",
+ "cutting.error.cut": "Kunne ikke klippe videoen ({file}). Se logfilen for detaljer."
+}

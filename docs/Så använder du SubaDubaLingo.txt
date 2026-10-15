@@ -1,0 +1,164 @@
+SUBADUBALINGO - undertexter och dubbning av videor
+==================================================
+(Programmet hette Videosprog fram till version 2.0.)
+
+Programmet gör undertexter till videor och kan dubba dem till svenska, norska,
+danska eller engelska med en datorröst. Det kan också klippa bort väntetid,
+pauser och sådant som inte ska vara med, till exempel i en Teams-inspelning.
+Allt sker på din egen dator. Videon skickas ingenstans.
+
+Starta programmet genom att dubbelklicka på "SubaDubaLingo.exe" i mappen.
+Har du redan Videosprog erbjuder det sig att uppdatera: tryck "Uppdatera". Dina
+inställningar och ord sparas, och genvägarna flyttas. Är Claude öppen, stäng
+då Claude helt efteråt och öppna den igen.
+Första gången erbjuder programmet sig att installera sig självt; tryck "Installera".
+Tips: högerklicka på det och välj "Fäst på Start", så är det lätt att hitta.
+
+Längst upp till höger kan du byta programmets språk (DA, SV, NO, EN) och utseende
+(Ljus, Natt eller Följ Windows). Kugghjulet längst till höger öppnar
+inställningarna.
+
+
+FÖRSTA GÅNGEN
+-------------
+Första gången du trycker Start säger programmet att det saknas några filer
+(ca 1,1 GB, och 63 MB per röst för dubbning). Tryck "Hämta automatiskt".
+Fungerar det inte, klicka på länkarna, hämta filerna och lägg dem i modellmappen
+(knappen "Öppna modellmappen").
+
+Lägg också in Claude-skillen i Claude (en gång). Programmet visar själv
+fönstret "Lägg in Claude-skillen" med fyra steg:
+1. Klicka "Spara skill-filen". Den hamnar i mappen Hämtade filer.
+2. Öppna Claude och gå till Customize -> Skills.
+3. Ta bort de gamla "subadubalingo" och "videosprog", om de finns där.
+4. Klicka "Upload skill" och välj "subadubalingo-skill.zip".
+Klicka sedan "Jag har gjort det". Skillen lär Claude reglerna och EG:s fackord
+(till exempel Membercare).
+
+
+SÅ GÖR DU EN VIDEO
+------------------
+1. Klicka "Välj video..." och välj videon.
+2. Välj vilket språk som talas i videon.
+3. Välj vad den nya videon ska ha:
+     Tal:           Original, eller ett språk den ska dubbas till
+     Undertexter:   Ingen, eller det språk texterna ska vara på
+   Under valen står det vilken fil du får.
+4. Tryck Start. Du kan jobba vidare med annat under tiden.
+
+Medan programmet arbetar visar det stegen och hur långt det har kommit.
+När texten är skriven kommer programmet fram, och panelen "Claude" till höger
+lyser upp med "Din tur" (se CLAUDE nedan). Sedan gör programmet resten
+självt, och när videon är klar står det "Klar!" med knappar för att spela upp
+den, visa den i mappen eller göra en ny.
+
+Exempel:
+  Tal: Original,  Undertexter: Svenska  -> videon med svenska undertexter
+  Tal: Original,  Undertexter: Danska   -> videon med danska undertexter
+  Tal: Svenska,   Undertexter: Norska   -> svensk dubbning med norska undertexter
+
+De nya filerna hamnar i samma mapp som videon. Originalet ändras aldrig.
+Texten sparas, så nästa video från samma inspelning (till exempel ett annat språk)
+går mycket snabbare. Har videon ändrats sedan dess görs texten om automatiskt.
+
+Det tar tid: på en vanlig bärbar dator kan det ta ett par minuter per minut
+video. Programmet visar hur lång tid som är kvar och låter självt andra
+program gå före, så att du kan jobba vidare. Blir datorn ändå för
+långsam (till exempel i ett Teams-möte), tryck "Paus". Då slutar programmet helt
+att använda datorn, och när du trycker "Fortsätt" jobbar det vidare där det
+slutade. Stäng inte programmet medan det arbetar - då måste det börja om.
+Medan det är din tur (Claude eller klippen) är "Paus" grå: programmet
+väntar ju bara på dig.
+
+"Avbryt" frågar först om du vill stoppa. Efteråt står det om något
+sparades (till exempel de svenska undertexterna, så att det går snabbare nästa gång).
+
+
+CLAUDE
+------
+Claude rättar felhörda ord (till exempel produktnamn) och översätter till de språk
+den nya videon ska ha. Det sker med en fil fram och en fil tillbaka:
+1. Klicka "Kopiera fil" i Claude-kortet.
+2. Öppna en ny chatt i Claude, klistra in (Ctrl+V) och skicka. (Går det inte att
+   klistra in filen, klicka "Visa i mappen" och dra in filen i Claude.)
+3. Claude gör en svarsfil ("... - fra Claude.txt"). Klicka på den i Claudes svar
+   och tryck Download.
+4. Programmet hittar själv filen i mappen Hämtade filer, kontrollerar den och
+   fortsätter. Du behöver inte spara eller flytta något. Under tiden står det under
+   steg 3 att programmet väntar på svarsfilen, och hur länge.
+
+Är svarsfilen inte i ordning (till exempel om Claude inte blev klar) står det vad du
+ska göra: klicka "Kopiera meddelande till Claude", klistra in meddelandet i samma chatt
+och hämta den nya filen. (Den tekniska orsaken står med liten grå text under.) Krånglar det kan du använda "Använd kopiera/klistra in i delar i stället".
+
+Programmet kommer ihåg orden som Claude rättar, så att de blir rätt nästa gång.
+Då och då kan du ge Claude de nya orden: kugghjulet längst upp till höger ->
+"Spara Claude-skill...", och ladda upp den sparade filen i Claude som beskrivs under
+FÖRSTA GÅNGEN (ta bort den gamla skillen först).
+
+
+RÄTTA FEL I TEXTEN
+------------------
+Datorn hör inte alltid rätt, särskilt när det gäller namn och fackord.
+
+Hör den samma ord fel varje gång (till exempel ett produktnamn), skriv in det i
+listan med rättelser: kugghjulet -> "Redigera rättelser". En rad per ord,
+till exempel:   memberkär = Membercare
+Bocka sedan i "Lyssna igenom videon från början" och tryck Start.
+
+Enstaka fel kan du rätta direkt i textfilen (till exempel "... - svenska undertexter.srt")
+i Anteckningar. Ändra bara texten, inte siffrorna och tidskoderna. Tryck sedan Start igen.
+
+Har du bråttom kan du under kugghjulet välja "Snabbast". Det går ungefär 1,5
+gånger snabbare, men fler ord blir felhörda.
+
+
+KLIPP VIDEON FÖRST (till exempel en Teams-inspelning)
+-----------------------------------------------------
+Bocka i "Klipp videon först" innan du trycker Start. Då hittar
+programmet själv långa pauser, och Claude föreslår vad som ska klippas bort:
+väntetiden innan mötet kommer igång, avbrott, slutet där inspelningen
+drar ut på tiden, och sådant som är olämpligt, inte hör till ämnet eller inte går att förstå.
+
+När Claude är klar visar programmet en tidslinje med alla klipp i färger.
+Ingenting klipps förrän du har godkänt det:
+- Klipp 1 är valt från början. Klicka på ett klipp för att se bilden precis före
+  och precis efter, och tryck
+  "Se övergången" för att se hur klippet blir.
+- Dra i kanterna för att flytta ett klipp. Dra på ett tomt ställe för att göra
+  ett eget klipp. Dubbelklicka på ett klipp (eller "Behåll i videon") om
+  det ska vara kvar i videon ändå.
+- Rulla med mushjulet för att zooma in (Shift + mushjulet rullar åt sidan).
+- I listan: mellanslag behåller ett klipp eller klipper bort det igen, och Delete
+  tar bort det.
+Tryck "Klipp videon" när du är nöjd. Du får "... - klippt.mp4", och
+undertexterna och dubbningen görs till den klippta videon. Vill du bara få
+videon klippt, välj Tal: Original och Undertexter: Ingen.
+
+Gör du senare ett annat språk av samma video återanvänds den klippta videon.
+Vill du klippa om, bocka i "Klipp om videon".
+
+
+ANVÄND PROGRAMMET FRÅN CLAUDE (valfritt)
+----------------------------------------
+Du kan också be Claude om allt i en vanlig chatt:
+1. Kugghjulet -> "Anslut till Claude" (en gång). Stäng Claude helt
+   (högerklicka på Claude-ikonen vid klockan -> Quit) och öppna Claude igen.
+2. Skriv till exempel till Claude:
+     Gör den här videon på svenska med norska undertexter:
+     C:\Users\dig\Videos\webinar.mp4
+Claude startar programmet, berättar hur långt det har kommit, rättar och översätter
+texten själv och säger till när videon är klar. Du kan följa med i
+programmet under tiden. Stannar Claude på vägen, skriv "fortsätt".
+Ska videon klippas, skriv det, till exempel "Klipp bort väntetiden och pauserna och
+gör svenska undertexter". När du ser klippen i programmet kan du ändra dem
+där eller säga det till Claude, till exempel "behåll det vid 14:20".
+Vill du stoppa en video, skriv "stoppa videon" till Claude.
+Har du uppdaterat programmet medan Claude var öppen säger Claude det. Stäng
+då Claude helt (Quit, som i steg 1) och öppna Claude igen.
+
+
+OM NÅGOT GÅR FEL
+----------------
+Under kugghjulet längst upp till höger finns en knapp "Öppna loggfil". Skicka filen till
+Kasper.

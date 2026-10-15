@@ -1,0 +1,22 @@
+{
+ "installer.installed.title": "{app} er allerede installert",
+ "installer.installed.text": "Denne versjonen er allerede installert. Vil du starte den installerte?",
+ "installer.installed.button": "Start den installerte",
+ "installer.renamed.title": "Oppdatere til {app} {version}?",
+ "installer.renamed.text": "Videosprog heter nå {app}. Versjon {have} er installert. Vil du oppdatere?\nInnstillingene, ordlisten og nedlastede filer blir tatt vare på, og snarveiene blir flyttet.",
+ "installer.renamed.button": "Oppdater",
+ "installer.update.title": "Oppdatere til versjon {version}?",
+ "installer.update.text": "Versjon {have} er installert. Vil du oppdatere den til {version}?\nInnstillingene, ordlisten og nedlastede filer blir tatt vare på.",
+ "installer.update.button": "Oppdater",
+ "installer.install.title": "Installere {app}?",
+ "installer.install.text": "Programmet legges i din egen programmappe (det krever ikke administrator), og du får en snarvei i Start og på skrivebordet.\n\nEtterpå kan du slette mappen du pakket ut.",
+ "installer.install.button": "Installer",
+ "installer.connect_claude": "Koble til Claude, så du kan be Claude om å lage videoer",
+ "installer.app_open": "{app} er åpen. Lukk den først (vent hvis den holder på med en video), og trykk så igjen.",
+ "installer.in_use": "Programmet er i bruk. Lukk {app}, og avslutt Claude helt (høyreklikk på Claude-ikonet ved klokken -> Quit). Trykk så igjen.",
+ "installer.failed": "Det gikk ikke: {error}",
+ "installer.done": "Versjon {version} er installert.",
+ "installer.restart_claude": "Start Claude på nytt (Quit og åpne igjen), så Claude bruker den nye versjonen.",
+ "installer.run_without": "Kjør uten å installere",
+ "installer.copy_incomplete": "Kopieringen er ufullstendig ({name} mangler)."
+}

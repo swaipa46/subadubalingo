@@ -1,0 +1,12 @@
+{
+ "pickers.first_title": "Vælg sprog · Välj språk · Velg språk · Choose language",
+ "pickers.lang_tip": "{name} · change the app's language",
+ "pickers.lang_title": "App language",
+ "pickers.lang_hint": "The language of buttons and messages. The languages of a video and its subtitles are chosen for each video.",
+ "pickers.lang_tile_hint": "Buttons and messages in English",
+ "pickers.look_hint": "Follow Windows switches between light and night when Windows does.",
+ "pickers.first_hint": "Picked from your Windows language. You can always change it at the top right of the app.\nThis is the app's language. The language spoken in your videos is chosen for each video.",
+ "pickers.continue": "Continue",
+ "pickers.after_run": "The language changes when the app has finished the video.",
+ "pickers.text_voices": "Text and voices"
+}

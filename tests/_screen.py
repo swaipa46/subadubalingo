@@ -52,3 +52,33 @@ def grab(bbox):
     """A screenshot of bbox (left, top, right, bottom) in screen coordinates, on any monitor (PIL takes screen
     coordinates also left of or above the primary monitor when all_screens is on)."""
     return ImageGrab.grab(bbox=bbox, all_screens=True)
+
+
+def grab_window(hwnd: int):
+    """A picture of one window drawn by the window itself (PrintWindow), so it also works while the screen is locked
+    or the window is covered. Falls back to a screen grab of its rectangle."""
+    from PIL import Image
+    u32, gdi = ctypes.windll.user32, ctypes.windll.gdi32
+    r = w.RECT()
+    u32.GetWindowRect(w.HWND(hwnd), ctypes.byref(r))
+    wd, ht = r.right - r.left, r.bottom - r.top
+    hdc = u32.GetWindowDC(w.HWND(hwnd))
+    mdc = gdi.CreateCompatibleDC(hdc)
+    bmp = gdi.CreateCompatibleBitmap(hdc, wd, ht)
+    gdi.SelectObject(mdc, bmp)
+    ok = u32.PrintWindow(w.HWND(hwnd), mdc, 2)   # PW_RENDERFULLCONTENT
+
+    class BIH(ctypes.Structure):
+        _fields_ = [("biSize", w.DWORD), ("biWidth", w.LONG), ("biHeight", w.LONG), ("biPlanes", w.WORD),
+                    ("biBitCount", w.WORD), ("biCompression", w.DWORD), ("biSizeImage", w.DWORD),
+                    ("biXPelsPerMeter", w.LONG), ("biYPelsPerMeter", w.LONG), ("biClrUsed", w.DWORD),
+                    ("biClrImportant", w.DWORD)]
+    bih = BIH(ctypes.sizeof(BIH), wd, -ht, 1, 32, 0, 0, 0, 0, 0, 0)
+    buf = ctypes.create_string_buffer(wd * ht * 4)
+    gdi.GetDIBits(mdc, bmp, 0, ht, buf, ctypes.byref(bih), 0)
+    gdi.DeleteObject(bmp)
+    gdi.DeleteDC(mdc)
+    u32.ReleaseDC(w.HWND(hwnd), hdc)
+    if not ok:
+        return grab((r.left, r.top, r.right, r.bottom))
+    return Image.frombuffer("RGB", (wd, ht), buf, "raw", "BGRX", 0, 1)

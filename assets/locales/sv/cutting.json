@@ -1,0 +1,14 @@
+{
+ "cutting.kind.start": "Innan mötet börjar",
+ "cutting.kind.pause": "Paus",
+ "cutting.kind.end": "Efter mötet",
+ "cutting.kind.inappropriate": "Olämpligt",
+ "cutting.kind.offtopic": "Utanför ämnet",
+ "cutting.kind.unclear": "Otydligt",
+ "cutting.kind.manual": "Ditt eget klipp",
+ "cutting.pause.start": "Inget tal de första {length}",
+ "cutting.pause.end": "Inget tal de sista {length}",
+ "cutting.pause.middle": "Inget tal på {length}",
+ "cutting.encode_retry": "Försöker göra videon på ett annat sätt",
+ "cutting.error.cut": "Kunde inte klippa videon ({file}). Se loggfilen för detaljer."
+}
