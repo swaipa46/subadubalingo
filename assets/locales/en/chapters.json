@@ -1,0 +1,12 @@
+{
+ "chapters.title": "Chapters and description",
+ "chapters.copy_chapters": "Copy chapters",
+ "chapters.copy_summary": "Copy description",
+ "chapters.copied": "Copied",
+ "chapters.hint": "Ready for YouTube: paste the description and the chapters into the video's description. Both are also in the file {file}.",
+ "chapters.no_chapters": "The video is too short for chapters.",
+ "chapters.more": "... and {n} more",
+ "chapters.task": "make chapters and a short description of the video",
+ "chapters.mcp_waiting": "Chapters and description: none received yet",
+ "chapters.mcp_done": "Chapters and description: {n} chapters received"
+}

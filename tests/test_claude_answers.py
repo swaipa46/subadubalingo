@@ -68,6 +68,48 @@ _, _, msg = claude.check_file_answer(part, codes, f"{claude.ANSWER_HEADER} id=j\
 good = msg is not None and "end" in msg
 ok &= good
 print(("OK  " if good else "FAIL"), "answer file without === end === |", msg)
+# Skill 6: chapters and a summary (optional sections), and filler cuts; a version 5 answer has neither and is fine
+long = [Cue(i * 20_000, i * 20_000 + 3000, f"Blok {i + 1}.") for i in range(12)]   # 4 minutes
+lsrt = srt(long)
+text6 = (f"{claude.ANSWER_HEADER} id=job6 skill=6\n=== da ===\n{lsrt}\n=== cuts ===\n3 filler Øh, øhm\n"
+         "=== chapters ===\n0:00 Velkommen\n00:01:00,000 Sådan opretter du et medlem\n- 2:20 - Spørgsmål\n"
+         "=== summary ===\nEt webinar om Membercare.\n\nTo afsnit.\n=== words ===\nmemberkær => Membercare\n=== end ===\n")
+have, words, msg = claude.check_file_answer(long, ["da"], text6, cut=True)
+o = claude.answer_outline(text6, 240_000)
+good = (msg is None and words == [("memberkær", "Membercare")] and claude.answer_cuts(text6) == ["3 filler Øh, øhm"]
+        and [(c.start, c.title) for c in o.chapters] == [(0, "Velkommen"), (60_000, "Sådan opretter du et medlem"),
+                                                         (140_000, "Spørgsmål")]
+        and o.summary == "Et webinar om Membercare.\n\nTo afsnit." and len(have["da"]) == 12)
+ok &= good
+print(("OK  " if good else "FAIL"), "skill 6 answer with chapters, summary, filler |", msg, o)
+text5 = f"{claude.ANSWER_HEADER} id=job5 skill=5\n=== da ===\n{lsrt}\n=== cuts ===\n=== words ===\n=== end ===\n"
+have, _, msg = claude.check_file_answer(long, ["da"], text5, cut=True)
+o = claude.answer_outline(text5)
+good = msg is None and not o and len(have["da"]) == 12
+ok &= good
+print(("OK  " if good else "FAIL"), "skill 5 answer without chapters |", msg)
+# The chat answer (parts mode) with chapters in the block and Danish section names
+chat = (f"```\n=== da ===\n{srt(da)}\n\n=== kapitler ===\n0:00 Intro\n0:30 Demo\n1:10 Slut\n\n=== beskrivelse ===\n"
+        "Kort om det.\n\n=== ordliste ===\nmemberkær => Membercare\n```")
+have, words, msg = claude.check_answer(part, ["da"], chat)
+o = claude.answer_outline(chat)
+good = msg is None and len(o.chapters) == 3 and o.summary == "Kort om det." and words == [("memberkær", "Membercare")]
+ok &= good
+print(("OK  " if good else "FAIL"), "chat answer with kapitler/beskrivelse |", msg)
+# The prompts ask for chapters only when told, in the given language; the task file says so in its first line
+L = claude.LANG_BY_CODE
+wf = claude.work_file_text(L["da"], True, [L["sv"]], part, "j", "a.txt", cut=True, chapters=L["sv"])
+good = ("chapters=sv" in wf.split("\n", 1)[0] and "=== chapters ===" in wf and "in Swedish" in wf
+        and "filler" in wf)
+wf0 = claude.work_file_text(L["da"], True, [], part, "j", "a.txt")
+good &= "chapters" not in wf0 and "=== summary ===" not in wf0
+p1 = claude.prompt(L["da"], True, [], part, 1, 0, 2, chapters=L["da"])
+p2 = claude.prompt(L["da"], True, [], part, 1, 1, 2, chapters=L["da"])
+good &= "=== chapters ===" in p1 and "=== summary ===" not in p1.split("Example of the format")[1] and "=== summary ===" in p2
+ok &= good
+print(("OK  " if good else "FAIL"), "prompts ask for chapters")
+# The skill describes the new kind and sections
+assert "`filler`" in claude.SKILL_MD and "=== chapters ===" in claude.SKILL_MD and "save_chapters" in claude.SKILL_MD
 # The skill text and the number the program expects must agree
 assert f"skill={claude.SKILL_VERSION}" in claude.SKILL_MD and f"Skill version: {claude.SKILL_VERSION}" in claude.SKILL_MD
 assert f"name: {claude.SKILL_NAME}" in claude.SKILL_MD

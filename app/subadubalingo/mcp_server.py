@@ -6,6 +6,7 @@
     get_text       the subtitles Claude must correct/translate, a range of blocks at a time
     save_text      hand back corrected/translated blocks; checked at once, the app carries on when all are in
     suggest_cuts   Claude's cut suggestions (by block number), when the video is to be cut first
+    save_chapters  Claude's chapters and short summary of the video
     approve_cuts   the user's decision on the cuts, told to Claude in the chat (keep some, add some, cut now)
     cancel         stop a job (the user asked in the chat, or it hangs and blocks the app)
     find_videos    recent videos in the usual folders
@@ -29,10 +30,11 @@ import traceback
 from pathlib import Path
 
 from . import cutting, i18n, jobs
+from . import chapters as chapters_mod
 # Imported here, not inside the tools: a frozen exe reads modules from its own file on first import, and once an
 # update has replaced that file, a late import reads the new file at the old offsets (zlib error -3).
-from .claude import SKILL_NAME, SKILL_VERSION, cut_rules, user_language
-from .common import APP_NAME, APP_VERSION, LANGUAGES, data_dir, downloads_dir, format_srt, log, parse_srt_text
+from .claude import NAMES_EN, SKILL_NAME, SKILL_VERSION, chapter_rules, cut_rules, user_language
+from .common import APP_NAME, APP_VERSION, LANG_BY_CODE, LANGUAGES, data_dir, downloads_dir, format_srt, log, parse_srt_text
 
 # Claude may name a language by code, in English, or in any of the app's languages ("svenska", "norske")
 LANG_ALIASES = {}
@@ -62,7 +64,7 @@ TOOLS = [
          "relisten": {"type": "boolean", "description": "Make the spoken-language text again even if it exists (default false)"},
          "cut": {"type": "boolean", "description": ("Cut the video first (default false): the app finds long silent "
                  "pauses, you suggest what to cut (waiting before the meeting starts, breaks, the end after the "
-                 "meeting, inappropriate, off-topic or unintelligible parts), the user reviews the cuts on a "
+                 "meeting, filler words and hesitations, inappropriate, off-topic or unintelligible parts), the user reviews the cuts on a "
                  "timeline, and subtitles/dub are made for the cut video. Only cutting: speech 'original', "
                  "subtitles 'none'.")}},
          "required": ["video", "speech", "subtitles"]}},
@@ -99,13 +101,26 @@ TOOLS = [
     {"name": "suggest_cuts",
      "description": ("When the job's task includes cutting: hand in your cut suggestions, one per line "
                      "'<first block>-<last block> <kind> <short reason>' (kinds: start, pause, end, inappropriate, "
-                     "offtopic, unclear), e.g. '1-14 start People join and test the sound'. Block numbers are those "
+                     "offtopic, unclear, filler), e.g. '1-14 start People join and test the sound' or '212 filler "
+                     "Uh, um' (filler: blocks with nothing but filler words, false starts or repetitions). Block numbers are those "
                      "from get_text. Can be called several times (lines are added); set done=true when you have read "
                      "the whole text, also when there is nothing to cut."),
      "inputSchema": {"type": "object", "properties": {
          "job_id": {"type": "string"},
          "cuts": {"type": "string", "description": "Cut suggestions, one per line (may be empty)"},
          "done": {"type": "boolean", "description": "true when all suggestions are in"}},
+         "required": ["job_id"]}},
+    {"name": "save_chapters",
+     "description": ("When the job's task asks for chapters: hand in the chapters and a short summary of the whole "
+                     "video, once you have read all the text. Chapters one per line '<start time> <title>', e.g. "
+                     "'0:00 Welcome', the start time from the time code of the block the chapter begins with; the "
+                     "first at 0:00, at least 3 of at least 10 seconds each (leave 'chapters' empty if the video is "
+                     "too short). The summary: 2-4 sentences, for e.g. a YouTube description. Both in the language "
+                     "the task names. Calling it again replaces what was saved."),
+     "inputSchema": {"type": "object", "properties": {
+         "job_id": {"type": "string"},
+         "chapters": {"type": "string", "description": "Chapters, one per line '<m:ss> <title>' (may be empty)"},
+         "summary": {"type": "string", "description": "A short description of the video, 2-4 sentences"}},
          "required": ["job_id"]}},
     {"name": "approve_cuts",
      "description": ("While the user reviews the cuts in the app (state 'review_cuts'): apply what the user told you "
@@ -401,6 +416,9 @@ def tool_get_text(job_id: str, start: int = 1, count: int = 120, skill: int | No
         todo.append(f"translate to {names[c]} and hand back as '{c}'")
     if task.get("cut"):
         todo.append("suggest cuts and hand them in with 'suggest_cuts' (done=true at the end)")
+    if task.get("chapters"):
+        todo.append(f"make chapters and a short summary in {NAMES_EN.get(task['chapters'], 'English')} and hand them "
+                    "in with 'save_chapters' once you have read the whole text")
     lines = [
         f"Task for job {job_id}: " + "; ".join(todo) + ".",
         f"The text has {task['blocks']} blocks. Here are blocks {start}-{start + len(part) - 1}.",
@@ -415,6 +433,9 @@ def tool_get_text(job_id: str, start: int = 1, count: int = 120, skill: int | No
         lines.append("Typical mishearings: " + "; ".join(f"{w} => {r}" for w, r in task["rules"]))
     if task.get("cut"):
         lines += cut_rules()
+    if task.get("chapters"):
+        lines += chapter_rules(LANG_BY_CODE.get(task["chapters"], LANG_BY_CODE["en"]))
+    if task.get("cut") or task.get("chapters"):
         lines.append("The video is " + cutting.fmt_clock(task.get("duration", 0)) + " long.")
     lines += ["", format_srt(part, start).rstrip()]
     if start - 1 + count < len(src):
@@ -472,6 +493,8 @@ def _still_missing(job_id: str, task: dict) -> str:
         parts.append(_fmt_missing(missing))
     if task.get("cut") and not (jobs.read_json(jobs.root() / job_id / "parts" / "cuts.json", {}) or {}).get("done"):
         parts.append("cut suggestions (suggest_cuts with done=true)")
+    if task.get("chapters") and not (jobs.root() / job_id / "parts" / "chapters.json").exists():
+        parts.append("chapters and summary (save_chapters)")
     return "; ".join(parts) or "nothing"
 
 
@@ -488,7 +511,9 @@ def _maybe_complete(job_id: str, task: dict, src=None) -> str:
         out[c] = [[s.start, s.end, parts[str(i)]] for i, s in enumerate(src, 1)]
     allwords = jobs.read_json(jobs.root() / job_id / "parts" / "words.json", []) or []
     k = jobs.read_json(jobs.root() / job_id / "parts" / "cuts.json", {}) or {}
-    jobs.write_json(jobs.root() / job_id / "complete.json", {"codes": out, "words": allwords, "cuts": k.get("lines", [])})
+    outline = jobs.read_json(jobs.root() / job_id / "parts" / "chapters.json")
+    jobs.write_json(jobs.root() / job_id / "complete.json", {"codes": out, "words": allwords, "cuts": k.get("lines", []),
+                                                             "outline": outline})
     if task.get("cut"):
         return ("Everything is in. The app now shows the cuts to the user on a timeline. Call 'wait': when it answers "
                 "'review_cuts', tell the user briefly what will be cut.")
@@ -514,6 +539,32 @@ def tool_suggest_cuts(job_id: str, cuts: str = "", done: bool = False) -> str:
     if bad:
         msg.append("Could not read these lines (use '<block>-<block> <kind> <reason>'): " + " | ".join(bad))
     msg.append(_maybe_complete(job_id, task, src))
+    return "\n".join(msg)
+
+
+def tool_save_chapters(job_id: str, chapters: str = "", summary: str = "") -> str:
+    task = _task(job_id)
+    if not task.get("chapters"):
+        return "This job does not ask for chapters. Only use 'save_text'."
+    lines = [l for l in (chapters or "").splitlines() if l.strip()]
+    found, bad = chapters_mod.parse_chapter_lines(lines)
+    duration = task.get("duration") or None
+    kept = chapters_mod.tidy(found, duration)
+    outline = chapters_mod.Outline(kept, chapters_mod.parse_summary((summary or "").splitlines()))
+    jobs.write_json(jobs.root() / job_id / "parts" / "chapters.json", outline.to_json())
+    msg = [f"Saved {len(kept)} chapters and a summary of {len(outline.summary)} characters."]
+    if kept:
+        msg.append(chapters_mod.chapters_text(outline))
+    if found and not kept:
+        msg.append("The chapters were left out: YouTube needs the first at 0:00 and at least 3 of at least 10 seconds.")
+    elif len(kept) < len(found):
+        msg.append(f"{len(found) - len(kept)} chapters were left out (closer than 10 seconds to the one before, or "
+                   "after the end).")
+    if bad:
+        msg.append("Could not read these lines (use '<m:ss> <title>'): " + " | ".join(bad))
+    if not outline.summary:
+        msg.append("The summary is empty; call save_chapters again with 'summary' if you meant to give one.")
+    msg.append(_maybe_complete(job_id, task))
     return "\n".join(msg)
 
 
@@ -575,7 +626,8 @@ def tool_find_videos(folder: str | None = None) -> str:
 
 HANDLERS = {"start_video": tool_start_video, "wait": tool_wait, "status": tool_status,
             "get_text": tool_get_text, "save_text": tool_save_text, "find_videos": tool_find_videos,
-            "suggest_cuts": tool_suggest_cuts, "approve_cuts": tool_approve_cuts, "cancel": tool_cancel}
+            "suggest_cuts": tool_suggest_cuts, "approve_cuts": tool_approve_cuts, "cancel": tool_cancel,
+            "save_chapters": tool_save_chapters}
 
 # The exe this server was started from. Claude keeps this process running across an update, so the old code would
 # serve the new app; every call then says to restart Claude. Installed versions live in their own folders with
@@ -624,7 +676,8 @@ def instructions() -> str:
     return (f"{APP_NAME} cuts, subtitles and dubs videos locally on the user's pc. Use start_video (cut=true if "
             "the video is to be cut first), follow the job with wait (tell the user about every 10 %), and on your "
             "turn (claude_turn) fetch the text with get_text in chunks, correct/translate it with the "
-            f"{SKILL_NAME} skill, hand it back with save_text, and cut suggestions with suggest_cuts. While the "
+            f"{SKILL_NAME} skill, hand it back with save_text, cut suggestions with suggest_cuts, and chapters "
+            "and a summary with save_chapters when the task asks for them. While the "
             "user reviews the cuts (review_cuts), you can change them with approve_cuts. If the user wants to "
             "stop, or a job hangs, use cancel (ask first). The app checks everything and does the rest. Answer "
             f"the user briefly, in {user_language()} (the language of the user's app; if they write to you in "

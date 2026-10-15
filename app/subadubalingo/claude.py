@@ -20,6 +20,7 @@ import zipfile
 from pathlib import Path
 
 from .common import APP_NAME, Cue, Language, LANGUAGES, format_srt, log, parse_srt_text
+from . import chapters as chapters_mod
 from . import engine
 from .i18n import current, t
 
@@ -29,8 +30,10 @@ OLD_SKILL_NAMES = ("videosprog",)   # the skill under the app's earlier name; th
 # ships with: after an update it guides the user to upload the new skill, and Claude reports the version it has
 # (answer file header "skill=N", or hent_tekst(skill=N)), so a forgotten update is caught too.
 # 1 = before cutting (v1.8), 2 = cutting (v1.9.0-1.9.2), 3 = version stamp, 4 = SubaDubaLingo, English protocol,
-# 5 = talk to the user in their language (the app's UI language), not always Danish.
-SKILL_VERSION = 5
+# 5 = talk to the user in their language (the app's UI language), not always Danish, 6 = the cut kind "filler", and
+# chapters and a description of the video (=== chapters ===, === summary ===, save_chapters). Answers of version 5
+# and earlier (without them) are still read.
+SKILL_VERSION = 6
 LANG_BY_CODE = {l.code: l for l in LANGUAGES}
 
 # --- Parts ------------------------------------------------------------------------------
@@ -92,6 +95,7 @@ def add_words(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
 NAMES_EN = {"da": "Danish", "sv": "Swedish", "no": "Norwegian", "en": "English"}
 CUT_TASK = "suggest what to cut out"
+CHAPTERS_TASK = "make chapters and a short summary of the video"
 # An example cut reason per UI language, so the example in the prompt is in the language Claude is to write in
 CUT_EXAMPLE = {"da": "Folk kommer ind og tester lyd", "sv": "Folk ansluter och testar ljudet",
                "no": "Folk kommer inn og tester lyden", "en": "People join and test the sound"}
@@ -113,7 +117,10 @@ def cut_rules() -> list[str]:
         "  pause = interruptions and waiting along the way, end = after the meeting is over (chatter, \"is it off?\"),",
         "  inappropriate = what should not be kept (private matters, customers or colleagues mentioned in a "
         "vulnerable context, crude language), offtopic = fooling around and talk off the subject, unclear = what "
-        "cannot be understood, not even in context.",
+        "cannot be understood, not even in context,",
+        "  filler = blocks with nothing but filler: \"øh\", \"øhm\", false starts, a repeated word or phrase "
+        "(\"vi skal, vi skal\"), a long hesitation. Only blocks that hold nothing else; never a block that also says "
+        "something.",
         "  One line per cut: <first block>-<last block> <kind> <short reason>, e.g. "
         f"\"1-14 start {cut_example()}\". Cut whole blocks, and be careful: only cut what clearly does not belong. "
         "The app finds long silent pauses itself. The user reviews every cut before anything is cut. Write the reason "
@@ -121,7 +128,21 @@ def cut_rules() -> list[str]:
     ]
 
 
-def _tasks(src: Language, proofread: bool, targets: list[Language], cut: bool) -> list[str]:
+def chapter_rules(lang: Language) -> list[str]:
+    """What the prompts ask for chapters and the summary, written in lang (the language of the new video)."""
+    return [
+        "Chapters: where the subject changes, one line per chapter: <start time> <short title>, e.g. \"0:00 Welcome\". "
+        "The start time is the time code of the block the chapter begins with (m:ss, or h:mm:ss from one hour), as "
+        "in the original; the app moves the times if the video is cut. The first chapter at 0:00, at least 3 "
+        "chapters of at least 10 seconds each, titles of 2-6 words. No lines if the video is too short for that.",
+        "Summary: a short description of the video in 2-4 sentences (what it is about, what the viewer gets out of "
+        "it), for e.g. YouTube; no chapter list in it.",
+        f"Write the chapter titles and the summary in {NAMES_EN[lang.code]}.",
+    ]
+
+
+def _tasks(src: Language, proofread: bool, targets: list[Language], cut: bool,
+           chapters: Language | None = None) -> list[str]:
     tasks = []
     if proofread:
         tasks.append(f"correct the {NAMES_EN[src.code]} subtitles (misheard words, especially names and product terms)")
@@ -129,11 +150,15 @@ def _tasks(src: Language, proofread: bool, targets: list[Language], cut: bool) -
         tasks.append("translate them to " + " and ".join(NAMES_EN[t.code] for t in targets))
     if cut:
         tasks.append(CUT_TASK)
+    if chapters:
+        tasks.append(CHAPTERS_TASK)
     return tasks
 
 
 def prompt(src: Language, proofread: bool, targets: list[Language], part: list[Cue], first_number: int,
-           idx: int, n_parts: int, cut: bool = False) -> str:
+           idx: int, n_parts: int, cut: bool = False, chapters: Language | None = None) -> str:
+    """One part's prompt for the chat (parts mode). chapters: the language to write chapters and the summary in
+    (None: not asked for). Every part asks for its own chapters; the summary is asked for in the last part."""
     order = ([src.code] if proofread else []) + [t.code for t in targets]
     part_note = (f"Part {idx + 1} of {n_parts} (blocks {first_number}-{first_number + len(part) - 1}). "
                  if n_parts > 1 else "")
@@ -142,7 +167,7 @@ def prompt(src: Language, proofread: bool, targets: list[Language], part: list[C
     lines = [
         f"Use the {SKILL_NAME} skill if you have it.",
         "",
-        f"Subtitles from the app {APP_NAME}. {part_note}Task: " + ", and ".join(_tasks(src, proofread, targets, cut)) + ".",
+        f"Subtitles from the app {APP_NAME}. {part_note}Task: " + ", and ".join(_tasks(src, proofread, targets, cut, chapters)) + ".",
         "",
         "Rules:",
         "- Keep the numbering and time codes exactly. The same number of blocks; do not merge or split blocks.",
@@ -155,6 +180,12 @@ def prompt(src: Language, proofread: bool, targets: list[Language], part: list[C
         lines += ["- Then, in the same code block, a line === cuts === with your cut suggestions for this part (no "
                   "lines if there are none). The numbers are the block numbers above."]
         lines += ["  " + r for r in cut_rules()]
+    last = idx + 1 >= n_parts
+    if chapters:
+        lines += ["- Then, in the same code block, a line === chapters === with the chapters that begin in this part"
+                  + (", then a line === summary === with the summary of the whole video (every part you have seen)."
+                     if last else " (the summary comes with the last part).")]
+        lines += ["  " + r for r in chapter_rules(chapters)]
     lines += [
         "- Last in the same code block: a line === words === and then the misheard words you corrected, one per "
         "line: wrong => right. No lines after it if there were none.",
@@ -167,7 +198,9 @@ def prompt(src: Language, proofread: bool, targets: list[Language], part: list[C
         "00:00:01,000 --> 00:00:03,000",
         "Tekst",
         "",
-    ] + (["=== cuts ===", f"1-3 start {cut_example()}", ""] if cut else []) + [
+    ] + (["=== cuts ===", f"1-3 start {cut_example()}", ""] if cut else []) + (
+        ["=== chapters ===", "0:00 Intro", ""] + (["=== summary ===", "A short summary of the video.", ""] if last else [])
+        if chapters else []) + [
         "=== words ===",
         "memberkær => Membercare",
         "```",
@@ -186,7 +219,11 @@ _NAMES = {"da": ["da", "dansk", "danske"], "sv": ["sv", "svensk", "svenske", "sv
 _LABEL = {alias: code for code, names in _NAMES.items() for alias in names}
 # Section names, also the Danish ones of skill version 3 and earlier
 _LABEL.update({"words": "words", "corrections": "words", "ordliste": "words", "rettelser": "words", "ord": "words",
-               "cuts": "cuts", "klip": "cuts", "end": "end", "slut": "end"})
+               "cuts": "cuts", "klip": "cuts", "end": "end", "slut": "end",
+               "chapters": "chapters", "kapitler": "chapters", "kapitel": "chapters", "chapter": "chapters",
+               "summary": "summary", "description": "summary", "beskrivelse": "summary", "beskrivning": "summary",
+               "sammendrag": "summary", "resume": "summary", "resumé": "summary"})
+SECTIONS = ("words", "end", "cuts", "chapters", "summary")   # the sections that are not a language
 # A marker line: "=== sv ===", "### Svensk", "**srt-sv**", "Svensk:" ... (alone on its line)
 MARKER_RE = re.compile(r"^[ \t>#*=_-]*(?:srt[-_ ])?([A-Za-zæøåÆØÅ]+)[ \t]*(?:\([^)]*\))?[ \t:*=#_-]*$")
 # The format the prompt asks for ("=== sv ==="): a marker wherever it stands.
@@ -234,7 +271,7 @@ def parse_answer(text: str) -> tuple[dict[str, list[Cue]], list[tuple[str, str]]
     sections = _sections(text)
     by_lang = {}
     for code, lines in sections.items():
-        if code in ("words", "end", "cuts"):
+        if code in SECTIONS:
             continue
         cues = parse_srt_text("\n".join(lines))
         if cues:
@@ -248,6 +285,11 @@ def answer_cuts(text: str) -> list[str] | None:
     if "cuts" not in sections:
         return None
     return [l.strip() for l in sections["cuts"] if l.strip()]
+
+
+def answer_outline(text: str, duration: int | None = None) -> chapters_mod.Outline:
+    """The chapters and summary in the answer (empty when it has none: older skills, short videos)."""
+    return chapters_mod.from_answer(_sections(text), duration)
 
 
 def parse_words(lines: list[str]) -> list[tuple[str, str]]:
@@ -307,25 +349,29 @@ OLD_ANSWER_HEADERS = ("VIDEOSPROG-SVAR", "VIDEO-UNDERTEKSTER-SVAR")   # files un
 
 
 def work_file_text(src: Language, proofread: bool, targets: list[Language], cues: list[Cue], job_id: str,
-                   answer_name: str, cut: bool = False) -> str:
+                   answer_name: str, cut: bool = False, chapters: Language | None = None) -> str:
+    """The task file. chapters: the language to write chapters and the summary in (None: not asked for)."""
     order = ([src.code] if proofread else []) + [t.code for t in targets]
     words = known_words()
     rules = word_rules()
     lines = [
         f"{TASK_HEADER} id={job_id} languages={','.join(order)} blocks={len(cues)}" + (" cut=yes" if cut else "")
-        + f" ui={current()}",
+        + (f" chapters={chapters.code}" if chapters else "") + f" ui={current()}",
         "",
-        f"To Claude: use the {SKILL_NAME} skill. Task: " + ", and ".join(_tasks(src, proofread, targets, cut)) + ".",
+        f"To Claude: use the {SKILL_NAME} skill. Task: " + ", and ".join(_tasks(src, proofread, targets, cut, chapters)) + ".",
         f"Make the answer file \"{answer_name}\" as a file the user can download, following the template in the skill:",
         f"first line \"{ANSWER_HEADER} id={job_id} skill=<the version number from the skill>\", then "
         + ", ".join(f"=== {c} ===" for c in order) + " with all " + str(len(cues)) + " blocks each, "
         + ("then === cuts === with your cut suggestions, " if cut else "")
+        + ("then === chapters === and === summary ===, " if chapters else "")
         + "then === words === and finally === end ===.",
         "Keep the numbering and time codes exactly. Do not write the subtitles in the chat. "
         f"Talk to the user in {user_language()}.",
     ]
     if cut:
         lines += [""] + cut_rules()
+    if chapters:
+        lines += [""] + chapter_rules(chapters)
     if words:
         lines += ["", "Word list (known words): " + ", ".join(words)]
     if rules:
@@ -371,13 +417,13 @@ def followup_text(answer_name: str, msg: str, cut: bool = False) -> str:
 
 SKILL_MD = """---
 name: subadubalingo
-description: Corrects and translates subtitles from the Windows app "SubaDubaLingo" (formerly "Videosprog") between Danish, Swedish, Norwegian and English, suggests cuts in recordings of Teams meetings and webinars (waiting, breaks, inappropriate or unclear passages) and learns product terms such as Membercare. Use it when the user wants subtitles or a dub of a video or wants a recording cut (e.g. "lav denne video på svensk med norske undertekster", "klipp bort väntetiden", "make this video in Norwegian"), when the SubaDubaLingo tools (start_video, wait, get_text, save_text) are available, when the user sends a file "... - til Claude.txt" or the same in Swedish, Norwegian or English (first line SUBADUBALINGO-TASK or VIDEOSPROG-OPGAVE), or pastes subtitles from SubaDubaLingo.
+description: Corrects and translates subtitles from the Windows app "SubaDubaLingo" (formerly "Videosprog") between Danish, Swedish, Norwegian and English, suggests cuts in recordings of Teams meetings and webinars (waiting, breaks, filler words, inappropriate or unclear passages), writes chapters and a short description of the video, and learns product terms such as Membercare. Use it when the user wants subtitles or a dub of a video or wants a recording cut (e.g. "lav denne video på svensk med norske undertekster", "klipp bort väntetiden", "make this video in Norwegian"), when the SubaDubaLingo tools (start_video, wait, get_text, save_text) are available, when the user sends a file "... - til Claude.txt" or the same in Swedish, Norwegian or English (first line SUBADUBALINGO-TASK or VIDEOSPROG-OPGAVE), or pastes subtitles from SubaDubaLingo.
 ---
 
 # SubaDubaLingo: subtitles, dubs and cuts
 
-**Skill version: 5.** The app asks for this number to see whether the user has the newest skill: write it in the
-answer file's first line (`skill=5`) and pass it to `get_text` (`skill: 5`).
+**Skill version: 6.** The app asks for this number to see whether the user has the newest skill: write it in the
+answer file's first line (`skill=6`) and pass it to `get_text` (`skill: 6`).
 
 The user makes subtitles and dubs of videos in the app SubaDubaLingo. The app writes the text with speech
 recognition; you correct and translate it. The app reads your answer by machine, so follow the format exactly.
@@ -405,13 +451,27 @@ Do what the task says (language codes: da, sv, no, en):
     vulnerable context, crude language
   - `offtopic`: fooling around and talk that is not about the subject
   - `unclear`: what cannot be understood, not even in context
+  - `filler`: blocks with nothing but filler words and hesitation: "øh", "øhm", false starts ("vi skal ... nej,
+    vi"), a repeated word or phrase ("det er, det er"), a long hesitation. Only a block that holds nothing else:
+    never cut a block that also says something. Short blocks are fine; the app cuts them cleanly.
   Be careful: only cut what clearly does not belong, and never in the middle of an explanation that goes on.
   The app finds long silent pauses itself. The user sees every cut on a timeline and approves them before
   anything is cut. Keep the time codes unchanged; the app moves them after cutting.
+- **Chapters and a summary** when the task asks for it (`chapters=<code>`, or "make chapters and a short summary";
+  write them in that language, the language of the new video):
+  - Chapters where the subject changes, one per line `<start time> <title>`, e.g. `0:00 Velkommen` and
+    `2:15 Sådan opretter du et medlem`. The start time is the time code of the block the chapter begins with
+    (`m:ss`, or `h:mm:ss` from one hour), as in the original; the app moves the times if the video is cut. The first
+    chapter at `0:00`, at least 3 chapters of at least 10 seconds each, titles of 2-6 words. None if the video is
+    too short for that.
+  - A summary: 2-4 sentences about what the video is about and what the viewer gets out of it (for e.g. a YouTube
+    description), no chapter list in it.
+  The app saves them as "<video> - kapitler.txt" (ready to paste as a YouTube description) and shows them to the user
+  with copy buttons.
 
 ## If you have the SubaDubaLingo tools (the best way)
-With the tools `start_video`, `wait`, `status`, `get_text`, `save_text`, `suggest_cuts`, `approve_cuts`, `cancel`
-and `find_videos`, do it all in the chat:
+With the tools `start_video`, `wait`, `status`, `get_text`, `save_text`, `suggest_cuts`, `save_chapters`,
+`approve_cuts`, `cancel` and `find_videos`, do it all in the chat:
 1. The user writes e.g. "lav denne video på svensk med norske undertekster: C:\\...\\video.mp4". Call
    `start_video` (video, speech, subtitles, maybe spoken_language). If you do not know the path, use
    `find_videos` or ask. If the user wants the video cut first (e.g. "klip ventetiden og pauserne væk", "fjern
@@ -421,10 +481,12 @@ and `find_videos`, do it all in the chat:
    the video", in the user's language). Listening can take an hour; keep going, and if you were interrupted,
    `status` picks it up again.
 3. When the job is in `claude_turn`: fetch the text with `get_text` in chunks (about 120 blocks, and always with
-   `skill: 5`), correct and translate by the rules above, and hand each language back with `save_text` (same
+   `skill: 6`), correct and translate by the rules above, and hand each language back with `save_text` (same
    numbers and time codes). The answer says what is missing or wrong; fix it. Pass corrected misheard words in
    `words` (`wrong => right`). If the video is to be cut, read the whole text and hand in your suggestions with
-   `suggest_cuts` (block numbers as above; `done` true at the end, also when you have none).
+   `suggest_cuts` (block numbers as above; `done` true at the end, also when you have none). When the task asks
+   for chapters, hand in the chapters and the summary with `save_chapters` once you have read the whole text (an
+   empty `chapters` when the video is too short).
    When the cut suggestions and every language are in, the app shows the cuts to the user on a timeline
    (`review_cuts`). Tell the user briefly what you suggested cutting (time and why). The user can change it in
    the app or tell you: "behold det ved 14:20" -> `approve_cuts` with `keep` = the cut's number; "klip også
@@ -435,8 +497,9 @@ and `find_videos`, do it all in the chat:
 If the user wants to stop, or a job hangs and blocks the app, use `cancel` (ask first).
 
 ## A. The user sends a file "... - til Claude.txt" (or the same in the user's language)
-The first line is `SUBADUBALINGO-TASK id=<id> languages=<codes> blocks=<count>`, maybe with `cut=yes` and
-`ui=<code>` (the user's language: talk to them in it) (older versions of the app:
+The first line is `SUBADUBALINGO-TASK id=<id> languages=<codes> blocks=<count>`, maybe with `cut=yes`,
+`chapters=<code>` (make chapters and a summary in that language) and `ui=<code>` (the user's language: talk to them
+in it) (older versions of the app:
 `VIDEOSPROG-OPGAVE id=<id> sprog=<codes> blokke=<count>`, answer those with `VIDEOSPROG-SVAR` and the Danish
 section names `=== klip ===`, `=== ordliste ===`, `=== slut ===`).
 
@@ -447,7 +510,7 @@ section names `=== klip ===`, `=== ordliste ===`, `=== slut ===`).
 3. Template for the answer file:
 
 ```
-SUBADUBALINGO-ANSWER id=<the same id as in the task> skill=5
+SUBADUBALINGO-ANSWER id=<the same id as in the task> skill=6
 === da ===
 1
 00:00:01,000 --> 00:00:03,500
@@ -463,6 +526,13 @@ Välkommen till webbinariet om Membercare.
 === cuts ===
 1-14 start Folk kommer ind og tester lyd
 212-218 offtopic Snak om vejret
+240 filler Øh, øhm
+=== chapters ===
+0:00 Velkommen
+2:15 Sådan opretter du et medlem
+9:40 Spørgsmål
+=== summary ===
+Et webinar om Membercare: hvordan man opretter medlemmer og sender kontingent ud.
 === words ===
 memberkær => Membercare
 === end ===
@@ -472,6 +542,8 @@ memberkær => Membercare
      in `languages=`.
    - `=== cuts ===` only when the first line has `cut=yes`: your cut suggestions, see "Suggest cuts" above
      (empty if there is nothing to cut).
+   - `=== chapters ===` and `=== summary ===` only when the first line has `chapters=<code>`: see "Chapters and a
+     summary" above (no chapter lines if the video is too short; a summary in any case).
    - `=== words ===`: the misheard words you corrected, one per line `wrong => right`. The app remembers them
      and corrects them itself next time.
    - `=== end ===` as the last line tells the app the file is complete.
@@ -483,7 +555,8 @@ memberkær => Membercare
 ## B. The user pastes subtitles directly into the chat (fallback)
 The message has a task and a code block with the subtitles, maybe "Part x of y".
 - Answer directly in the chat, without files or code, with EVERYTHING in ONE code block: a line
-  `=== <code> ===` before each language in the given order, then `=== words ===` with corrected words. No text
+  `=== <code> ===` before each language in the given order, then `=== cuts ===`, `=== chapters ===` and
+  `=== summary ===` when the message asks for them, then `=== words ===` with corrected words. No text
   before or after.
 
 ## Word list

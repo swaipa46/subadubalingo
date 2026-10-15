@@ -50,6 +50,7 @@ KINDS = _Kinds({
     "inappropriate": ("#c42b1c", "#fde7e9"),
     "offtopic": ("#9d5d00", "#fff4ce"),
     "unclear": ("#00666d", "#ddf1ef"),
+    "filler": ("#4d7c0f", "#ecf5dc"),
     "manual": ("#0f6cbd", "#e1effa"),
 })
 # Also the Danish words the skill used before v2.0 (skill version 3), and what Claude writes when it improvises
@@ -65,12 +66,17 @@ KIND_ALIASES = {
     "fjol": "offtopic", "udenfor": "offtopic", "snak": "offtopic",
     "unclear": "unclear", "inaudible": "unclear", "unintelligible": "unclear",
     "uklart": "unclear", "uforståeligt": "unclear", "utydeligt": "unclear", "uforstaaeligt": "unclear",
+    "filler": "filler", "fillers": "filler", "hesitation": "filler", "um": "filler", "uh": "filler",
+    "fyldord": "filler", "fyld": "filler", "øh": "filler", "øhm": "filler", "tøven": "filler", "gentagelse": "filler",
+    "utfyllingsord": "filler", "fyllord": "filler", "nøling": "filler",
+    "utfyllnadsord": "filler", "utfyllnad": "filler", "tvekan": "filler", "upprepning": "filler",
     "manual": "manual", "other": "manual", "manuel": "manual", "andet": "manual",
 }
 
 MIN_PAUSE_MS = 20_000   # silence this long (between blocks) is suggested as a pause
 PAUSE_MARGIN_MS = 750   # kept on each side of a pause, so the cut does not clip a breath or a word
 MIN_CUT_MS = 300
+FILLER_JOIN_MS = 40     # filler cuts are only joined when they touch: the gap between two may hold a word
 
 
 @dataclass
@@ -124,6 +130,15 @@ def block_range(cues: list[Cue], a: int, b: int, duration: int, kind: str) -> tu
     first, last = cues[a - 1], cues[b - 1]
     start = 0 if a == 1 else max(cues[a - 2].end, first.start - 200)
     end = duration if b == n else min(last.end, cues[b].start - 50)
+    if end - start < MIN_CUT_MS:
+        # A very short block ("øh"): grow into the silence on both sides, never into the blocks around it
+        lo = 0 if a == 1 else cues[a - 2].end
+        hi = duration if b == n else cues[b].start
+        need = MIN_CUT_MS - (end - start)
+        grow_l = min(need // 2, start - lo)
+        grow_r = min(need - grow_l, hi - end)
+        grow_l += min(need - grow_l - grow_r, start - grow_l - lo)
+        start, end = start - grow_l, end + grow_r
     return start, max(end, start + MIN_CUT_MS)
 
 
@@ -238,7 +253,8 @@ def merge(cuts: list[Cut], join_ms: int = 400) -> list[Cut]:
     """Overlapping (or nearly touching) cuts become one. Used on the cuts that are switched on."""
     out: list[Cut] = []
     for c in sorted(cuts, key=lambda c: c.start):
-        if out and c.start <= out[-1].end + join_ms:
+        join = FILLER_JOIN_MS if out and "filler" in (c.kind, out[-1].kind) else join_ms
+        if out and c.start <= out[-1].end + join:
             last = out[-1]
             reason = last.reason if c.reason in last.reason else "; ".join(x for x in (last.reason, c.reason) if x)
             out[-1] = Cut(last.start, max(last.end, c.end), last.kind, reason, True, last.source)

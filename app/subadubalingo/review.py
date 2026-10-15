@@ -28,9 +28,17 @@ from .i18n import t
 from .theme import IMG, P, PIXEL_FONT, TERMINAL_FONT
 
 
+# Colours for a kind the theme's tokens.json does not have yet (the design session adds them): per theme, (border, fill)
+KIND_FALLBACK = {"light": {"filler": ("#4d7c0f", "#ecf5dc")}, "night": {"filler": ("#a3e635", "#2a3d12")}}
+
+
 def kind_colour(kind: str, part: str) -> str:
     """The theme's colour for a cut kind: part 'border' (outline, handles, label) or 'fill'."""
-    return getattr(P, f"cut_{kind}_{part}", P.hint)
+    colour = getattr(P, f"cut_{kind}_{part}", None)
+    if colour:
+        return colour
+    pair = KIND_FALLBACK.get(P.name, {}).get(kind)
+    return pair[0 if part == "border" else 1] if pair else P.hint
 
 
 def kind_label(kind: str) -> str:
@@ -44,7 +52,7 @@ SCRUB_FRAME_MS = 40   # while dragging, a new picture at most this often
 SCRUB_SOUND_MS = 120  # and a new snippet of sound at most this often,
 SCRUB_MOVE_MS = 60    # once the edge has moved this far
 MIN_VIEW_MS = 8_000
-KINDS = tuple(cutting.KINDS.keys())   # the legend's order: start, pause, end, inappropriate, offtopic, unclear, manual
+KINDS = tuple(cutting.KINDS.keys())   # the legend's order: start, pause, end, inappropriate, offtopic, unclear, filler, manual
 
 
 class CutReview(ttk.Frame):
@@ -142,7 +150,7 @@ class CutReview(ttk.Frame):
         c.bind("<space>", lambda e: self._toggle(self.sel))
         c.bind("<Delete>", lambda e: self._delete(self.sel))
 
-        # Legend: the seven cut kinds, a 16 px square (fill, 3 px border) and the name, 18 px apart (item 19)
+        # Legend: the cut kinds, a 16 px square (fill, 3 px border) and the name, 18 px apart (item 19)
         legend = ttk.Frame(self)
         legend.grid(row=5, column=0, sticky="w", pady=(10 * kd, 0))
         for i, kind in enumerate(KINDS):

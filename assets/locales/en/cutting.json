@@ -5,6 +5,7 @@
  "cutting.kind.inappropriate": "Inappropriate",
  "cutting.kind.offtopic": "Off-topic",
  "cutting.kind.unclear": "Unclear",
+ "cutting.kind.filler": "Filler words",
  "cutting.kind.manual": "Your own cut",
  "cutting.pause.start": "No speech in the first {length}",
  "cutting.pause.end": "No speech in the last {length}",
