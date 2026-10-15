@@ -19,7 +19,7 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import claude, cutting, engine, jobs, textstate
+from . import claude, cutting, editor, engine, jobs, textstate
 from . import i18n, skin, theme
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
@@ -320,6 +320,8 @@ class App:
         self._theme_pending = None          # a theme picked during a run, applied at its end
         self._language_pending = None       # the same for the app's language
         self._status_written = 0.0
+        self._editor_session = None         # the subtitle editor's work (editor.Session) while it is open
+        self._editor = None
         try:
             jobs.cleanup()
         except Exception:
@@ -512,6 +514,8 @@ class App:
         self._theme_pending = None
         self.theme_name = name
         view = getattr(self, "view", "setup")
+        if view == "editor":   # the editor's work is kept (editor.Session); its widget is rebuilt at the end
+            view = self._editor_session.back if self._editor_session else "setup"
         self.header.destroy()
         self.header_stripe.destroy()
         self.main.destroy()
@@ -526,6 +530,8 @@ class App:
         if view == "done" and self._last_result:
             self._show_result(*self._last_result, replay=True)
         skin.skin_cards(self.main)
+        if self._editor_session is not None:
+            editor.show(self)
 
     def _build_setup(self, parent) -> ttk.Frame:
         v = ttk.Frame(parent)
@@ -546,6 +552,11 @@ class App:
         self._wrap(self.v_dir, card, 200)
         self.v_btn = skin.IconButton(card, "choose-video", text=t("gui.setup.pick_video"), command=self._pick_video)
         self.v_btn.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
+        # Subtitles already made for the video can be edited (editor.py); shown by _refresh when there are any
+        self.v_edit = skin.IconButton(card, "edit", text=t("editor.open_button"),
+                                      command=lambda: self.open_editor(video=self._edit_video))
+        self.v_edit.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        self._edit_video: Path | None = None
         ttk.Label(g1, text=t("gui.setup.spoken_language")).grid(row=1, column=0, sticky="w", pady=(14, 0))
         c_lang = ttk.Combobox(g1, textvariable=self.lang, values=[l.name for l in LANGUAGES], state="readonly", width=14)
         c_lang.grid(row=1, column=1, sticky="w", padx=10, pady=(14, 0))
@@ -703,14 +714,19 @@ class App:
                               borderwidth=0, padx=0, pady=0)]
             parts[0].grid(row=0, column=0, padx=(int(10 * k), int(12 * k)))
             parts[1].grid(row=0, column=1, sticky="ew")
-            parts[2].grid(row=0, column=2, padx=(int(12 * k), int(10 * k)))
-            self.rows.append({"frame": row, "parts": parts, "name": name})
+            parts[2].grid(row=0, column=3, padx=(int(12 * k), int(10 * k)))
+            # A .srt row shows a small "Ret" button while it is under the mouse or has focus (editor-entry mockup)
+            edit = editor.row_button(row, lambda n=i: self._open(n)) if srt else None
+            self.rows.append({"frame": row, "parts": parts, "name": name, "edit": edit})
             for w in [row] + parts:
                 w.bind("<Enter>", lambda e, r=row: self._set_hover(r))
                 w.bind("<Leave>", lambda e, r=row: self._left(r))
                 w.bind("<Button-1>", lambda e, n=i: self._focus(n))
                 w.bind("<Double-Button-1>", lambda e, n=i: self._open(n))
             row.bind("<Return>", lambda e, n=i: self._open(n))
+            if srt:   # the editor, or another program (editor.file_menu)
+                for w in [row] + parts:
+                    w.bind("<Button-3>", lambda e, n=i: self.app._file_menu(n, e))
             row.bind("<KP_Enter>", lambda e, n=i: self._open(n))
             row.bind("<Up>", lambda e, n=i: self._focus(n - 1))
             row.bind("<Down>", lambda e, n=i: self._focus(n + 1))
@@ -767,6 +783,8 @@ class App:
                 lit = r["frame"] is self._hover or r["frame"] is focus
                 for w in [r["frame"]] + r["parts"]:
                     w.configure(background=P.picker_hover_bg if lit else P.card)
+                if r.get("edit") is not None:
+                    r["edit"].grid(row=0, column=2) if lit else r["edit"].grid_remove()
 
     def _build_done(self, parent) -> ttk.Frame:
         """The done view (design review round 2, items 19-22): on the left the banner (STAGE CLEAR!, or CONTINUE?
@@ -833,6 +851,8 @@ class App:
         self.d_folder = skin.IconButton(self.d_acts, "show-in-folder", text=t("gui.show_in_folder"),
                                         style="Tall.TButton", command=lambda: self._show_in_folder(self.d_target))
         self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+        self.d_edit = skin.IconButton(self.d_acts, "edit", text=t("editor.open_button"), style="Tall.TButton",
+                                      command=self._edit_result)
         self.d_log = ttk.Button(self.d_acts, text=t("gui.open_log"), command=lambda: self._open(log_file()))
         self.d_log.pack(side="left")
         self.d_target: Path | None = None
@@ -842,7 +862,7 @@ class App:
         g.columnconfigure(0, weight=1)
         self.files = self._FileRows(g, self)
         self.files.grid(row=0, column=0, sticky="ew")
-        hint = ttk.Label(g, text=t("gui.done.files_hint"), style="Hint.TLabel", justify="left")
+        hint = self.d_files_hint = ttk.Label(g, text=t("gui.done.files_hint"), style="Hint.TLabel", justify="left")
         hint.grid(row=1, column=0, sticky="ew", pady=(int(10 * k), 0))
         self._wrap(hint, g, int(50 * k))
 
@@ -943,6 +963,8 @@ class App:
         if mode == "reuse":
             v = cut_path(v)
         has_srt = bool(v and v.is_file() and textstate.status(srt_path(v, l), v) == "ok")
+        self._edit_video = v if v and v.is_file() and editor.srts_for(v) else None
+        self.v_edit.grid() if self._edit_video else self.v_edit.grid_remove()
         self.redo_hint.configure(text=t("gui.setup.redo_hint", plural=l.plural))
         for w in (self.cb_redo, self.redo_hint):
             w.grid() if has_srt else w.grid_remove()
@@ -1319,6 +1341,9 @@ class App:
             if self._running:
                 jobs.reject(req, "busy", "Appen er i gang med en anden video. Prøv igen, når den er færdig.")
                 continue
+            if editor.is_open(self):
+                jobs.reject(req, "busy", editor.BUSY_MESSAGE)
+                continue
             jobs.accept(req)
             log.info("job from Claude: %s", req)
             self.mcp_job = req["id"]
@@ -1384,6 +1409,8 @@ class App:
         return self._running
 
     def _on_close(self):
+        if not editor.may_close_app(self):
+            return   # unsaved subtitle edits, and the user chose to stay
         if self._busy():
             if not boxes.askyesno(APP_NAME, t("gui.work.close_running", pause=t("gui.work.pause")),
                                   parent=self._owner()):
@@ -1695,7 +1722,7 @@ class App:
         for w in (self.d_icon, self.d_where, self.d_stats, self.d_msg, self.d_error, self.d_extra, self.d_acts,
                   self.d_again, self.d_same):
             w.grid_remove()
-        for w in (self.d_log, self.d_folder, self.d_play):
+        for w in (self.d_log, self.d_folder, self.d_play, self.d_edit):
             w.pack_forget()
         msg = ""
         if done:
@@ -1712,9 +1739,19 @@ class App:
             learned = ", ".join(f"{w} → {r}" for w, r in self.learned_words)
             if learned:
                 msg = t("gui.done.learned", words=learned)
-            self.d_play.configure(text=t("gui.done.open" if text_only else "gui.done.play"))
-            self.d_play.pack(side="left", padx=(0, int(14 * k)))
-            self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+            if text_only:   # subtitles open in the editor; another program is still a click away
+                self.d_edit.configure(style="Main.Accent.TButton")
+                self.d_edit.pack(side="left", padx=(0, int(14 * k)))
+                self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+                self.d_play.configure(text=t("editor.open_external"), style="Tall.TButton")
+                self.d_play.pack(side="left", padx=(0, int(14 * k)))
+            else:   # Afspil, Vis i mappe, then Ret undertekster when the run made any (editor-entry mockup)
+                self.d_play.configure(text=t("gui.done.play"), style="Main.Accent.TButton")
+                self.d_play.pack(side="left", padx=(0, int(14 * k)))
+                self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+                if self._result_srt():
+                    self.d_edit.configure(style="Tall.TButton")
+                    self.d_edit.pack(side="left", padx=(0, int(14 * k)))
             self.d_acts.grid()
             if self._skill_warning and not replay:
                 reason, have = self._skill_warning
@@ -1757,6 +1794,8 @@ class App:
         if msg:
             self.d_msg.grid()
         self.d_files.grid() if self.files.size() else self.d_files.grid_remove()
+        has_srt = any(p.suffix.lower() == ".srt" for p in self.created)
+        self.d_files_hint.configure(text=t("editor.files_hint" if has_srt else "gui.done.files_hint"))
         self._fill_steps(steps, done)
         self._show("done")
         skin.skin_cards(self.views["done"])
@@ -1922,7 +1961,44 @@ class App:
     def _open_selected(self):
         sel = self.files.curselection()
         if sel and sel[0] < len(self.created):
-            self._open(self.created[sel[0]])
+            path = self.created[sel[0]]
+            if path.suffix.lower() == ".srt" and path.exists():
+                self.open_editor(path)   # in the app instead of Notepad (right-click: another program)
+            else:
+                self._open(path)
+
+    # --- The subtitle editor (editor.py) ----------------------------------------------------
+
+    def open_editor(self, srt: Path | None = None, video: Path | None = None):
+        """Edit srt (or the subtitles of video) in the main window. The corrected words of the spoken language's
+        text are offered to the word list: the run's language in the done view, the chosen one in setup."""
+        job = self.job or {}
+        done = getattr(self, "view", "") == "done"
+        source = job.get("lang") if done else None
+        # The run's video was made from these languages' subtitles (burned in, or the dub's text): after saving one
+        # of them, the editor offers to make the video again
+        made_video = done and self.d_target is not None and self.d_target.suffix.lower() != ".srt"
+        remake = {l for l in (job.get("subs"), job.get("speech")) if l} if made_video else set()
+        editor.open_in(self, srt=srt, video=video, source=source or self._lang(), remake=remake)
+
+    def _result_srt(self) -> Path | None:
+        """The subtitles the done view's "Ret underteksterne" opens: the result itself, the run's subtitle language,
+        else the first subtitle file the run made."""
+        target = self.d_target
+        if target is not None and target.suffix.lower() == ".srt":
+            return target if target.exists() else None
+        srts = [p for p in self.created if p.suffix.lower() == ".srt" and p.exists()]
+        subs = (self.job or {}).get("subs")
+        return next((p for p in srts if subs and editor.guess_srt_language(p) == subs), srts[0] if srts else None)
+
+    def _edit_result(self):
+        srt = self._result_srt()
+        if srt is not None:
+            self.open_editor(srt)
+
+    def _file_menu(self, n: int, event):
+        if 0 <= n < len(self.created):
+            editor.file_menu(self, self.created[n], event)
 
     # --- Self check (also tells us whether App Control blocks the bundled tools) ----------
 
