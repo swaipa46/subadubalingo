@@ -19,7 +19,7 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import audio, burnin, chapters, claude, cutting, engine, jobs, report, textstate
+from . import audio, autoupdate, burnin, chapters, claude, cutting, engine, jobs, report, textstate
 from .burnin_ui import BurninCard
 from .chapters_view import ChaptersCard
 from . import i18n, skin, theme, voice_preview
@@ -80,6 +80,8 @@ class Settings:
         self.burnin_logo_on = False        # "Logo i et hjørne"
         self.burnin_logo = ""              # the logo's image file (kept while the logo is turned off)
         self.burnin_logo_corner = "br"     # "tl", "tr", "bl" or "br"
+        self.check_updates = True          # look for a new version on GitHub at start (autoupdate.py)
+        self.update_checked = 0.0          # when it last asked (time.time()); at most once a day
         try:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
             self.__dict__.update(saved)
@@ -349,6 +351,7 @@ class App:
         root.after(150, self._animate)
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._self_check, daemon=True).start()
+        autoupdate.start(self)
         self._skill_guide = None
         self._skill_warning: tuple | None = None
         if "--from-claude" not in sys.argv and self.settings.skill_installed < claude.SKILL_VERSION:
@@ -401,6 +404,7 @@ class App:
         idle = ttk.Label(mid, justify="center", style="Hint.TLabel", text=t("gui.claude.idle"),
                          wraplength=int(360 * k))
         idle.pack()
+        autoupdate.build(self)   # the "new version is ready" band under the header, if there is one
 
     def _build_header(self):
         """The header band across the window: logo and CUT · DUB · SUB, then from the right Indstillinger (the cog),
@@ -2362,6 +2366,8 @@ class SettingsDialog(tk.Toplevel):
         if on_report:   # Send fejlrapport next to the version, as in the T8 mockup
             skin.IconButton(foot, "mail", text=t("report.button"),
                             command=lambda: on_report(self)).pack(side="left", padx=(12, 0))
+        self.check_updates = tk.BooleanVar(value=settings.check_updates)
+        ttk.Checkbutton(foot, text=t("autoupdate.setting"), variable=self.check_updates).pack(side="left", padx=(12, 0))
         b = ttk.Frame(foot)
         b.pack(side="right")
         ttk.Button(b, text=t("gui.cancel"), command=self.destroy).pack(side="left", padx=(0, 6))
@@ -2405,6 +2411,7 @@ class SettingsDialog(tk.Toplevel):
         self.s.voice_mode = self.voice_mode.get()
         self.s.improve_audio = self.improve_audio.get()
         self.burnin.save_to(self.s)
+        self.s.check_updates = self.check_updates.get()
         self.s.save()
         look, code = self.look.get(), self.ui_language.get()
         self.destroy()

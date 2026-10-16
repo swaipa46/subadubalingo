@@ -1,0 +1,15 @@
+{
+ "autoupdate.tag": "NY VERSION",
+ "autoupdate.version": "{version} är klar",
+ "autoupdate.hint": "· Starta om för att uppdatera. Dina inställningar sparas.",
+ "autoupdate.busy_tip": "När videon är klar",
+ "autoupdate.restart_tip": "Stänger programmet och öppnar den nya versionen",
+ "autoupdate.restart": "Starta om nu",
+ "autoupdate.later": "Senare",
+ "autoupdate.close": "Stäng",
+ "autoupdate.failed": "Uppdateringen kunde inte slutföras: {error}",
+ "autoupdate.updated_tag": "LEVEL UP",
+ "autoupdate.updated": "Version {version}",
+ "autoupdate.updated_hint": "· Uppdaterad från {old}. Dina inställningar finns kvar.",
+ "autoupdate.setting": "Sök efter uppdateringar"
+}
