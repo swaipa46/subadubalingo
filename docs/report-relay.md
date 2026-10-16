@@ -131,3 +131,19 @@ Never return the issue URL or anything from GitHub besides the issue number.
 - Reports that could not be sent wait in `~/.subadubalingo/reports/pending/<report_id>.json` and are retried at the next
   start (at most 10 kept; the oldest are dropped).
 - The relay URL is a constant in `report.py`. It is not a secret.
+
+## Clarifications (from building the app's side)
+
+- **Sizes:** 256 KB body = 262,144 bytes; 200 KB log tail = 200,000 UTF-8 bytes; the 4,000 and 120 limits are characters.
+- **Step keys:** `extract`, `transcribe`, `claude`, `review`, `cut`, `voice` (speaking the dub), `dub` (mixing), `burn`;
+  empty when no step failed.
+- **`kind: user` fingerprint:** sha256 over `user` + step + the first line of the comment, so different user reports
+  do not merge into one issue.
+- **Titles:** always Danish ("Fejl i 1-6 Indtaler på svensk: …", "Nedbrud: KeyError: …", "Rapport fra brugeren: …");
+  the step name inside is in the user's UI language.
+- **`run`:** `{"view", "result", "steps": [{"step", "name", "state"}], "created": [redacted file names], "queue",
+  "options"}`. Treat it as opaque JSON: pretty-print it, do not depend on its shape.
+- **Other 4xx (401, 404, 405 …) and 5xx:** the app keeps the report and retries at the next start, so a relay that is
+  not deployed yet loses nothing. `Retry-After` is ignored; a 429 is also retried at the next start.
+- **Crash drafts:** a crash is saved in `~/.subadubalingo/reports/crash/` (at most 3) and only sent when the user
+  confirms it in the dialog at the next start.
