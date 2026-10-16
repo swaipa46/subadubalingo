@@ -248,6 +248,41 @@ def apply(root: tk.Tk, name: str, scale: float):
         ("Frame.padding", {"sticky": "nsew"})]})])
     style.configure("Timeline.TFrame", background=P.window, padding=(6 * k, 6 * k, 10 * k, 10 * k))
 
+    _scrollbars(root, style, suffix, k)
+
+
+def _solid(root, colour: str, size: int, key: str) -> tk.PhotoImage:
+    """A square of one colour, kept with the theme's images (a scroll bar's trough or thumb, stretched by ttk)."""
+    if key not in IMG._cache:
+        img = tk.PhotoImage(master=root, width=size, height=size)
+        img.put(colour, to=(0, 0, size, size))
+        IMG._cache[key] = img
+    return IMG._cache[key]
+
+
+def _scrollbars(root, style: ttk.Style, suffix: str, k: int):
+    """Scroll bars in the pixel look instead of Sun Valley's (a white bar on Nat; design review round 4, item 3):
+    12 px wide, no arrows, a flat trough in the colour behind it (window, or card in a card: Card.Vertical.TScrollbar)
+    and a flat thumb in card_border on Lys and step_pending_icon on Nat (heading under the mouse and while dragged)."""
+    size = 12 * k
+    thumb = P.card_border if P.name == "light" else P.step_pending_icon
+    t_normal = _solid(root, thumb, size, "sb-thumb")
+    t_active = _solid(root, P.heading, size, "sb-thumb-active")
+    for where, bg in (("", P.window), ("Card.", P.card), ("YT.", P.your_turn_card)):
+        trough = _solid(root, bg, size, f"sb-trough-{where}")
+        for orient in ("Vertical", "Horizontal"):
+            el = f"Pix{where.rstrip('.')}{orient}{suffix}"
+            try:
+                style.element_create(f"{el}.trough", "image", trough, border=0, sticky="nsew",
+                                     width=size, height=size)
+                style.element_create(f"{el}.thumb", "image", t_normal, ("pressed", t_active), ("active", t_active),
+                                     border=0, sticky="nsew", width=size, height=size)
+            except tk.TclError:
+                pass
+            sticky = "ns" if orient == "Vertical" else "ew"
+            style.layout(f"{where}{orient}.TScrollbar", [(f"{el}.trough", {"sticky": sticky, "children": [
+                (f"{el}.thumb", {"expand": "1", "sticky": "nsew"})]})])
+
 
 def _pad4(pad) -> tuple:
     """ttk padding (one, two or four numbers) as (left, top, right, bottom)."""
@@ -383,6 +418,14 @@ def skin_cards(widget):
             if cls == "TLabelframe":
                 st = str(child.cget("style") or "")
                 p = "YT." if st.startswith("Turn") else "Card."   # YT: the your-turn card
+            elif prefix and cls == "TScrollbar":   # the trough in the card's colour
+                try:
+                    orient = "Vertical" if str(child.cget("orient")) == "vertical" else "Horizontal"
+                    child.configure(style=f"{prefix}{orient}.TScrollbar")
+                except tk.TclError:
+                    pass
+            elif getattr(child, "keep_colour", False):   # a plain widget that draws its own colours
+                pass
             elif prefix and cls in CARD_CLASSES:
                 try:
                     st = str(child.cget("style") or "")
