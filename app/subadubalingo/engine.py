@@ -15,6 +15,7 @@ from typing import Callable
 
 import numpy as np
 
+from . import burnin
 from .common import (FFMPEG, PIPER, WHISPER, Cue, Language, Runner, ToolError, log, model_dirs)
 from . import audio
 from .i18n import t
@@ -431,7 +432,7 @@ def wrap(text: str, width: int = 42) -> str:
 
 # --- Burning in subtitles and encoding ---------------------------------------------------
 
-SUB_STYLE = "FontName=Arial,FontSize=20,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=1.6,Shadow=0.6,MarginV=28"
+SUB_STYLE = burnin.DEFAULT_STYLE   # the look of burned-in subtitles comes from burnin.Look (Indstillinger)
 
 
 def _ffmpeg_progress(prog: Progress, duration_ms: int):
@@ -443,9 +444,10 @@ def _ffmpeg_progress(prog: Progress, duration_ms: int):
 
 
 def encode(runner: Runner, inputs: list, filter_complex: str | None, vf_srt: Path | None, maps: list,
-           audio_args: list, out: Path, duration_ms: int, prog: Progress, workdir: Path):
+           audio_args: list, out: Path, duration_ms: int, prog: Progress, workdir: Path,
+           look: burnin.Look | None = None):
     """Run ffmpeg into out (via a temp name). With vf_srt, the video is re-encoded with the subtitles
-    burned in: Quick Sync first (fast on Intel laptops), then libx264."""
+    burned in (in `look`, see burnin.py): Quick Sync first (fast on Intel laptops), then libx264."""
     tmp_out = out.with_name(out.stem + ".tmp" + out.suffix)
     common_tail = ["-movflags", "+faststart", "-t", f"{duration_ms / 1000:.3f}",
                    "-progress", "pipe:1", "-nostats", tmp_out]
@@ -454,7 +456,7 @@ def encode(runner: Runner, inputs: list, filter_complex: str | None, vf_srt: Pat
         # The subtitles filter breaks on drive colons, backslashes and quotes in paths, so the file is
         # copied to the work folder and given by a relative name, with ffmpeg running there.
         shutil.copyfile(vf_srt, workdir / "s.srt")
-        vf = f"subtitles=s.srt:charenc=UTF-8:force_style='{SUB_STYLE}'"
+        vf = burnin.video_filter(runner, look, Path(inputs[0]), workdir)
         attempts.append(["-vf", vf + ",format=nv12", "-c:v", "h264_qsv", "-preset", "faster", "-global_quality", "23"])
         attempts.append(["-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p"])
     else:
@@ -481,14 +483,15 @@ AUDIO_AAC = ["-c:a", "aac", "-b:a", "160k", "-ar", "48000", "-ac", "2"]
 
 
 def burn(runner: Runner, video: Path, srt: Path, out: Path, info: MediaInfo, prog: Progress, workdir: Path,
-         improve_audio: bool = False):
-    """With improve_audio, the speech goes through audio.py's chain (Forbedr lyden)."""
+         improve_audio: bool = False, look: burnin.Look | None = None):
+    """With improve_audio, the speech goes through audio.py's chain (Forbedr lyden). `look` is the burned-in
+    subtitles' look (burnin.py)."""
     maps = ["-map", "0:v:0"] + (["-map", "0:a:0"] if info.has_audio else [])
     audio_args = []
     if info.has_audio:
         clean = audio.prepare(runner, video, improve_audio, prog)
         audio_args = (["-af", clean] + audio.MARK_ARGS if clean else []) + AUDIO_AAC
-    encode(runner, [video], None, srt, maps, audio_args, out, info.duration_ms, prog, workdir)
+    encode(runner, [video], None, srt, maps, audio_args, out, info.duration_ms, prog, workdir, look)
 
 # --- Dubbing ---------------------------------------------------------------------------------
 
@@ -651,9 +654,10 @@ def dub_mix(keep_original: bool, clean: str | None = None) -> str:
 def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, burn_srt: Path | None,
         keep_original: bool, info: MediaInfo, prog: Progress, workdir: Path, step_tts: str, step_video: str,
         voices: dict[str, Path] | None = None, palette: dict[str, list[Path]] | None = None,
-        speaker_model: Path | None = None, improve_audio: bool = False):
+        speaker_model: Path | None = None, improve_audio: bool = False, look: burnin.Look | None = None):
     """With improve_audio, the original speech kept under the dub goes through audio.py's chain first (the dub's
-    own voice track is not touched). `voice` is the language's voice. With `palette` and `speaker_model`, every person in the video gets a voice
+    own voice track is not touched). `look` is the burned-in subtitles' look (burnin.py).
+    `voice` is the language's voice. With `palette` and `speaker_model`, every person in the video gets a voice
     of their own; with `voices` ({"male": ..., "female": ...}) each sentence gets the one that matches the
     original speaker's pitch."""
     from .speakers import Voice
@@ -746,7 +750,7 @@ def dub(runner: Runner, video: Path, cues: list[Cue], voice: Path, out: Path, bu
     keep = keep_original and info.has_audio
     fc = dub_mix(keep, audio.prepare(runner, video, improve_audio, prog) if keep else None)
     encode(runner, [video, dub_wav], fc, burn_srt, ["-map", "0:v:0", "-map", "[a]"], AUDIO_AAC, out,
-           info.duration_ms, prog, workdir)
+           info.duration_ms, prog, workdir, look)
 
 # --- Checking a translation against the original ------------------------------------------------
 
