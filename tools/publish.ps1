@@ -27,6 +27,8 @@ $repo = (Select-String -Path app\subadubalingo\update.py -Pattern '^REPO = "(.+)
 $built = Join-Path $Out "$name $version.zip"
 $release = Join-Path $Out "release-$version"
 $asset = Join-Path $release "$name-$version.zip"
+# The same zip under a fixed name, for the website's download button (releases/latest/download/SubaDubaLingo.zip)
+$stable = Join-Path $release "$name.zip"
 $manifest = Join-Path $release 'latest.json'
 Write-Host "$name $version (skill $skill) -> $repo"
 
@@ -39,6 +41,7 @@ if ($DryRun) {
 New-Item -ItemType Directory -Force $release | Out-Null
 if (Test-Path $built) {
     Copy-Item $built $asset -Force
+    Copy-Item $built $stable -Force
     $size = (Get-Item $asset).Length
     $sha = (Get-FileHash $asset -Algorithm SHA256).Hash.ToLower()
 } elseif ($DryRun) {
@@ -67,5 +70,5 @@ $notesFile = Join-Path $release 'notes.txt'
 [IO.File]::WriteAllText($notesFile, $Notes, [Text.UTF8Encoding]::new($false))
 Write-Host ''
 Write-Host 'Check the files, then run this to publish (nothing has been uploaded):'
-Write-Host "  gh release create v$version `"$asset`" `"$manifest`" --repo $repo --title `"$name $version`" --notes-file `"$notesFile`""
+Write-Host "  gh release create v$version `"$asset`" `"$stable`" `"$manifest`" --repo $repo --title `"$name $version`" --notes-file `"$notesFile`""
 Write-Host "  git tag v$version; git push origin v$version   (gh creates the tag on the remote if it is missing)"
