@@ -68,6 +68,7 @@ class Settings:
         self.skill_installed = 0           # the Claude skill version the user has put into Claude (0 = unknown)
         self.theme = "system"              # Udseende: "system" (follow Windows), "light" (Lys) or "night" (Nat)
         self.ui_language = ""              # Programmets sprog: da, sv, no or en ("" until picked: Windows' language)
+        self.queue_auto_cuts = False       # Kø: take Claude's cut suggestions without the review (queue_view.py)
         self.last_dir = str(Path.home() / "Videos")
         try:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
@@ -674,7 +675,7 @@ class App:
         self.pause_hint = ttk.Label(btns, text=t("gui.work.pause_hint"),
                                     style="Hint.TLabel")
         self.pause_hint.pack(side="left", padx=6)
-        self.vq.build_work(v, row=8)
+        self.vq.build_work(v)   # the queue card at the top (hidden unless a queue runs)
         return v
 
     class _FileRows(tk.Frame):
@@ -1427,7 +1428,7 @@ class App:
         if r.paused:
             r.resume()
             self.pause_btn.icon = "pause"
-            self.pause_btn.configure(text=t("gui.work.pause"))
+            self.pause_btn.configure(text=t("queue.pause") if self.vq.running else t("gui.work.pause"))
             self.status.configure(text=self._status_before_pause)
         else:
             r.pause()
@@ -1576,9 +1577,12 @@ class App:
         log.info("cut suggestions: %d from Claude, %d pauses -> %d", len(claude_cuts), len(pauses), len(suggestions))
         self._review_done.clear()
         self._review_result = None
-        post(("review", v, info.duration_ms, cues, suggestions, env, wav))
-        while not self._review_done.wait(0.3):
-            runner.check()
+        if job.get("auto_cuts"):   # a queue that takes Claude's suggestions without the review (queue_view.py)
+            self._review_result = list(suggestions)
+        else:
+            post(("review", v, info.duration_ms, cues, suggestions, env, wav))
+            while not self._review_done.wait(0.3):
+                runner.check()
         runner.check()
         ranges = cutting.active(self._review_result or [], info.duration_ms)
         if not ranges:
