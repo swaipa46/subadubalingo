@@ -84,11 +84,18 @@ class Images:
     def __init__(self):
         self.root = None
         self.two = False
-        self._cache: dict[str, tk.PhotoImage] = {}
+        self._caches: dict[tuple, dict[str, tk.PhotoImage]] = {}
+
+    @property
+    def _cache(self) -> dict[str, tk.PhotoImage]:
+        """One cache per theme and scale, kept for the root's life: ttk keeps the image elements it made for a theme
+        ("Btn2.border-light"), so their images must outlive a switch to the other theme and back."""
+        return self._caches.setdefault((P.name, self.two), {})
 
     def reset(self, root, two: bool):
+        if root is not self.root:
+            self._caches = {}
         self.root, self.two = root, two
-        self._cache = {}
 
     def path(self, rel: str) -> Path:
         base = assets_dir() / "ui"
