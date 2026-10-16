@@ -346,7 +346,8 @@ def excerpt(cues: list[Cue], start: int, end: int, chars: int = 90) -> str:
 
 # --- ffmpeg -------------------------------------------------------------------------------
 
-def _filters(ranges: list[tuple[int, int]], fmt: str, has_audio: bool) -> str:
+def _filters(ranges: list[tuple[int, int]], fmt: str, has_audio: bool, clean: str | None = None) -> str:
+    """`clean`: audio.py's chain for the speech (Forbedr lyden), applied before cutting."""
     secs = [(a / 1000, b / 1000) for a, b in ranges]
     inside = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in secs)
     # Kept frames move back by the length of every cut before them. This keeps the original frame timing
@@ -360,25 +361,29 @@ def _filters(ranges: list[tuple[int, int]], fmt: str, has_audio: bool) -> str:
     dist = f"abs(t-{edges[0]:.3f})"
     for x in edges[1:]:
         dist = f"min({dist},abs(t-{x:.3f}))"
-    a = (f"[0:a:0]aresample=48000,asetnsamples=n=240:p=0,aselect='not({inside})',"
+    a = (f"[0:a:0]{clean + ',' if clean else ''}aresample=48000,asetnsamples=n=240:p=0,aselect='not({inside})',"
          f"volume='min(1,({dist})/0.025)':eval=frame,asetpts='PTS-STARTPTS-({shift})/TB',"
          f"aformat=channel_layouts=stereo[a]")
     return v + ";\n" + a
 
 
 def cut_video(runner: Runner, video: Path, ranges: list[tuple[int, int]], out: Path, duration_ms: int,
-              has_audio: bool, prog, workdir: Path):
+              has_audio: bool, prog, workdir: Path, improve_audio: bool = False):
     """Write the video without `ranges`, in one pass. Quick Sync first (fast on Intel laptops), then libx264.
     The filter graph goes in a file: with many cuts it is longer than Windows allows on a command line."""
+    from . import audio
     from .engine import AUDIO_AAC, _ffmpeg_progress
     new_ms = duration_ms - removed_ms(ranges)
+    clean = audio.prepare(runner, video, improve_audio and has_audio, prog)
     tmp_out = out.with_name(out.stem + ".tmp" + out.suffix)
     attempts = [("nv12", ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "20"]),
                 ("yuv420p", ["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"])]
     for n, (fmt, video_args) in enumerate(attempts):
         graph = workdir / f"cut{n}.txt"
-        graph.write_text(_filters(ranges, fmt, has_audio), encoding="utf-8")
+        graph.write_text(_filters(ranges, fmt, has_audio, clean), encoding="utf-8")
         maps = ["-map", "[v]"] + (["-map", "[a]"] + AUDIO_AAC if has_audio else [])
+        if clean:
+            maps += audio.MARK_ARGS
         args = [FFMPEG(), "-hide_banner", "-y", "-i", video, "-/filter_complex", graph.name] + maps + video_args + \
                ["-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp_out]
         code, _ = runner.run(args, _ffmpeg_progress(prog, new_ms), cwd=workdir)
