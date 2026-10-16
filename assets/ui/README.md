@@ -227,6 +227,7 @@ Everything reuses the existing frames, buttons, cards, pickers and colours unles
 - `split`, `merge`, `trash`
 - `grip`
 - `mail` (+ `-on-primary`)
+- `arrow-right-on-primary` (the light theme's `arrow-right`, for "Send" in the error report)
 - `queue` (+ `-on-primary`)
 - `chapters`
 - `stop`
@@ -363,23 +364,27 @@ The banner is a 52 px band right under the header stripe, 28 px from both sides,
 
 ### 4. Error report (`report-entry`, `report-dialog`)
 
+Reports go to the relay on swaipa.dk (`docs/report-relay.md`), not by e-mail.
+
 **Buttons:**
 
 - In the error done view, a secondary "Send fejlrapport …" (`mail`) under the error text, with a hint 13 px next to
-  it. The existing "Åbn logfil" button stays.
+  it ("Rapporten går til udvikleren, …"). The existing "Åbn logfil" button stays.
 - In Indstillinger, the same button in the footer after the version number.
 
-**Dialog, 720×720:**
+**Dialog:**
 
-- The title "Send fejlrapport til Kasper".
-- A card "Det kommer med", listing:
-  - three fixed items with disabled check boxes: the error and the log from this run, the versions, and the settings
-    (without folders and names);
-  - an optional check box "Underteksterne fra denne kørsel (.srt)";
-  - the line "Videoen og lyden kommer aldrig med."
-- "Hvad skete der? (kan udelades)", a multi-line `input` field 110 px tall.
-- A `hint` explaining the zip on the desktop and the Outlook draft.
-- Buttons Annullér and "Lav mailen" (primary, `mail-on-primary`).
+- The title "Send fejlrapport" (after a crash: "Programmet stoppede med en fejl. Vil du sende en fejlrapport om det?").
+- A card "Det kommer med" with disabled check boxes, one per group of the report's fields: the error and the failed
+  step (only when there is an error), the versions with language and theme, the run's choices and steps, and the last
+  lines of the log with a secondary "Vis loggen" / "Skjul loggen" button at the right. The button opens a read-only
+  box (Consolas 9 pt, 12 lines, `input` colours) with the exact redacted log tail that is sent. Under it the `hint`
+  "Videoen, lyden og underteksterne kommer aldrig med. …".
+- "Hvad skete der? (kan udelades)", a multi-line `input` field.
+- A `hint` saying the report goes to the developer and nothing is sent before Send.
+- Buttons Annullér and "Send" (primary, `arrow-right-on-primary`). While sending: both disabled, "Sender …" in `hint`.
+- Then a result line in place of the buttons' question: `success` "Tak. Fejlen er sendt (#12).", `text` "Den bliver
+  sendt, næste gang der er net." (or the relay is busy), or `error` with the reason. Send becomes Luk.
 
 ### 5. Burned-in subtitles (`burnin-settings`)
 

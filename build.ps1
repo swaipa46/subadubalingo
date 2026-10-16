@@ -22,8 +22,6 @@ New-Item -ItemType Directory -Force "$dir\models" | Out-Null
 foreach ($g in 'Sådan bruger du', 'Så använder du', 'Slik bruker du', 'How to use') {
     Copy-Item "docs\$g SubaDubaLingo.txt" $dir
 }
-# Send fejlrapport: the support address stays out of the public repo (git-ignored support.local.txt)
-if (Test-Path support.local.txt) { Copy-Item support.local.txt "$dir\support.txt" }
 & .venv\Scripts\python.exe tools\make_skill.py "$dir\subadubalingo-skill.zip"
 if ($LASTEXITCODE) { throw 'make_skill failed' }
 $zip = "$Out\$name $version.zip"

@@ -339,6 +339,8 @@ class App:
         self._status_written = 0.0
         self._editor_session = None         # the subtitle editor's work (editor.Session) while it is open
         self._editor = None
+        self.step_keys: list[str] = []      # the steps' keys, as _step_names gives them (for an error report)
+        self._error_type = ""               # the exception class of the last failed run
         self.level = 1                      # the "world" in the step numbers (1-1, 1-2 ...): the video's place in a queue
         self.vq = queue_view.QueueController(self)   # several videos in a queue (queue_view.py)
         try:
@@ -367,6 +369,8 @@ class App:
             # 0: unknown, most likely never put in (the "first" wording), else this version ships a newer one
             first = self.settings.skill_installed == 0
             root.after(900, lambda: self.show_skill_guide("first" if first else "update"))
+        if "--from-claude" not in sys.argv:
+            root.after(2000, self.offer_crash_report)
 
     # --- Layout -------------------------------------------------------------------------
 
@@ -1296,10 +1300,13 @@ class App:
         """Names shown in the step list, and where the Claude step sits (-1 if none). Steps without progress of
         their own (Claude, the cut review) are in self.manual_steps."""
         names = []
+        keys = self.step_keys = []   # each step's key for an error report (report.py "step"), in the same order
         if job["transcribe"] or job["cut"]:
             names.append(t("gui.step.extract"))
+            keys.append("extract")
         if job["transcribe"]:
             names.append(t("gui.step.transcribe"))
+            keys.append("transcribe")
         claude_at = -1
         self.review_at = -1
         if job["check"] or job["translate"]:
@@ -1309,14 +1316,18 @@ class App:
                     if job["translate"] else []) + \
                    ([t("gui.step.task_cut")] if job["cut"] else [])
             names.append(t("gui.step.claude_chat" if job.get("mcp") else "gui.step.claude_turn", tasks=join_and(what)))
+            keys.append("claude")
         if job["cut"]:
             self.review_at = len(names)
             names += [t("gui.step.review"), t("gui.step.cut")]
+            keys += ["review", "cut"]
         self.manual_steps = [i for i in (claude_at, self.review_at) if i >= 0]
         if job["speech"]:
             names += [t("gui.step.voice_in", singular=job["speech"].singular), t("gui.step.dub")]
+            keys += ["voice", "dub"]
         elif job["subs"]:
             names += [t("gui.step.burn")]
+            keys.append("burn")
         return names, claude_at
 
     def _start(self, auto: bool = False):
@@ -1651,9 +1662,11 @@ class App:
             post(("cancelled", None))
         except ToolError as e:
             log.error("ToolError: %s", e)
+            self._error_type = type(e).__name__   # for an error report's fingerprint
             post(("error", str(e)))
         except Exception as e:
             log.error("crash: %s", traceback.format_exc())
+            self._error_type = type(e).__name__
             post(("error", t("gui.error.unexpected", error=e)))
         finally:
             shutil.rmtree(work, ignore_errors=True)
@@ -1902,6 +1915,7 @@ class App:
                 self.d_acts.grid()
                 if not replay:
                     self._call_attention()
+                    self.root.after(800, self.offer_crash_report)
             self.d_file.configure(text="")
             if self.created:
                 self.d_extra.configure(text=t("gui.done.files_made"))
@@ -2168,20 +2182,77 @@ class App:
             pass
 
     def open_report(self, parent=None):
-        """Send fejlrapport (report.py), from the error done view or Indstillinger."""
-        report.ReportDialog(parent or self.root, self._report_state(), self.mcp_job, scale=self.scale)
+        """Send fejlrapport (report.py), from the error done view (kind "error") or Indstillinger ("user" unless the
+        last run failed)."""
+        result = self._last_result
+        failed = bool(result and result[0] == "error")
+        step = self._failed_step() if failed else None
+        videos = self._report_videos()
+        try:
+            payload = report.build("error" if failed else "user", error=str(result[1] or "") if failed else "",
+                                   error_type=self._error_type if failed else "",
+                                   step=step[0] if step else "", step_no=step[1] if step else "",
+                                   step_name=step[2] if step else "", run=self._report_state(),
+                                   theme=self.theme_name, videos=videos)
+        except Exception as e:
+            log.exception("could not make the error report")
+            boxes.showerror(APP_NAME, t("report.failed", error=e), parent=parent or self._owner())
+            return
+        report.ReportDialog(parent or self.root, payload, videos, scale=self.scale)
+
+    def offer_crash_report(self):
+        """A crash saved by report.install_hooks (this run or an earlier one): offer it in the report dialog, once."""
+        try:
+            if any(isinstance(w, report.ReportDialog) for w in self.root.winfo_children()):
+                return
+            if self._skill_guide is not None and self._skill_guide.winfo_exists():
+                self.root.after(3000, self.offer_crash_report)   # one dialog at a time
+                return
+        except (tk.TclError, AttributeError):
+            pass
+        payload = report.take_crash()
+        if payload:
+            report.ReportDialog(self.root, payload, self._report_videos(), scale=self.scale)
+
+    def _failed_step(self) -> tuple[str, str, str] | None:
+        """(key, number as "1-6", name) of the step that failed in the last run, or None."""
+        for i, (name, state) in enumerate(self._result_steps("error", True)):
+            if state == "error":
+                key = self.step_keys[i] if i < len(self.step_keys) else ""
+                return key, f"{self.level}-{i + 1}", name
+        return None
+
+    def _report_videos(self) -> set[str]:
+        """The names to redact in a report: this run's videos and the files it made."""
+        job = self.job or {}
+        out = {Path(job[k]).name for k in ("video", "original", "edited") if isinstance(job.get(k), (str, Path))}
+        out |= {Path(p).stem.split(" - ")[0] for p in getattr(self, "created", [])}
+        return out
 
     def _report_state(self) -> dict:
-        """The app's view of the last run for an error report: options, steps and the result, no texts."""
+        """The run for an error report (report.py "run"): its options and step states, no texts or file contents.
+        File names are redacted by report.build."""
         job = self.job or {}
-        names = lambda v: [x.code for x in v] if isinstance(v, (list, tuple)) else getattr(v, "code", v)
-        state = {"view": self.view, "result": list(self._last_result) if self._last_result else None,
-                 "steps": [[r.get("name"), r.get("state")] for r in getattr(self, "step_rows", [])],
-                 "created": [Path(p).name for p in getattr(self, "created", [])]}
+        code = lambda v: [x.code for x in v] if isinstance(v, (list, tuple)) else getattr(v, "code", v)
+        keys = getattr(self, "step_keys", [])
+        kind = self._last_result[0] if self._last_result else None
+        rows = (self._result_steps(kind, True) if kind and kind != "queue"
+                else [(r.get("name"), r.get("state")) for r in self.step_rows])
+        steps = [{"step": keys[i] if i < len(keys) else "", "name": name, "state": st}
+                 for i, (name, st) in enumerate(rows)]
+        state = {"view": self.view, "result": kind, "steps": steps,
+                 "created": [Path(p).name for p in getattr(self, "created", [])], "queue": bool(self.vq.active)}
         if job:
-            state["job"] = {k: (Path(v).name if isinstance(v, Path) else names(v)) for k, v in job.items()
-                            if k in ("video", "original", "edited", "lang", "speech", "subs", "translate", "cut",
-                                     "cut_reused", "transcribe", "check", "mcp")}
+            options = {k: code(job[k]) for k in ("lang", "speech", "subs", "translate", "cut", "cut_reused",
+                                                 "transcribe", "check", "improve_audio", "auto_cuts") if k in job}
+            options["from_claude_chat"] = bool(job.get("mcp"))
+            if job.get("speech"):
+                options["voice"] = Path(job["voice"]).stem if job.get("voice") else None
+                options["voice_mode"] = ("per_person" if job.get("palette") else
+                                         "per_gender" if job.get("voices") else "one")
+            if job.get("model"):
+                options["whisper_model"] = Path(job["model"]).name
+            state["options"] = options
         return state
 
     # --- The Claude skill's version ---------------------------------------------------------
@@ -3322,5 +3393,7 @@ def main():
     set_app_id()
     theme.load_fonts()
     root = tk.Tk()
-    App(root)
+    app = App(root)
+    report.install_hooks(root, app._report_state)   # unhandled exceptions become crash reports to offer
+    report.start_retry()                            # reports that could not be sent earlier (background thread)
     root.mainloop()

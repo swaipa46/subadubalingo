@@ -1,14 +1,18 @@
-"""Screenshots of Send fejlrapport: the error done view with its button, Indstillinger with its button, and the
-dialog before and after "Lav mailen". Runs in a temp home folder (never the real settings or data), opens on the
-monitor the user is not working on and captures with PrintWindow. "Lav mailen" writes the zip to a temp folder and
-neither opens Explorer nor a mail draft.
-  python tests/report_shots.py OUT_DIR --theme light|night [--lang da|sv|no|en]"""
+"""Screenshots of Send fejlrapport: the error done view with its button, Indstillinger with its button, and the dialog
+(with the log shown, sending, sent, kept for later, and the crash offer). Runs in a temp home folder (never the real
+settings or data) against a local mock of the relay (never swaipa.dk), opens on the monitor the user is not working on
+and captures with PrintWindow.
+  python tests/report_shots.py OUT_DIR --theme light|night [--lang da|sv|no|en]
+Files: report-relay-<name>[-<lang>].png"""
 import ctypes
 import json
 import os
+import socket
 import sys
 import tempfile
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 T = Path(tempfile.mkdtemp(prefix="sdl-report-shots-"))
@@ -34,16 +38,37 @@ i18n.resolve = lambda choice: forced_lang
 installer._save_ui_language = lambda code: None
 theme.load_fonts()
 suffix = "" if forced_lang == "da" else f"-{forced_lang}"
-sent = []
+home = str(Path.home())
+# A log as a failed dub leaves it (the home folder and the video's name are redacted in the dialog)
+common.log.info("JOB video=%s\\Videos\\David e2e.mp4 lang=da speech=sv subs=no transcribe=True", home)
+common.log.info("RUN D:\\SubaDubaLingo\\bin\\piper\\piper.exe --model sv_SE-nst-medium.onnx --json-input")
+common.log.error("ToolError: piper exited with 1")
+
+hold = threading.Event()
 
 
-def fake_send(comment, app_state=None, job_id=None):
-    dest = report.write_zip(report.contents(app_state, job_id), comment, T / "Downloads")
-    sent.append(dest)
-    return dest
+class Handler(BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        hold.wait(5)   # "Sender …" stays on screen until the shot is taken
+        body = json.dumps({"status": "created", "ref": 12}).encode()
+        self.send_response(201)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *a):
+        pass
 
 
-report.send = fake_send
+server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+threading.Thread(target=server.serve_forever, daemon=True).start()
+RELAY = f"http://127.0.0.1:{server.server_address[1]}/api/subadubalingo/v1/reports"
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+DOWN = f"http://127.0.0.1:{s.getsockname()[1]}/api/subadubalingo/v1/reports"   # nothing listens: no network
+s.close()
 
 
 def pump(root, sec):
@@ -63,7 +88,7 @@ def shot(win, name):
         win.geometry(f"{w}x{h}")
     pump(win, 0.6)
     hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
-    _screen.grab_window(hwnd).save(out / f"report-{name}{suffix}.png")
+    _screen.grab_window(hwnd).save(out / f"report-relay-{name}{suffix}.png")
     print("saved", name)
 
 
@@ -73,6 +98,19 @@ def to_other_monitor(dlg):
         dlg.geometry(f"+{area[0] + 80}+{area[1] + 80}")
 
 
+def wait_result(d):
+    for _ in range(300):
+        pump(d, 0.05)
+        if d.result is not None:
+            return
+    raise AssertionError("no result")
+
+
+COMMENT = {"da": "Den stoppede ved indtalingen på svensk. Jeg havde valgt norske undertekster.",
+           "sv": "Den stannade vid inläsningen på svenska. Jag hade valt norska undertexter.",
+           "no": "Den stoppet ved innlesingen på svensk. Jeg hadde valgt norske undertekster.",
+           "en": "It stopped at the Swedish voice-over. I had picked Norwegian subtitles."}[forced_lang]
+
 root = tk.Tk()
 app = gui.App(root)
 _screen.place(root)
@@ -81,7 +119,7 @@ root.geometry("1600x1000")
 video = Path.home() / "Videos" / "David e2e.mp4"
 L = gui.LANG_BY_CODE
 app.job = {"video": video, "lang": L["da"], "speech": L["sv"], "subs": L["no"], "cut": True, "transcribe": True,
-           "check": True, "translate": [L["sv"], L["no"]]}
+           "check": True, "translate": [L["sv"], L["no"]], "improve_audio": True}
 app._review_result = [gui.cutting.Cut(0, 6000, "start")]
 names, app.claude_at = app._step_names(app.job)
 app.step_rows = [{"name": n, "state": "done" if i < len(names) - 2 else "active" if i == len(names) - 2 else "todo"}
@@ -89,11 +127,12 @@ app.step_rows = [{"name": n, "state": "done" if i < len(names) - 2 else "active"
 app.created = [gui.srt_name(video, L["da"]), gui.srt_name(video, L["no"])]
 for path in app.created:
     app.files.insert("end", path.name)
+app._error_type = "ToolError"
 app._show("done")
-app._show_result("error", "[FEJLBESKED FRA PROGRAMMET]", replay=True)
+app._show_result("error", "piper exited with 1", replay=True)
 shot(root, "done-error")
 
-# Indstillinger with the button next to Åbn logfil
+# Indstillinger with the button next to the version
 dlg = gui.SettingsDialog(root, app.settings, on_theme=app.set_theme, on_language=app.set_language,
                          on_report=app.open_report)
 to_other_monitor(dlg)
@@ -101,16 +140,54 @@ shot(dlg, "settings")
 dlg.grab_release()
 dlg.destroy()
 
-# The dialog, from the error view, with a comment
-d = report.ReportDialog(root, app._report_state(), None, scale=app.scale)
-to_other_monitor(d)
-d.comment.insert("1.0", {"da": "Den stoppede ved indtalingen på svensk. Jeg havde valgt norske undertekster.",
-                         "sv": "Den stannade vid inläsningen på svenska. Jag hade valt norska undertexter.",
-                         "no": "Den stoppet ved innlesingen på svensk. Jeg hadde valgt norske undertekster.",
-                         "en": "It stopped at the Swedish voice-over. I had picked Norwegian subtitles."}[forced_lang])
+
+def open_dialog():
+    app.open_report()
+    d = next(w for w in root.winfo_children() if isinstance(w, report.ReportDialog))
+    to_other_monitor(d)
+    d.comment.insert("1.0", COMMENT)
+    return d
+
+
+# The dialog from the error view, with a comment; then with the log shown
+os.environ["SUBADUBALINGO_REPORT_URL"] = RELAY
+d = open_dialog()
+p = d.payload
+assert p["kind"] == "error" and p["step"] == "voice" and p["title"].startswith("Fejl i 1-6 "), p["title"]
+assert "David" not in json.dumps(p, ensure_ascii=False), "a video name went in"
 shot(d, "dialog")
-d._make()
-shot(d, "dialog-done")
-assert sent and sent[0].is_file(), sent
+d._toggle_log()
+shot(d, "dialog-log")
+d._toggle_log()
+# Sending, then sent (#12)
+d._send()
+shot(d, "dialog-sending")
+hold.set()
+wait_result(d)
+assert d.result.outcome == "sent" and d.result.ref == 12, d.result
+shot(d, "dialog-sent")
 d.destroy()
+
+# No network: kept for the next start
+os.environ["SUBADUBALINGO_REPORT_URL"] = DOWN
+d = open_dialog()
+d._send()
+wait_result(d)
+assert d.result.outcome == "later" and any(report.pending_dir().glob("*.json")), d.result
+shot(d, "dialog-queued")
+d.destroy()
+
+# A crash saved by the hooks, offered at the next start
+try:
+    raise KeyError("speaker")
+except KeyError as e:
+    report.save_crash(type(e), e, e.__traceback__, app._report_state(), theme=forced_theme)
+app.offer_crash_report()
+d = next(w for w in root.winfo_children() if isinstance(w, report.ReportDialog))
+to_other_monitor(d)
+assert d.payload["kind"] == "crash"
+shot(d, "crash")
+d._cancel()
+assert report.take_crash() is None   # declined: not offered again
+server.shutdown()
 root.destroy()
