@@ -21,7 +21,7 @@ from pathlib import Path
 
 from .common import APP_NAME, Cue, Language, LANGUAGES, format_srt, log, parse_srt_text
 from . import chapters as chapters_mod
-from . import engine
+from . import engine, guide
 from .i18n import current, t
 
 SKILL_NAME = "subadubalingo"
@@ -417,7 +417,9 @@ def followup_text(answer_name: str, msg: str, cut: bool = False) -> str:
 
 # --- The skill ------------------------------------------------------------------------------------
 
-SKILL_MD = """---
+# The skill: its own frame (the front matter, the task file, pasting) around the pieces it shares with the
+# guide for every MCP client (guide.py: the rules for the text, cuts and chapters, and the tool steps).
+SKILL_HEAD = """---
 name: subadubalingo
 description: Corrects and translates subtitles from the Windows app "SubaDubaLingo" (formerly "Videosprog") between Danish, Swedish, Norwegian and English, suggests cuts in recordings of Teams meetings and webinars (waiting, breaks, filler words, inappropriate or unclear passages), writes chapters and a short description of the video, and learns product terms such as Membercare. Use it when the user wants subtitles or a dub of a video or wants a recording cut (e.g. "lav denne video på svensk med norske undertekster", "klipp bort väntetiden", "make this video in Norwegian"), when the SubaDubaLingo tools (start_video, wait, get_text, save_text) are available, when the user sends a file "... - til Claude.txt" or the same in Swedish, Norwegian or English (first line SUBADUBALINGO-TASK or VIDEOSPROG-OPGAVE), or pastes subtitles from SubaDubaLingo.
 ---
@@ -433,74 +435,9 @@ recognition; you correct and translate it. The app reads your answer by machine,
 task file's first line, or "Talk to the user in <language>" / "Answer the user in <language>"), else the one they
 write in. Everything for the app follows the format below.
 
-## The task
-Do what the task says (language codes: da, sv, no, en):
-- **Correct** the text in the spoken language: misheard words, especially names, products and screen names (see
-  the word list below and the one in the task). Do not turn spoken language into written language, and do not
-  change the content.
-- **Translate** to the languages the task names. Natural spoken language, as a Swede/Norwegian would say it.
-  Product names and screen names are not translated.
-- The same numbering and exactly the same time codes as the original. The same number of blocks; never merge
-  blocks and do not split them, not even mid-sentence. At most 2 lines per block, about 42 characters per line.
-- **Suggest cuts** when the task asks for it (`cut=yes`, or "suggest what to cut out"). The video is usually a
-  recording of a Teams meeting or webinar. Suggest whole blocks, one line per cut:
-  `<first block>-<last block> <kind> <short reason>`, e.g. `1-14 start Folk kommer ind og tester lyd` (the reason
-  in the user's language: they read it). Kinds:
-  - `start`: before the meeting really begins (people joining, sound checks, "kan I høre mig?", "vi venter lige")
-  - `pause`: interruptions and waiting along the way ("to sekunder, min skærm frøs")
-  - `end`: after the meeting is over ("tak for i dag" and everything after, "er optagelsen slukket?")
-  - `inappropriate`: what should not be kept forever: private matters, customers or colleagues mentioned in a
-    vulnerable context, crude language
-  - `offtopic`: fooling around and talk that is not about the subject
-  - `unclear`: what cannot be understood, not even in context
-  - `filler`: blocks with nothing but filler words and hesitation: "øh", "øhm", false starts ("vi skal ... nej,
-    vi"), a repeated word or phrase ("det er, det er"), a long hesitation. Only a block that holds nothing else:
-    never cut a block that also says something. Short blocks are fine; the app cuts them cleanly. The reason is
-    the filler in quotes (`240 filler "øh, øhm"`), or for a repetition the word for repetition in the user's
-    language, a colon and the words (`251 filler Gentagelse: "vi vi skal"`).
-  Be careful: only cut what clearly does not belong, and never in the middle of an explanation that goes on.
-  The app finds long silent pauses itself. The user sees every cut on a timeline and approves them before
-  anything is cut. Keep the time codes unchanged; the app moves them after cutting.
-- **Chapters and a summary** when the task asks for it (`chapters=<code>`, or "make chapters and a short summary";
-  write them in that language, the language of the new video):
-  - Chapters where the subject changes, one per line `<start time> <title>`, e.g. `0:00 Velkommen` and
-    `2:15 Sådan opretter du et medlem`. The start time is the time code of the block the chapter begins with
-    (`m:ss`, or `h:mm:ss` from one hour), as in the original; the app moves the times if the video is cut. The first
-    chapter at `0:00`, at least 3 chapters of at least 10 seconds each, titles of 2-6 words. None if the video is
-    too short for that.
-  - A summary: 2-4 sentences about what the video is about and what the viewer gets out of it (for e.g. a YouTube
-    description), no chapter list in it.
-  The app saves them as "<video> - kapitler.txt" (ready to paste as a YouTube description) and shows them to the user
-  with copy buttons.
+"""
 
-## If you have the SubaDubaLingo tools (the best way)
-With the tools `start_video`, `wait`, `status`, `get_text`, `save_text`, `suggest_cuts`, `save_chapters`,
-`approve_cuts`, `cancel` and `find_videos`, do it all in the chat:
-1. The user writes e.g. "lav denne video på svensk med norske undertekster: C:\\...\\video.mp4". Call
-   `start_video` (video, speech, subtitles, maybe spoken_language). If you do not know the path, use
-   `find_videos` or ask. If the user wants the video cut first (e.g. "klip ventetiden og pauserne væk", "fjern
-   det, der ikke skal med"), set `cut` to true. Only cutting, no new languages: `speech` original and `subtitles`
-   none.
-2. Call `wait` again and again. Write a short line to the user at every 10 % (e.g. "40 % - listening through
-   the video", in the user's language). Listening can take an hour; keep going, and if you were interrupted,
-   `status` picks it up again.
-3. When the job is in `claude_turn`: fetch the text with `get_text` in chunks (about 120 blocks, and always with
-   `skill: 6`), correct and translate by the rules above, and hand each language back with `save_text` (same
-   numbers and time codes). The answer says what is missing or wrong; fix it. Pass corrected misheard words in
-   `words` (`wrong => right`). If the video is to be cut, read the whole text and hand in your suggestions with
-   `suggest_cuts` (block numbers as above; `done` true at the end, also when you have none). When the task asks
-   for chapters, hand in the chapters and the summary with `save_chapters` once you have read the whole text (an
-   empty `chapters` when the video is too short).
-   When the cut suggestions and every language are in, the app shows the cuts to the user on a timeline
-   (`review_cuts`). Tell the user briefly what you suggested cutting (time and why). The user can change it in
-   the app or tell you: "behold det ved 14:20" -> `approve_cuts` with `keep` = the cut's number; "klip også
-   22:10-22:40" -> `approve_cuts` with `add`. `approve_cuts` without `wait_for_user` cuts at once, so ask the user
-   whether the cuts are right before you approve.
-4. When everything is in, the app does the rest. Call `wait` until "done", and tell the user the name of the new
-   video and that it can be played from the app.
-If the user wants to stop, or a job hangs and blocks the app, use `cancel` (ask first).
-
-## A. The user sends a file "... - til Claude.txt" (or the same in the user's language)
+SKILL_TAIL = """## A. The user sends a file "... - til Claude.txt" (or the same in the user's language)
 The first line is `SUBADUBALINGO-TASK id=<id> languages=<codes> blocks=<count>`, maybe with `cut=yes`,
 `chapters=<code>` (make chapters and a summary in that language) and `ui=<code>` (the user's language: talk to them
 in it) (older versions of the app:
@@ -568,17 +505,15 @@ The message has a task and a code block with the subtitles, maybe "Part x of y".
 See [words.md](words.md). These words are spelled exactly like this in every language.
 """
 
+SKILL_MD = (SKILL_HEAD + guide.TASK + "\n## If you have the SubaDubaLingo tools (the best way)\n"
+            + guide.tools_steps("(about 120 blocks, and always with\n   `skill: 6`)") + "\n" + SKILL_TAIL)
+
+
 def skill_zip(dest: Path) -> Path:
     """Write the skill (with the current word list) as a zip for Claude > Settings > Skills > Upload."""
-    words = known_words()
-    rules = word_rules()
-    word_list = ["# Word list", "", "Known words (spelled exactly like this in every language):", ""]
-    word_list += [f"- {w}" for w in words] or ["- Membercare"]
-    word_list += ["", "Typical mishearings by the speech recognition:", ""]
-    word_list += [f"- {w} => {r}" for w, r in rules]
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr(f"{SKILL_NAME}/SKILL.md", SKILL_MD)
-        z.writestr(f"{SKILL_NAME}/words.md", "\n".join(word_list) + "\n")
+        z.writestr(f"{SKILL_NAME}/words.md", guide.words_md(known_words(), word_rules()))
     dest.write_bytes(buf.getvalue())
     return dest
