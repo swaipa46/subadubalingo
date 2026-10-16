@@ -59,6 +59,7 @@ app._refresh()
 app.speech.set("Svensk")
 app.subs.set("Norske")
 app.redo.set(True)
+app.cut.set(False)   # the made-up answer has no cut suggestions (the cut review has its own script)
 app._refresh()
 take("1-setup.png")
 app._start()
@@ -82,7 +83,10 @@ for code in d.codes:
                                        + "=== words ===\n=== end ===\n", encoding="utf-8")
 pump(1.3)
 take("5-claude-found.png")
+t0 = time.time()
 while app._busy():
+    if time.time() - t0 > 600:
+        raise SystemExit("the run did not finish in 10 minutes")
     pump(0.2)
 take("6-done.png")
 root.destroy()
