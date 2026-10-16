@@ -97,6 +97,20 @@ EG-org); Cowork er ikke testet. Test: `tests/mcp_test.py` spiller Claude.
   tjekker signatur og SHA-256 og lægger den i sin egen versionsmappe. Et bånd under headeren siger "Ny version X er
   klar", og "Genstart nu" skifter. Udgivelse med `tools/publish.ps1`. Detaljer: `docs/auto-opdatering.md`.
 
+## Brug med andre AI-værktøjer (v2.1.1)
+MCP-serveren virker med alle AI-værktøjer, der kan starte en lokal MCP-server, ikke kun Claude: Claude Code, Gemini
+CLI, Codex CLI, GitHub Copilot i VS Code og Cursor. Indstillinger -> "Brug med andre AI-værktøjer" viser opsætningen
+til hvert værktøj med en Kopiér-knap; Claude desktop har knappen "Forbind med Claude" (flyttet hertil fra Tekst og
+stemmer). Status: Claude (desktop og Claude Code) er testet; Gemini CLI blev stoppet af login ved testen 16.10.2026;
+de andre burde virke. Detaljer, opsætningerne og hvordan der testes: `docs/mcp-clients.md`.
+- **Serveren er sin egen manual:** værktøjsbeskrivelserne bærer arbejdsgangen, og værktøjet `guide` (også prompten
+  `subadubalingo_workflow` og ressourcen `subadubalingo://guide`) giver hele manualen med brugerens ordliste og sprog.
+  Manualen (`guide.py`) og Claude-skill'en bygges af de samme tekststykker; skill'en er uændret version 6.
+- **Launcheren** `%LOCALAPPDATA%\Programs\SubaDubaLingo\SubaDubaLingo-mcp.exe` (`tools/mcp_launcher.cs`) er en sti,
+  der aldrig ændrer sig: den starter `current.txt`'s version med `--mcp` og rører ikke stdout. Installationen og
+  selvopdateringen lægger den der. Claude desktop peger stadig på versionens exe, som installationen skriver om.
+- Test: `tests/test_mcp_clients.py` (uden værktøj og uden GUI), skærmbilleder: `tests/mcpclients_shots.py`.
+
 ## Klip før undertekster og dub (v1.9)
 "Klip videoen først" (og `start_video(klip=true)`) tilføjer trinene Claude foreslår klip -> brugeren gennemser dem
 -> klipper videoen, før dub/indbrænding. `app/subadubalingo/cutting.py`:

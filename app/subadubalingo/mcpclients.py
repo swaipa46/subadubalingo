@@ -8,7 +8,8 @@ versioned exe as before; the installer rewrites that entry at every install and 
 it saves Claude desktop a process and a console-less launcher in between.
 
 The formats were checked against each client's documentation on 2026-10-16 (the URLs are by each snippet). Clients
-other than Claude and Gemini CLI are not tested with the app yet (docs/mcp-clients.md).
+other than Claude (desktop app, and Claude Code through the launcher) are not tested with the app yet
+(docs/mcp-clients.md).
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ SERVER = "subadubalingo"   # the server's name in every config (installer.MCP_NA
 # key, tile code, name (never translated), tested with the app
 CLIENTS = (("claude_desktop", "CD", "Claude", True),
            ("claude_code", "CC", "Claude Code", True),
-           ("gemini", "GE", "Gemini CLI", True),
+           ("gemini", "GE", "Gemini CLI", False),   # 16.10.2026: the login was refused (docs/mcp-clients.md)
            ("codex", "CX", "Codex CLI", False),
            ("vscode", "VS", "VS Code", False),
            ("cursor", "CU", "Cursor", False))
