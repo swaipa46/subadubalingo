@@ -52,10 +52,12 @@ for c in ("da", "sv", "no", "en"):     # the same keys in all four locale files
 
 # --- What the rows in Indstillinger and the tooltip say ---------------------------------------------------------
 from subadubalingo import i18n  # noqa: E402
-assert vp.voice_name("sv_SE-lisa-medium") == "lisa" and vp.voice_name("odd") == "odd"
-assert vp.voices_text(sv, "one") == "nst"
-assert vp.voices_text(sv, "gender") == t("voice.and", a=f"nst ({t('voice.male')})", b=f"lisa ({t('voice.female')})")
-assert vp.voices_text(da, "gender") == "talesyntese"
+assert vp.voice_name("sv_SE-lisa-medium") == "Lisa" and vp.voice_name("odd") == "Odd"
+assert vp.voices_text(sv, "one") == "Nst"
+assert vp.voices_text(sv, "gender") == t("voice.and", a=f"Nst ({t('voice.male')})", b=f"Lisa ({t('voice.female')})")
+# One voice for the language: its name once, and it says so (design review round 4, decision 5)
+assert vp.voices_text(da, "gender") == t("voice.one_voice", name="Talesyntese") == "Talesyntese (én stemme)"
+assert vp.voices_text(da, "person") == vp.voices_text(da, "one") == "Talesyntese (én stemme)"
 assert vp.fmt_time(0) == "0:00" and vp.fmt_time(4.9) == "0:04" and vp.fmt_time(65) == "1:05"
 
 # --- Cache key ------------------------------------------------------------------------------------------------

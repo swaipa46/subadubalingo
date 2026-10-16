@@ -182,16 +182,28 @@ def play_sound(path: Path):
 
 
 def voice_name(stem: str) -> str:
-    """"lisa" for sv_SE-lisa-medium: the name the voice has in Piper."""
+    """"Lisa" for sv_SE-lisa-medium: the name the voice has in Piper, written as people say it (design review
+    round 4, decision 5)."""
     parts = stem.split("-")
-    return parts[1] if len(parts) > 2 else stem
+    name = parts[1] if len(parts) > 2 else stem
+    return name[:1].upper() + name[1:]
+
+
+def single_voice(lang: Language) -> bool:
+    """Whether the language has only one Piper voice (Danish and Norwegian: the dub uses it for everyone)."""
+    stems = {lang.voice} | set(engine.GENDER_VOICES.get(lang.code, {}).values())
+    for vs in engine.PERSON_VOICES.get(lang.code, {}).values():
+        stems |= set(vs)
+    return len(stems) <= 1
 
 
 def voices_text(lang: Language, mode: str) -> str:
-    """The voices a sample plays, for a tooltip or a row in Indstillinger: "nst (mand) og lisa (kvinde)"."""
+    """The voices a sample plays, for a tooltip or a row in Indstillinger: "Nst (mand) og Lisa (kvinde)", or
+    "Talesyntese (én stemme)" for a language with one voice (never "(mand) og ... (kvinde)" for the same voice)."""
     voices = sample_voices(lang, mode)
-    if len(voices) == 1:
-        return voice_name(voices[0].stem)
+    if len({v.stem for v in voices}) == 1:
+        name = voice_name(voices[0].stem)
+        return t("voice.one_voice", name=name) if single_voice(lang) else name
     named = [f"{voice_name(v.stem)} ({t('voice.' + g)})" for v, g in zip(voices, ("male", "female"))]
     return t("voice.and", a=named[0], b=named[1])
 
@@ -218,7 +230,7 @@ class SampleBubble(ttk.Frame):
 
     BARS = 12
 
-    def __init__(self, parent):
+    def __init__(self, parent, named: bool = False):
         k = 2 if IMG.two else 1
         style = ttk.Style(parent)
         layout = [(f"Btn2.border-{P.name}", {"sticky": "nsew", "children": [("Frame.padding", {"sticky": "nsew"})]})]
@@ -233,20 +245,30 @@ class SampleBubble(ttk.Frame):
         self.bars = tk.Canvas(self, width=(self.BARS * 6 - 2) * k, height=20 * k, highlightthickness=0,
                               borderwidth=0, background=inner)
         self.bars.pack(side="left")
+        # In Indstillinger the language's name comes first, in Semibold (design review round 4, decision 5)
+        self.name = tk.Label(self, text="", font=("Segoe UI Semibold", -14 * k), foreground=P.text,
+                             background=inner, borderwidth=0) if named else None
+        if self.name is not None:
+            self.name.pack(side="left", padx=(10 * k, 0))
         self.text = tk.Label(self, text="", font=("Segoe UI", -14 * k, "italic"), foreground=P.text,
                              background=inner, borderwidth=0)
         self.text.pack(side="left", padx=(10 * k, 0))
         self.time = tk.Label(self, text="", font=(TERMINAL_FONT, -18 * k), foreground=P.hint,
                              background=inner, borderwidth=0)
         self.time.pack(side="right", padx=(18 * k, 0))
+        for w in (self.bars, self.name, self.text, self.time):   # the button frame's fill, also in a card
+            if w is not None:
+                w.keep_colour = True
         self._levels: list[float] = [0.0] * self.BARS
         self._total = 0.0
         self._start = 0.0
         self._token = 0
 
-    def start(self, wav: Path, sentence: str):
+    def start(self, wav: Path, sentence: str, lang_name: str = ""):
         self._levels, self._total = levels(wav, self.BARS), wav_seconds(wav)
         self._start = time.monotonic()
+        if self.name is not None:
+            self.name.configure(text=lang_name)
         self.text.configure(text=f"»{sentence}«")
         self._token += 1
         self._tick(self._token)
@@ -360,7 +382,7 @@ class PreviewButton(skin.IconButton):
         play_sound(wav)
         self._show("playing")
         if self.bubble is not None:
-            self.bubble.start(wav, sample_text(lang))
+            self.bubble.start(wav, sample_text(lang), lang.name)
             self.show_bubble(self.bubble)
         self.after(int(wav_seconds(wav) * 1000) + 150, self._ended, token)
 
@@ -418,7 +440,7 @@ def settings_rows(parent, mode_var: tk.StringVar,
         0, 1, e.width, 1, fill=P.step_pending_icon, width=2 * k, dash=(4, 4))))
     grid = ttk.Frame(parent)
     grid.pack(anchor="w", fill="x")
-    bubble = SampleBubble(slot)
+    bubble = SampleBubble(slot, named=True)
     slot.update_idletasks()
     slot.rowconfigure(0, minsize=bubble.winfo_reqheight())   # the same height with the hint or the bubble
 

@@ -8,6 +8,7 @@
  "voice.male": "man",
  "voice.female": "kvinna",
  "voice.and": "{a} och {b}",
+ "voice.one_voice": "{name} (en röst)",
  "voice.failed": "Provet kunde inte göras. Se loggen (Inställningar -> Öppna loggfil).",
  "voice.missing": "Rösten är inte hämtad än."
 }

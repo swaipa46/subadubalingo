@@ -8,6 +8,7 @@
  "voice.male": "mann",
  "voice.female": "kvinne",
  "voice.and": "{a} og {b}",
+ "voice.one_voice": "{name} (én stemme)",
  "voice.failed": "Prøven kunne ikke lages. Se loggen (Innstillinger -> Åpne loggfil).",
  "voice.missing": "Stemmen er ikke lastet ned ennå."
 }

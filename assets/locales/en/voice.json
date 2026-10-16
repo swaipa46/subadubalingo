@@ -8,6 +8,7 @@
  "voice.male": "man",
  "voice.female": "woman",
  "voice.and": "{a} and {b}",
+ "voice.one_voice": "{name} (one voice)",
  "voice.failed": "The sample could not be made. See the log (Settings -> Open log file).",
  "voice.missing": "The voice has not been downloaded yet."
 }
