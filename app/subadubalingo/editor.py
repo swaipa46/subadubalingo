@@ -560,7 +560,8 @@ class LineList(ttk.Frame):
         self.c.grid(row=1, column=0, sticky="nsew")
         self.sb = ttk.Scrollbar(self, orient="vertical", command=self._yview)
         self.sb.grid(row=1, column=1, sticky="ns")
-        self.c.configure(yscrollcommand=self.sb.set)
+        self.c.configure(yscrollcommand=self._scrolled)
+        self.columnconfigure(1, minsize=12 * editor.kd)   # the same text width with or without the bar
         # "6 linjer", and when lines are too fast "· [warning square] 1 linje er svær at nå at læse (over 20 tegn/s)"
         # (design review round 4, decision 3)
         foot = tk.Frame(self, background=P.card, borderwidth=0)
@@ -645,6 +646,15 @@ class LineList(ttk.Frame):
         elif y1 > bottom:
             self.c.yview_moveto((y1 - self.c.winfo_height()) / max(1, total))
         self.draw()
+
+    def _scrolled(self, first, last):
+        """The scroll bar only while the lines do not all fit (a full-length thumb is just a dark bar)."""
+        self.sb.set(first, last)
+        fits = float(first) <= 0.0 and float(last) >= 1.0
+        if fits and self.sb.winfo_manager():
+            self.sb.grid_remove()
+        elif not fits and not self.sb.winfo_manager():
+            self.sb.grid()
 
     def _yview(self, *args):
         self.c.yview(*args)
