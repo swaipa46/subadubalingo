@@ -107,7 +107,7 @@ else:
         out = TMP / f"{name}.mp4"
         prog = engine.Progress(lambda *a: None, [("burn", 1.0)])
         prog.start("burn")
-        engine.burn(runner, video, srt, out, info, prog, work, look)
+        engine.burn(runner, video, srt, out, info, prog, work, look=look)
         got_w, got_h, got_dur = burnin.video_size(runner, out)
         assert (got_w, got_h) == (w, h) and 2900 <= got_dur <= 3200, (name, got_w, got_h, got_dur)
         still = TMP / f"{name}.png"
