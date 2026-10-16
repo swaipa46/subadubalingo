@@ -177,10 +177,12 @@ def setup_option(parent, var, row: int, indent: int, wrap):
     return cb
 
 
-def refresh_setup(cb, applies_now: bool):
-    """Greyed, with a hint that says why, when the choices make no video with the original speech in it."""
+def refresh_setup(cb, applies_now: bool, queue: bool = False):
+    """Greyed, with a hint that says why, when the choices make no video with the original speech in it. In the
+    queue's "For alle videoerne" the hint speaks of all the videos (design review round 4, decision 6)."""
     cb.state(["!disabled"] if applies_now else ["disabled"])
-    cb.hint.configure(text=t("audio.setup_hint" if applies_now else "audio.setup_hint_off"))
+    cb.hint.configure(text=t("audio.setup_hint_off" if not applies_now else
+                             "audio.queue_hint" if queue else "audio.setup_hint"))
 
 
 def settings_card(parent, var):

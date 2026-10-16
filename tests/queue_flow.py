@@ -131,7 +131,17 @@ def begin(self, item, phase):
     rounds.append((Path(item.video).stem, queue_view.PHASES[phase]))
     _begin(self, item, phase)
     if len(rounds) == 1 and SCENARIO == "main":   # the work view while the first round listens
-        root.after(1200, lambda: shot(root, f"work-{THEME}"))
+        root.after(1200, work_shot)
+
+
+def work_shot():
+    # A (checked subtitles) needed no listening: "Lyttet igennem, venter på Claude" with step-done, C waits with
+    # step-pending (design review round 4, item 8)
+    a, _, c = app.vq.q.items
+    status = app.vq._status
+    assert status(a, False)[0] == i18n.t("queue.state.listened") and status(a, False)[2] == "step-done", status(a, False)
+    assert status(c, False)[2] == "step-pending", status(c, False)
+    shot(root, f"work-{THEME}")
 
 
 queue_view.VideoQueue.begin = begin
@@ -186,6 +196,8 @@ if SCENARIO == "main":
     assert pump(root, 10, until=lambda: all(app.vq._durations.get(i.video) for i in q.items)), app.vq._durations
     pump(root, 0.5)
     assert i18n.t("queue.start_count", n=3, length=queue_view.length_text(3 * 18000)) in app.start_hint.cget("text")
+    # Forbedr lyden speaks of all the videos in the queue (design review round 4, decision 6)
+    assert app.cb_improve.hint.cget("text") == i18n.t("audio.queue_hint"), app.cb_improve.hint.cget("text")
     shot(root, f"setup-{THEME}")
     # Start: every video is checked first (no questions here: nothing exists yet), then the rounds run
     app._start()

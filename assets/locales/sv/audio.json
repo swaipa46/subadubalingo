@@ -1,6 +1,7 @@
 {
  "audio.setup_option": "Förbättra ljudet: jämn ljudnivå och mindre brus",
  "audio.setup_hint": "Gör talet lättare att höra och tar bort sus och brum. Påverkar bara den nya videon.",
+ "audio.queue_hint": "Gör talet lättare att höra och tar bort sus och brum. Gäller alla videor i kön; dina originalvideor ändras inte.",
  "audio.settings_title": "Ljud",
  "audio.settings_option": "Förbättra ljudet som standard",
  "audio.settings_hint": "Jämn ljudnivå och mindre brus. Kan stängas av för varje video.",

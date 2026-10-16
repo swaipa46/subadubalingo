@@ -792,6 +792,8 @@ class QueueController:
             w.grid_remove()
         app.g_video.configure(text=t("queue.group_video", n=len(self.q.items)))
         app.g_output.configure(text=t("queue.group_output"))
+        if not app.cb_improve.instate(["disabled"]):   # Forbedr lyden: all the videos (design review round 4)
+            app.cb_improve.hint.configure(text=t("audio.queue_hint"))
         if [r["item"] for r in self._rows] != self.q.items:
             self._draw_rows()
             skin.skin_cards(app.g_video)
@@ -1174,7 +1176,12 @@ class QueueController:
             pct = str(app.w_pct.cget("text"))
             return t("queue.state.running", pct=pct), P.heading, f"step-active-{self._frame % 6}"
         colour = {"done": P.success, "error": P.error}.get(item.state, P.hint)
-        return state_text(item, self.q.stopped), colour, state_icon(item)
+        icon_name = state_icon(item)
+        if item.state == "waiting" and item.phase >= 1 and not self.q.stopped:
+            # Listened to (and maybe checked), waiting for its next round: that part is done, so step-done with the
+            # text in hint, unlike Venter (step-pending) and the running row (design review round 4, item 8)
+            icon_name = "step-done"
+        return state_text(item, self.q.stopped), colour, icon_name
 
     def update_work(self):
         """The queue card: each video with its state; the running one on picker_hover_bg."""

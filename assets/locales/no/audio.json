@@ -1,6 +1,7 @@
 {
  "audio.setup_option": "Forbedre lyden: jevn lydstyrke og mindre støy",
  "audio.setup_hint": "Gjør talen lettere å høre og fjerner sus og brum. Påvirker bare den nye videoen.",
+ "audio.queue_hint": "Gjør talen lettere å høre og fjerner sus og brum. Gjelder alle videoene i køen; de originale videoene dine endres ikke.",
  "audio.settings_title": "Lyd",
  "audio.settings_option": "Forbedre lyden som standard",
  "audio.settings_hint": "Jevn lydstyrke og mindre støy. Kan slås av for hver video.",
