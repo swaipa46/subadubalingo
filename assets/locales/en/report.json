@@ -1,0 +1,23 @@
+{
+ "report.button": "Send error report …",
+ "report.title": "Send error report",
+ "report.intro": "The program puts a zip file in Downloads and opens an e-mail that you send yourself. The e-mail cannot add the file by itself, so attach the zip file that File Explorer shows.",
+ "report.included": "What is included",
+ "report.item_log": "The error message and the log file (what the program has done)",
+ "report.item_settings": "Your settings (without folders and names)",
+ "report.item_versions": "The program's version and the Windows version",
+ "report.item_job": "The state of the last run and the cuts (without text)",
+ "report.never": "The video, the audio and the subtitles are never included. Your user folder and user name are hidden in the files.",
+ "report.comment": "What happened?",
+ "report.make": "Create the e-mail",
+ "report.close": "Close",
+ "report.done": "\"{file}\" is in Downloads (File Explorer shows it). Attach it to the e-mail and send it.",
+ "report.failed": "That did not work: {error}",
+ "report.zip_name": "{app} error report {date}",
+ "report.mail_subject": "Error report from {app} {version}",
+ "report.mail_no_comment": "(no comment)",
+ "report.mail_attach": "Attach the file \"{file}\" from Downloads (File Explorer shows it).",
+ "report.button_hint": "Sends the log to Kasper so he can see what went wrong.",
+ "report.heading": "Send an error report to Kasper",
+ "report.optional": "(optional)"
+}

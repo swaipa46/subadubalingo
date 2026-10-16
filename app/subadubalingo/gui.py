@@ -19,7 +19,7 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import audio, burnin, chapters, claude, cutting, engine, jobs, textstate
+from . import audio, burnin, chapters, claude, cutting, engine, jobs, report, textstate
 from .burnin_ui import BurninCard
 from .chapters_view import ChaptersCard
 from . import i18n, skin, theme, voice_preview
@@ -860,6 +860,8 @@ class App:
         self.d_folder.pack(side="left", padx=(0, int(14 * k)))
         self.d_log = ttk.Button(self.d_acts, text=t("gui.open_log"), command=lambda: self._open(log_file()))
         self.d_log.pack(side="left")
+        self.d_report = skin.IconButton(self.d_acts, "mail", text=t("report.button"), command=self.open_report)
+        self.d_report_hint = ttk.Label(self.d_acts, text=t("report.button_hint"), style="Hint.TLabel")
         self.d_target: Path | None = None
 
         self.d_files = g = skin.Card(left, text=t("gui.done.group_files"), padding=card_pad)
@@ -1767,7 +1769,7 @@ class App:
         for w in (self.d_icon, self.d_where, self.d_stats, self.d_msg, self.d_error, self.d_extra, self.d_acts,
                   self.d_again, self.d_same):
             w.grid_remove()
-        for w in (self.d_log, self.d_folder, self.d_play):
+        for w in (self.d_log, self.d_report, self.d_report_hint, self.d_folder, self.d_play):
             w.pack_forget()
         msg = ""
         if done:
@@ -1811,7 +1813,9 @@ class App:
                     msg = t("gui.done.failed_at", n=f"1-{failed[0] + 1}", step=failed[1])
                 self.d_error.configure(text=info or "")
                 self.d_error.grid()
-                self.d_log.pack(side="left")
+                self.d_log.pack(side="left", padx=(0, int(14 * k)))
+                self.d_report.pack(side="left", padx=(0, int(12 * k)))
+                self.d_report_hint.pack(side="left")
                 self.d_acts.grid()
                 if not replay:
                     self._call_attention()
@@ -2028,7 +2032,7 @@ class App:
     def _settings_dialog(self):
         improve = self.settings.improve_audio
         dlg = SettingsDialog(self.root, self.settings, on_theme=self.set_theme, on_language=self.set_language,
-                             get_models=self._get_voice_models)
+                             get_models=self._get_voice_models, on_report=self.open_report)
         dlg.bind("<Destroy>", lambda e: e.widget is dlg and self._settings_closed(improve), add="+")
 
     def _settings_closed(self, improve_before: bool):
@@ -2040,6 +2044,23 @@ class App:
             self._refresh()
         except tk.TclError:
             pass
+
+    def open_report(self, parent=None):
+        """Send fejlrapport (report.py), from the error done view or Indstillinger."""
+        report.ReportDialog(parent or self.root, self._report_state(), self.mcp_job, scale=self.scale)
+
+    def _report_state(self) -> dict:
+        """The app's view of the last run for an error report: options, steps and the result, no texts."""
+        job = self.job or {}
+        names = lambda v: [x.code for x in v] if isinstance(v, (list, tuple)) else getattr(v, "code", v)
+        state = {"view": self.view, "result": list(self._last_result) if self._last_result else None,
+                 "steps": [[r.get("name"), r.get("state")] for r in getattr(self, "step_rows", [])],
+                 "created": [Path(p).name for p in getattr(self, "created", [])]}
+        if job:
+            state["job"] = {k: (Path(v).name if isinstance(v, Path) else names(v)) for k, v in job.items()
+                            if k in ("video", "original", "edited", "lang", "speech", "subs", "translate", "cut",
+                                     "cut_reused", "transcribe", "check", "mcp")}
+        return state
 
     # --- The Claude skill's version ---------------------------------------------------------
 
@@ -2281,7 +2302,8 @@ class SettingsDialog(tk.Toplevel):
     """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles (folded until clicked), the
     look of burned-in subtitles (burnin_ui.py), then text and voices."""
 
-    def __init__(self, parent, settings: Settings, on_theme=None, on_language=None, get_models=None):
+    def __init__(self, parent, settings: Settings, on_theme=None, on_language=None, get_models=None,
+                 on_report=None):
         super().__init__(parent)
         self.withdraw()
         self.title(t("gui.settings.title"))
@@ -2337,6 +2359,9 @@ class SettingsDialog(tk.Toplevel):
         foot = ttk.Frame(outer)
         foot.pack(fill="x", pady=(14, 0))
         ttk.Label(foot, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").pack(side="left")
+        if on_report:   # Send fejlrapport next to the version, as in the T8 mockup
+            skin.IconButton(foot, "mail", text=t("report.button"),
+                            command=lambda: on_report(self)).pack(side="left", padx=(12, 0))
         b = ttk.Frame(foot)
         b.pack(side="right")
         ttk.Button(b, text=t("gui.cancel"), command=self.destroy).pack(side="left", padx=(0, 6))
