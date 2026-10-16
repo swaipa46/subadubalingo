@@ -48,5 +48,6 @@
  "installer.fail.incomplete": "Installationen blev ikke færdig.",
  "installer.fail.unchanged": "Installationen blev ikke færdig. Der er ikke ændret noget i din gamle version.",
  "installer.fail.stopped": "Installationen stoppede uventet. Se log.txt i {folder}.",
- "installer.retry": "Prøv igen (indsæt ny mønt)"
+ "installer.retry": "Prøv igen (indsæt ny mønt)",
+ "installer.claude_quit_text": "Claude bruger stadig den gamle version af programmet.\n\nLuk Claude helt (højreklik på Claude-ikonet ved uret og vælg Quit). Så retter SubaDubaLingo det selv, og næste gang du åbner Claude, bruger den den nye version."
 }

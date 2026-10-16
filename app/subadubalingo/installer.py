@@ -255,7 +255,7 @@ def _update_shortcuts(exe: Path):
 def point_claude_at(exe: Path, args: list[str] | None = None, add_if_missing: bool = True) -> bool:
     """Update (or add) the MCP entry in Claude desktop's config to `exe`, replacing the entries under the app's
     earlier names. Keeps every other server, and a backup of the file next to it."""
-    cfg = Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))) / "Claude" / "claude_desktop_config.json"
+    cfg = claude_config_path()
     data = {}
     if cfg.exists():
         raw = cfg.read_text(encoding="utf-8-sig")
@@ -275,6 +275,65 @@ def point_claude_at(exe: Path, args: list[str] | None = None, add_if_missing: bo
     tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(cfg)
     return True
+
+
+def claude_config_path() -> Path:
+    return Path(os.environ.get("APPDATA", str(Path.home() / "AppData" / "Roaming"))) / "Claude" / "claude_desktop_config.json"
+
+
+def claude_desktop_running(images: list[str] | None = None) -> bool:
+    """Is Claude desktop running? It keeps its config in memory and writes it back when it saves its preferences, so a
+    change made while it runs can be overwritten (found 2026-10-16: the 2.1.0 install pointed Claude at the new exe at
+    14:35, Claude wrote its old copy back at 15:23 and started the old Videosprog). Claude Code's claude.exe does not
+    count: it does not use this file."""
+    for img in images if images is not None else _process_images():
+        if img.endswith(r"\claude.exe") and (r"\windowsapps\claude_" in img or "\\anthropicclaude\\" in img):
+            return True
+    return False
+
+
+def claude_config_state(exe: Path) -> str:
+    """"ok" (Claude points at exe, no entries under the earlier names), "stale" (it points elsewhere or still has an
+    earlier name) or "none" (Claude desktop is not set up for the app, or not installed)."""
+    cfg = claude_config_path()
+    try:
+        servers = json.loads(cfg.read_text(encoding="utf-8-sig") or "{}").get("mcpServers", {})
+    except (OSError, ValueError):
+        return "none"
+    if not any(n in servers for n in (MCP_NAME,) + OLD_MCP_NAMES):
+        return "none"
+    entry = servers.get(MCP_NAME) or {}
+    same = str(entry.get("command", "")).lower() == str(exe).lower()
+    return "ok" if same and not any(n in servers for n in OLD_MCP_NAMES) else "stale"
+
+
+def keep_claude_pointed(exe: Path, on_waiting=None, poll_s: float = 5.0, max_wait_s: float = 12 * 3600) -> threading.Thread | None:
+    """At every start of the installed app: if Claude desktop's config is stale, fix it, but only while Claude desktop
+    is not running (else it would write its old copy back). While it runs, a background thread waits for it to quit
+    and fixes the config then; on_waiting() is called once so the app can ask the user to quit Claude."""
+    if claude_config_state(exe) != "stale":
+        return None
+    if not claude_desktop_running():
+        point_claude_at(exe, add_if_missing=False)
+        log.info("Claude config pointed at %s", exe)
+        return None
+    if on_waiting:
+        on_waiting()
+
+    def wait():
+        waited = 0.0
+        while waited < max_wait_s:
+            time.sleep(poll_s)
+            waited += poll_s
+            if not claude_desktop_running():
+                time.sleep(2)   # let it finish writing its file
+                if claude_config_state(exe) == "stale":
+                    point_claude_at(exe, add_if_missing=False)
+                    log.info("Claude config pointed at %s after Claude quit", exe)
+                return
+    t = threading.Thread(target=wait, daemon=True)
+    t.start()
+    return t
 
 
 def cleanup() -> list[str]:

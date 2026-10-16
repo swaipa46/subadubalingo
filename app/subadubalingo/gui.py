@@ -3428,4 +3428,12 @@ def main():
     app = App(root)
     report.install_hooks(root, app._report_state)   # unhandled exceptions become crash reports to offer
     report.start_retry()                            # reports that could not be sent earlier (background thread)
+    if running_installed():   # Claude desktop still pointing at an earlier version (it may have written its old config back)
+        from .installer import current_exe, keep_claude_pointed
+
+        def ask_to_quit_claude():
+            root.after(2500, lambda: boxes.showinfo(APP_NAME, t("installer.claude_quit_text"), parent=root))
+        exe = current_exe()
+        if exe:
+            _safe(lambda: keep_claude_pointed(exe, on_waiting=ask_to_quit_claude))
     root.mainloop()
