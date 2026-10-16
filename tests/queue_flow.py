@@ -181,7 +181,8 @@ if SCENARIO == "main":
     assert [Path(i.video).stem for i in q.items] == ["Møde A", "Møde B", "Møde C"]
     assert q.items[2].subs == "no"
     # Card 2 is "for all the videos": the per-video choices are hidden there
-    assert not app.c_speech.winfo_manager() and not app.plan_row.winfo_manager() and app.vq.opts.winfo_manager()
+    speech_row = app.c_speech.master   # the combo and Hør stemmen's button (voice_preview) share a frame
+    assert not speech_row.winfo_manager() and not app.plan_row.winfo_manager() and app.vq.opts.winfo_manager()
     assert pump(root, 10, until=lambda: all(app.vq._durations.get(i.video) for i in q.items)), app.vq._durations
     pump(root, 0.5)
     assert i18n.t("queue.start_count", n=3, length=queue_view.length_text(3 * 18000)) in app.start_hint.cget("text")
