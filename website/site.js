@@ -71,6 +71,19 @@
       el.textContent = "";
       foot.textContent = tr("footer.version").replace("{v}", FALLBACK_VERSION);
     }
+    /* "Coming in x.y.z" badges disappear once that version is out */
+    var current = state.release && state.release.version;
+    document.querySelectorAll("[data-since]").forEach(function (b) {
+      b.hidden = !!current && newer(current, b.dataset.since) >= 0;
+    });
+  }
+  function newer(a, b) { // compares "2.1.1"-style versions: >0 when a is newer than b
+    var x = String(a).split("."), y = String(b).split(".");
+    for (var i = 0; i < Math.max(x.length, y.length); i++) {
+      var d = (parseInt(x[i], 10) || 0) - (parseInt(y[i], 10) || 0);
+      if (d) return d;
+    }
+    return 0;
   }
   function checkRelease() {
     if (!window.fetch) return;

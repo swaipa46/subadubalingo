@@ -42,6 +42,7 @@
     <nav class="nav" aria-label="Sider">
       <a href="#features" data-i18n="nav.features">Funktioner</a>
       <a href="#how" data-i18n="nav.how">Sådan virker det</a>
+      <a href="#friends" data-i18n="nav.friends">AI-venner</a>
       <a href="#install" data-i18n="nav.install">Installér</a>
       <a href="#faq" data-i18n="nav.faq">Spørgsmål</a>
     </nav>
@@ -75,7 +76,7 @@
   <section class="hero" aria-labelledby="hero-title">
     <div class="stars" aria-hidden="true"></div>
     <div class="wrap hero-in">
-      <p class="hud" aria-hidden="true"><span class="p1">1UP</span> 00 <span class="hud-mid"><span class="c">LANG</span> DA SV NO EN</span> <span class="y">CREDIT</span> 01</p>
+      <p class="hud" aria-hidden="true"><span class="p1">1UP</span> 00 <span class="hud-mid"><span class="c">LANG</span> DA SV NO EN</span> <span class="hud-2p"><span class="y">2P</span> <i class="heart"></i> AI</span></p>
       <h1 id="hero-title" class="logo">
         <img src="img/logo-dark.png" width="865" height="192" alt="SubaDubaLingo">
       </h1>
@@ -234,7 +235,48 @@
     </div>
   </section>
 
-  <section id="install" class="section" aria-labelledby="install-title">
+  <section id="friends" class="section" aria-labelledby="friends-title">
+    <div class="wrap">
+      <h2 id="friends-title" class="h2" data-i18n="ai.title">Venner med din AI-assistent</h2>
+      <p class="intro" data-i18n="ai.intro">SubaDubaLingo virker bedst med Claude, men er venner med alle AI-assistenter, der kan bruge en lokal MCP-server.</p>
+      <div class="px px-stage"><div class="stage" role="img" aria-label="Pixelfigurer, der holder i hånd og danser: SubaDubaLingo i midten sammen med Claude, Gemini CLI, Codex CLI, GitHub Copilot og Cursor." data-i18n-aria="ai.scene">
+        <div class="hearts" aria-hidden="true"><i class="heart"></i><i class="heart"></i><i class="heart"></i></div>
+        <ul class="friends" aria-hidden="true">
+            <li class="friend friend-codex"><img src="img/friends/codex.svg" width="112" height="132" alt="" loading="lazy" decoding="async"><span class="tag">CODEX CLI</span></li>
+            <li class="friend friend-gemini"><img src="img/friends/gemini.svg" width="112" height="132" alt="" loading="lazy" decoding="async"><span class="tag">GEMINI CLI</span></li>
+            <li class="friend friend-claude"><img src="img/friends/claude.svg" width="112" height="132" alt="" loading="lazy" decoding="async"><span class="tag">CLAUDE</span></li>
+            <li class="friend friend-subadubalingo"><img src="img/friends/subadubalingo.svg" width="112" height="132" alt="" loading="lazy" decoding="async"><span class="tag">SUBADUBA<wbr>LINGO</span></li>
+            <li class="friend friend-copilot"><img src="img/friends/copilot.svg" width="112" height="132" alt="" loading="lazy" decoding="async"><span class="tag">COPILOT</span></li>
+            <li class="friend friend-cursor"><img src="img/friends/cursor.svg" width="112" height="132" alt="" loading="lazy" decoding="async"><span class="tag">CURSOR</span></li>
+        </ul>
+        <div class="floor" aria-hidden="true"></div>
+      </div></div>
+      <div class="two ai-info">
+        <div>
+          <h3 class="h3" data-i18n="ai.list.title">Kan bruges med</h3>
+          <ul class="checks">
+            <li><span data-i18n="ai.list.claude">Claude: desktop-appen og Claude Code</span> <span class="badge" data-i18n="ai.tested">Testet</span></li>
+            <li>Gemini CLI</li>
+            <li data-i18n="ai.list.codex">OpenAI Codex CLI</li>
+            <li data-i18n="ai.list.copilot">GitHub Copilot i VS Code</li>
+            <li>Cursor</li>
+          </ul>
+          <p class="note" data-i18n="ai.list.note">Vi har testet med Claude. De andre kan også starte en lokal MCP-server, så de burde virke på samme måde.</p>
+        </div>
+        <div class="px px-card"><div class="card">
+          <h3 class="h3"><span data-i18n="ai.how.title">Brug med andre AI-værktøjer</span> <span class="badge badge-soon" data-since="2.1.1" data-i18n="ai.soon">Kommer i version 2.1.1</span></h3>
+          <p data-i18n="ai.how.text">SubaDubaLingo kører på din pc som en lokal MCP-server. Din AI-assistent starter den selv og kan så finde dine videoer, foreslå klip, rette underteksterne og sætte en video i gang.</p>
+          <ol class="mini-steps">
+            <li data-i18n="ai.how.1">Åbn Indstillinger i SubaDubaLingo, og vælg Brug med andre AI-værktøjer.</li>
+            <li data-i18n="ai.how.2">Kopiér opsætningen ind i dit AI-værktøj, og genstart det.</li>
+            <li data-i18n="ai.how.3">Bed assistenten om hjælp til en video.</li>
+          </ol>
+        </div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="install" class="section section-alt" aria-labelledby="install-title">
     <div class="wrap two">
       <div>
         <h2 class="h2" id="req-title" data-i18n="req.title">Det skal du bruge</h2>
@@ -272,7 +314,7 @@
     </div>
   </section>
 
-  <section id="faq" class="section section-alt" aria-labelledby="faq-title">
+  <section id="faq" class="section" aria-labelledby="faq-title">
     <div class="wrap narrow">
       <h2 id="faq-title" class="h2" data-i18n="faq.title">Spørgsmål</h2>
       <details class="px-details">
@@ -314,6 +356,7 @@
       <span id="footer-version">Version 2.0.0</span>
     </p>
     <p class="fonts"><span data-i18n="footer.fonts">Skrifttyper: Press Start 2P og VT323 (SIL Open Font License).</span> <a href="fonts/PressStart2P-OFL.txt">OFL</a></p>
+    <p class="fonts" data-i18n="footer.names">Navnene tilhører deres ejere. SubaDubaLingo er ikke tilknyttet dem.</p>
   </div>
 </footer>
 

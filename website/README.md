@@ -13,6 +13,7 @@ is no build step, no framework, no CDN, no trackers and no external fonts.
 | `style.css` | The layout. The colours are the app's tokens (`assets/ui/tokens.json`). |
 | `fonts/` | Press Start 2P and VT323 as subset woff2, with their OFL licences. |
 | `img/` | The screenshots in both themes (`<name>-light.webp`, `<name>-dark.webp`), the logo, the icons and `og-image.png` (1200×630, used for sharing). |
+| `img/friends/` | The pixel characters in the AI-friends section, one small SVG each (about 2.5 KB). |
 | `favicon.ico` | A copy of `assets/branding/SubaDubaLingo.ico`. |
 
 ## How it behaves
@@ -47,6 +48,22 @@ When a release exists, nothing on the site needs updating. Just make sure the re
 
 **Fallback version:** the footer shows `FALLBACK_VERSION` in `site.js` (now 2.0.0) when the API cannot be reached. Bump
 it when you like.
+
+### AI friends
+
+The section `#friends` shows SubaDubaLingo holding hands with original pixel characters. They borrow only colours from
+Claude, Gemini CLI, Codex CLI, GitHub Copilot and Cursor: no logos or brand marks. The footer says the names belong to
+their owners. Only assistants that can start a **local** MCP server are named (not ChatGPT, whose app only uses remote
+servers).
+
+- The characters hop, the row sways, hearts float up, eyes blink and the carets blink. It is all CSS; with reduced
+  motion everything stands still and one heart stays.
+- The badge "Kommer i version 2.1.1" has `data-since="2.1.1"`. `site.js` hides it by itself once the latest release is
+  2.1.1 or newer.
+- The characters are drawn by `design/website/source/friends.py` (`python friends.py website/img/friends`). Change a
+  character there, not in the SVG.
+- The app labels in the texts (Indstillinger → Brug med andre AI-værktøjer, and the SV/NO/EN versions) must match the
+  app.
 
 ## Updating
 
