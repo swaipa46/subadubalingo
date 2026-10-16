@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title data-i18n="meta.title">SubaDubaLingo · undertekster, dub og klip til dine videoer</title>
+<meta name="description" content="Gratis Windows-program, der laver undertekster og dub på dansk, svensk, norsk og engelsk og klipper ventetiden væk, med hjælp fra Claude. Videoen bliver på din pc." data-i18n-content="meta.description">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#f4f2f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a0840" media="(prefers-color-scheme: dark)">
+<link rel="canonical" href="https://subadubalingo.swaipa.dk/">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="img/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="SubaDubaLingo">
+<meta property="og:url" content="https://subadubalingo.swaipa.dk/">
+<meta property="og:title" content="SubaDubaLingo · CUT · DUB · SUB">
+<meta property="og:description" content="Gratis Windows-program, der laver undertekster og dub på dansk, svensk, norsk og engelsk og klipper ventetiden væk, med hjælp fra Claude. Videoen bliver på din pc.">
+<meta property="og:image" content="https://subadubalingo.swaipa.dk/img/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="SubaDubaLingo: CUT · DUB · SUB">
+<meta property="og:locale" content="da_DK">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="fonts/PressStart2P.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="style.css">
+<script>
+  /* Set the theme before the first paint, so the page does not flash. */
+  try { var t = localStorage.getItem("sdl-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+</head>
+<body>
+<a class="skip" href="#main" data-i18n="skip">Spring til indholdet</a>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#" aria-label="SubaDubaLingo">
+      <img src="img/icon-96.png" width="40" height="40" alt="">
+      <span class="brand-text"><span class="w1">SUBADUBA</span><span class="w2">LINGO</span><small>CUT <i></i> DUB <i class="c"></i> SUB</small></span>
+    </a>
+    <nav class="nav" aria-label="Sider">
+      <a href="#features" data-i18n="nav.features">Funktioner</a>
+      <a href="#how" data-i18n="nav.how">Sådan virker det</a>
+      <a href="#install" data-i18n="nav.install">Installér</a>
+      <a href="#faq" data-i18n="nav.faq">Spørgsmål</a>
+    </nav>
+    <div class="pickers">
+      <div class="picker" role="group" aria-label="Udseende" data-i18n-aria="theme.label" id="theme-picker">
+        <button type="button" data-theme-set="light" aria-pressed="false" title="Lys" data-i18n-title="theme.light">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7 1h2v2H7zM7 13h2v2H7zM1 7h2v2H1zM13 7h2v2h-2zM3 3h2v2H3zM11 3h2v2h-2zM3 11h2v2H3zM11 11h2v2h-2zM6 5h4v1h1v4h-1v1H6v-1H5V6h1z"/></svg>
+          <span class="sr" data-i18n="theme.light">Lys</span>
+        </button>
+        <button type="button" data-theme-set="dark" aria-pressed="false" title="Nat" data-i18n-title="theme.dark">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2h4v1H8v1H7v2H6v4h1v1h1v1h4v1h-1v1H6v-1H4v-1H3v-2H2V6h1V4h1V3h2z"/></svg>
+          <span class="sr" data-i18n="theme.dark">Nat</span>
+        </button>
+        <button type="button" data-theme-set="auto" aria-pressed="true" title="Automatisk" data-i18n-title="theme.auto">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 2h14v9H1zM3 4v5h10V4zM6 12h4v1h2v1H4v-1h2z"/></svg>
+          <span class="sr" data-i18n="theme.auto">Automatisk</span>
+        </button>
+      </div>
+      <div class="picker lang" role="group" aria-label="Sprog" data-i18n-aria="lang.label" id="lang-picker">
+        <button type="button" data-lang-set="da" lang="da" aria-pressed="true" title="Dansk">DA</button>
+        <button type="button" data-lang-set="sv" lang="sv" aria-pressed="false" title="Svenska">SV</button>
+        <button type="button" data-lang-set="no" lang="no" aria-pressed="false" title="Norsk">NO</button>
+        <button type="button" data-lang-set="en" lang="en" aria-pressed="false" title="English">EN</button>
+      </div>
+    </div>
+  </div>
+  <div class="stripe" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="hero-title">
+    <div class="stars" aria-hidden="true"></div>
+    <div class="wrap hero-in">
+      <p class="hud" aria-hidden="true"><span class="p1">1UP</span> 00 <span class="hud-mid"><span class="c">LANG</span> DA SV NO EN</span> <span class="y">CREDIT</span> 01</p>
+      <h1 id="hero-title" class="logo">
+        <img src="img/logo-dark.png" width="865" height="192" alt="SubaDubaLingo">
+      </h1>
+      <p class="lead" data-i18n="hero.lead">Undertekster, dub og klip til dine videoer, på dansk, svensk, norsk og engelsk.</p>
+      <p class="sub" data-i18n="hero.sub">Vælg en optagelse. Programmet lytter, Claude retter, og du får en færdig video med undertekster eller ny tale. Videoen bliver på din egen pc.</p>
+      <div class="cta">
+        <span class="px px-primary"><a class="btn btn-primary" id="download" href="https://github.com/swaipa46/subadubalingo/releases/latest/download/SubaDubaLingo.zip">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7 1h2v7h2v1h1v1h-1v1h-1v1H9v1H7v-1H6v-1H5v-1H4V9h1V8h2zM1 13h2v1h10v-1h2v2H1z"/></svg>
+          <span data-i18n="hero.download">Hent SubaDubaLingo</span>
+        </a></span>
+        <p class="platform"><span data-i18n="hero.platform">Til Windows 10 og 11 · gratis og open source</span><span class="release" id="release" aria-live="polite"></span></p>
+      </div>
+      <p class="press" aria-hidden="true" data-i18n="hero.press">INSERT VIDEO ▸ PRESS START</p>
+    </div>
+  </section>
+
+  <div class="wrap showcase">
+    <figure class="shot shot-hero">
+      <div class="px px-frame"><div class="frame">
+        <img class="only-light" src="img/hero-light.webp" width="1400" height="501" alt="SubaDubaLingo, når køen er færdig: STAGE CLEAR!, tre færdige videoer og knapperne til den næste kø." data-i18n-alt="hero.alt" loading="lazy" decoding="async">
+        <img class="only-dark" src="img/hero-dark.webp" width="1400" height="501" alt="SubaDubaLingo, når køen er færdig: STAGE CLEAR!, tre færdige videoer og knapperne til den næste kø." data-i18n-alt="hero.alt" loading="lazy" decoding="async">
+      </div></div>
+    </figure>
+  </div>
+
+  <section id="features" class="section" aria-labelledby="features-title">
+    <div class="wrap">
+      <h2 id="features-title" class="h2" data-i18n="features.title">Hvad den kan</h2>
+      <p class="intro" data-i18n="features.intro">Lavet til Teams-møder, webinarer og andre optagelser, hvor der bliver talt meget.</p>
+      <div class="features">
+        <article class="feature feature-dub">
+          <div class="feature-text">
+            <h3 data-i18n="f.dub.title">Undertekster og dub på fire sprog</h3>
+            <p data-i18n="f.dub.text">Programmet lytter videoen igennem og skriver teksten. Claude retter den og oversætter til dansk, svensk, norsk eller engelsk. Vælg undertekster, ny tale eller begge dele, og tryk på ▶ for at høre stemmen, før du går i gang.</p>
+          </div>
+          <figure class="shot">
+            <div class="px px-frame"><div class="frame">
+              <img class="only-light" src="img/dub-light.webp" width="1000" height="281" alt="Opsætningen: talen bliver svensk, underteksterne danske, og en prøve på den svenske stemme spiller." data-i18n-alt="f.dub.alt" loading="lazy" decoding="async">
+              <img class="only-dark" src="img/dub-dark.webp" width="1000" height="281" alt="Opsætningen: talen bliver svensk, underteksterne danske, og en prøve på den svenske stemme spiller." data-i18n-alt="f.dub.alt" loading="lazy" decoding="async">
+            </div></div>
+          </figure>
+        </article>
+        <article class="feature feature-wide feature-cut">
+          <div class="feature-text">
+            <h3 data-i18n="f.cut.title">Klip ventetiden væk</h3>
+            <p data-i18n="f.cut.text">Møder starter sjældent til tiden. Claude foreslår, hvad der kan klippes: ventetiden før mødet, lange pauser, snak om vejret og fyldord som »øh«. Du ser hvert klip på en tidslinje og bestemmer selv.</p>
+          </div>
+          <figure class="shot">
+            <div class="px px-frame"><div class="frame">
+              <img class="only-light" src="img/cut-light.webp" width="1100" height="620" alt="Tidslinjen med tre farvede klip: før mødet går i gang, et fyldord og noget off-topic." data-i18n-alt="f.cut.alt" loading="lazy" decoding="async">
+              <img class="only-dark" src="img/cut-dark.webp" width="1100" height="620" alt="Tidslinjen med tre farvede klip: før mødet går i gang, et fyldord og noget off-topic." data-i18n-alt="f.cut.alt" loading="lazy" decoding="async">
+            </div></div>
+          </figure>
+        </article>
+        <article class="feature feature-wide feature-scrub">
+          <div class="feature-text">
+            <h3 data-i18n="f.scrub.title">Se videoen, mens du trækker</h3>
+            <p data-i18n="f.scrub.text">Træk i kanten af et klip, og videoen følger med i et lille vindue. Så rammer du præcis det sted, hvor klippet skal være.</p>
+          </div>
+          <figure class="shot">
+            <div class="px px-frame"><div class="frame">
+              <img class="only-light" src="img/scrub-light.webp" width="1100" height="204" alt="Et lille videovindue over tidslinjen viser billedet ved klippets kant, mens den trækkes." data-i18n-alt="f.scrub.alt" loading="lazy" decoding="async">
+              <img class="only-dark" src="img/scrub-dark.webp" width="1100" height="204" alt="Et lille videovindue over tidslinjen viser billedet ved klippets kant, mens den trækkes." data-i18n-alt="f.scrub.alt" loading="lazy" decoding="async">
+            </div></div>
+          </figure>
+        </article>
+        <article class="feature feature-editor">
+          <div class="feature-text">
+            <h3 data-i18n="f.editor.title">Ret underteksterne selv</h3>
+            <p data-i18n="f.editor.text">Ret en linje, flyt den på tidslinjen, del den eller slå to sammen. De ord, du retter, husker programmet til næste gang.</p>
+          </div>
+          <figure class="shot">
+            <div class="px px-frame"><div class="frame">
+              <img class="only-light" src="img/editor-light.webp" width="1100" height="620" alt="Undertekst-editoren: linjerne til venstre, videoen og en lille tidslinje til højre." data-i18n-alt="f.editor.alt" loading="lazy" decoding="async">
+              <img class="only-dark" src="img/editor-dark.webp" width="1100" height="620" alt="Undertekst-editoren: linjerne til venstre, videoen og en lille tidslinje til højre." data-i18n-alt="f.editor.alt" loading="lazy" decoding="async">
+            </div></div>
+          </figure>
+        </article>
+        <article class="feature feature-queue">
+          <div class="feature-text">
+            <h3 data-i18n="f.queue.title">Sæt flere videoer i kø</h3>
+            <p data-i18n="f.queue.text">Læg ugens optagelser i køen, hver med sine sprog. Programmet tager dem én ad gangen, mens du laver noget andet.</p>
+          </div>
+          <figure class="shot">
+            <div class="px px-frame"><div class="frame">
+              <img class="only-light" src="img/queue-light.webp" width="1000" height="613" alt="Køen med tre videoer, hver med sit talesprog, sin nye tale og sine undertekster." data-i18n-alt="f.queue.alt" loading="lazy" decoding="async">
+              <img class="only-dark" src="img/queue-dark.webp" width="1000" height="613" alt="Køen med tre videoer, hver med sit talesprog, sin nye tale og sine undertekster." data-i18n-alt="f.queue.alt" loading="lazy" decoding="async">
+            </div></div>
+          </figure>
+        </article>
+        <article class="feature feature-chapters">
+          <div class="feature-text">
+            <h3 data-i18n="f.chapters.title">Kapitler og beskrivelse</h3>
+            <p data-i18n="f.chapters.text">Claude laver kapitler med tidspunkter og en kort beskrivelse af videoen, klar til at kopiere ind, hvor videoen skal ligge.</p>
+          </div>
+          <figure class="shot">
+            <div class="px px-frame"><div class="frame">
+              <img class="only-light" src="img/chapters-light.webp" width="600" height="452" alt="Kortet Kapitler og beskrivelse med syv kapitler og knapperne Kopiér kapitler og Kopiér beskrivelse." data-i18n-alt="f.chapters.alt" loading="lazy" decoding="async">
+              <img class="only-dark" src="img/chapters-dark.webp" width="600" height="452" alt="Kortet Kapitler og beskrivelse med syv kapitler og knapperne Kopiér kapitler og Kopiér beskrivelse." data-i18n-alt="f.chapters.alt" loading="lazy" decoding="async">
+            </div></div>
+          </figure>
+        </article>
+        <article class="feature feature-sound">
+          <div class="feature-text">
+            <h3 data-i18n="f.sound.title">Bedre lyd</h3>
+            <p data-i18n="f.sound.text">Ens lydstyrke og mindre sus og brum, så talen er lettere at høre. Dine originale videoer bliver ikke ændret.</p>
+          </div>
+          <figure class="shot">
+            <div class="px px-frame"><div class="frame">
+              <img class="only-light" src="img/sound-light.webp" width="900" height="349" alt="Valget Forbedr lyden: ens lydstyrke og mindre støj, slået til." data-i18n-alt="f.sound.alt" loading="lazy" decoding="async">
+              <img class="only-dark" src="img/sound-dark.webp" width="900" height="349" alt="Valget Forbedr lyden: ens lydstyrke og mindre støj, slået til." data-i18n-alt="f.sound.alt" loading="lazy" decoding="async">
+            </div></div>
+          </figure>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" class="section section-alt" aria-labelledby="how-title">
+    <div class="wrap">
+      <h2 id="how-title" class="h2" data-i18n="how.title">Sådan virker det</h2>
+      <div class="how">
+        <ol class="steps">
+          <li>
+            <span class="num" aria-hidden="true">1</span>
+            <div><h3 data-i18n="how.1.title">Vælg en video</h3>
+            <p data-i18n="how.1.text">Vælg optagelsen, og sig, hvad den nye video skal have: undertekster, ny tale eller begge dele.</p></div>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">2</span>
+            <div><h3 data-i18n="how.2.title">Programmet lytter</h3>
+            <p data-i18n="how.2.text">Programmet skriver teksten på din egen pc. Det tager lidt tid, og du kan arbejde videre imens.</p></div>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">3</span>
+            <div><h3 data-i18n="how.3.title">Din tur, sammen med Claude</h3>
+            <p data-i18n="how.3.text">Programmet siger til, når det er din tur. Claude retter teksten, oversætter og foreslår klip, og du godkender.</p></div>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">4</span>
+            <div><h3 data-i18n="how.4.title">Færdig</h3>
+            <p data-i18n="how.4.text">Den nye video, underteksterne og kapitlerne ligger i samme mappe som originalen.</p></div>
+          </li>
+        </ol>
+        <figure class="shot">
+          <div class="px px-frame"><div class="frame">
+            <img class="only-light" src="img/turn-light.webp" width="1100" height="637" alt="DIN TUR!: Claude-kortet viser de tre trin, du skal gøre, mens programmet venter." data-i18n-alt="how.alt" loading="lazy" decoding="async">
+            <img class="only-dark" src="img/turn-dark.webp" width="1100" height="637" alt="DIN TUR!: Claude-kortet viser de tre trin, du skal gøre, mens programmet venter." data-i18n-alt="how.alt" loading="lazy" decoding="async">
+          </div></div>
+        </figure>
+      </div>
+      <div class="px px-callout"><p class="callout">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 1h6v1h1v4h1v9H3V6h1V2h1zM6 3v3h4V3zM7 9v3h2V9z"/></svg>
+        <span data-i18n="how.privacy">Videoen forlader aldrig din pc. Kun teksten sendes til Claude.</span>
+      </p></div>
+    </div>
+  </section>
+
+  <section id="install" class="section" aria-labelledby="install-title">
+    <div class="wrap two">
+      <div>
+        <h2 class="h2" id="req-title" data-i18n="req.title">Det skal du bruge</h2>
+        <ul class="checks">
+          <li data-i18n="req.1">Windows 10 eller 11 (64-bit).</li>
+          <li data-i18n="req.2">Claude-appen til Windows og et Claude-abonnement. Programmet bruger Claude til at rette, oversætte og foreslå klip.</li>
+          <li data-i18n="req.3">Cirka 2 GB fri plads til programmet og talemodellerne. Modellerne hentes første gang, du skal bruge dem.</li>
+          <li data-i18n="req.4">Et grafikkort gør det hurtigere, men er ikke et krav.</li>
+        </ul>
+      </div>
+      <div>
+        <h2 class="h2" id="install-title" data-i18n="install.title">Installér</h2>
+        <ol class="steps steps-small">
+          <li>
+            <span class="num" aria-hidden="true">1</span>
+            <div><h3 data-i18n="install.1.title">Hent zip-filen</h3>
+            <p data-i18n="install.1.text">Tryk på knappen, og gem SubaDubaLingo.zip.</p></div>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">2</span>
+            <div><h3 data-i18n="install.2.title">Pak den ud</h3>
+            <p data-i18n="install.2.text">Højreklik på filen, og vælg Udpak alle.</p></div>
+          </li>
+          <li>
+            <span class="num" aria-hidden="true">3</span>
+            <div><h3 data-i18n="install.3.title">Start SubaDubaLingo.exe</h3>
+            <p data-i18n="install.3.text">Programmet installerer sig selv og laver en genvej. Det opdaterer sig selv, når der kommer en ny version.</p></div>
+          </li>
+        </ol>
+        <span class="px px-primary"><a class="btn btn-primary" href="https://github.com/swaipa46/subadubalingo/releases/latest/download/SubaDubaLingo.zip" data-download>
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M7 1h2v7h2v1h1v1h-1v1h-1v1H9v1H7v-1H6v-1H5v-1H4V9h1V8h2zM1 13h2v1h10v-1h2v2H1z"/></svg>
+          <span data-i18n="hero.download">Hent SubaDubaLingo</span>
+        </a></span>
+      </div>
+    </div>
+  </section>
+
+  <section id="faq" class="section section-alt" aria-labelledby="faq-title">
+    <div class="wrap narrow">
+      <h2 id="faq-title" class="h2" data-i18n="faq.title">Spørgsmål</h2>
+      <details class="px-details">
+        <summary data-i18n="faq.1.q">Koster det noget?</summary>
+        <p data-i18n="faq.1.a">Programmet er gratis og open source. Du skal bruge dit eget Claude-abonnement.</p>
+      </details>
+      <details class="px-details">
+        <summary data-i18n="faq.2.q">Hvor bliver min video af?</summary>
+        <p data-i18n="faq.2.a">Den bliver på din pc. Programmet laver teksten, lyden og den nye video lokalt. Kun teksten sendes til Claude.</p>
+      </details>
+      <details class="px-details">
+        <summary data-i18n="faq.3.q">Hvilke sprog kan den?</summary>
+        <p data-i18n="faq.3.a">Videoen kan tale dansk, svensk, norsk eller engelsk. Undertekster og ny tale kan laves på alle fire sprog.</p>
+      </details>
+      <details class="px-details">
+        <summary data-i18n="faq.4.q">Hvor lang tid tager det?</summary>
+        <p data-i18n="faq.4.a">Det afhænger af videoen og din pc. Programmet viser, hvor langt det er, og siger til, når det er din tur.</p>
+      </details>
+      <details class="px-details">
+        <summary data-i18n="faq.5.q">Windows advarer, når jeg starter programmet.</summary>
+        <p data-i18n="faq.5.a">Det kan ske første gang, fordi programmet er nyt for Windows. Vælg Flere oplysninger og derefter Kør alligevel.</p>
+      </details>
+      <details class="px-details">
+        <summary data-i18n="faq.6.q">Jeg har fundet en fejl.</summary>
+        <p data-i18n="faq.6.a">Brug Send fejlrapport i programmet, eller skriv på GitHub.</p>
+      </details>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <img src="img/icon-96.png" width="32" height="32" alt="">
+    <p>
+      <a href="https://github.com/swaipa46/subadubalingo" data-i18n="footer.github">Open source på GitHub</a>
+      <span class="dot" aria-hidden="true">·</span>
+      <span data-i18n="footer.made">Lavet af Kasper</span>
+      <span class="dot" aria-hidden="true">·</span>
+      <span id="footer-version">Version 2.0.0</span>
+    </p>
+    <p class="fonts"><span data-i18n="footer.fonts">Skrifttyper: Press Start 2P og VT323 (SIL Open Font License).</span> <a href="fonts/PressStart2P-OFL.txt">OFL</a></p>
+  </div>
+</footer>
+
+<script src="i18n.js"></script>
+<script src="site.js"></script>
+</body>
+</html>
