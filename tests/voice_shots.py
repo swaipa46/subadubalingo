@@ -77,6 +77,11 @@ shot(root, "setup-original")
 app.speech.set(gui.LANG_BY_CODE["sv"].name)
 app._refresh()
 assert app.voice_btn.winfo_manager()
+# The tooltip names the voices as people say them (design review round 4, decision 5)
+sv = gui.LANG_BY_CODE["sv"]
+assert app.voice_btn._tip() == gui.t("voice.listen", singular=sv.singular, voices=gui.t(
+    "voice.and", a=f"Nst ({gui.t('voice.male')})", b=f"Lisa ({gui.t('voice.female')})")), app.voice_btn._tip()
+print("tooltip:", app.voice_btn._tip())
 shot(root, "setup")
 
 # One real click: only the Swedish voices on this machine are installed, so sample lisa and alma (the dub's own
@@ -123,6 +128,7 @@ if played:
     pump(dlg, 0.3)
     assert sv_btn.state_name == "playing" and sv_btn.bubble.winfo_manager()
     until_part(dlg, sv_btn, 0.5)
+    assert sv_btn.bubble.name.cget("text") == sv.name   # the language first, in Semibold
     shot(dlg, "settings-playing", 0.1)
     dlg.voice_mode.set("one")   # another voice mode stops the sample
     assert sv_btn.state_name == "idle" and not sv_btn.bubble.winfo_manager()
