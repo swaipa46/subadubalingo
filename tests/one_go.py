@@ -124,14 +124,11 @@ def take(name):
         return
     shots.mkdir(parents=True, exist_ok=True)
     from PIL import ImageGrab
-    root.lift()
-    root.attributes("-topmost", True)
     pump(1.0)
     hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
     r = wt.RECT()
     ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
     ImageGrab.grab(bbox=(r.left, r.top, r.right, r.bottom), all_screens=True).save(shots / name)
-    root.attributes("-topmost", False)
     print("  screenshot", shots / name)
 
 
