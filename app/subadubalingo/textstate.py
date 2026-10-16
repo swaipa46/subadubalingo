@@ -70,6 +70,18 @@ def is_checked(srt: Path) -> bool:
     return bool(_load().get(_key(srt), {}).get("checked"))
 
 
+def record_edit(srt: Path):
+    """Call after the user edited `srt` in the app's subtitle editor. The text stays current for its video (the video
+    fingerprint and the transcription version are kept), and so does Claude's check: a person read it after Claude.
+    "edited" only records that the file is no longer exactly what the program wrote."""
+    st = _load()
+    entry = st.get(_key(srt))
+    if entry is None:
+        return   # not made by the program (or before text state existed): nothing to keep consistent
+    entry["edited"] = True
+    _save(st)
+
+
 def set_checked(srt: Path, checked: bool):
     st = _load()
     entry = st.get(_key(srt))

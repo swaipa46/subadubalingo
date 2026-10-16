@@ -1,0 +1,15 @@
+{
+ "autoupdate.tag": "NY VERSION",
+ "autoupdate.version": "{version} er klar",
+ "autoupdate.hint": "· Genstart for at opdatere. Dine indstillinger bevares.",
+ "autoupdate.busy_tip": "Når videoen er færdig",
+ "autoupdate.restart_tip": "Lukker programmet og åbner den nye version",
+ "autoupdate.restart": "Genstart nu",
+ "autoupdate.later": "Senere",
+ "autoupdate.close": "Luk",
+ "autoupdate.failed": "Opdateringen kunne ikke gennemføres: {error}",
+ "autoupdate.updated_tag": "LEVEL UP",
+ "autoupdate.updated": "Version {version}",
+ "autoupdate.updated_hint": "· Opdateret fra {old}. Dine indstillinger er bevaret.",
+ "autoupdate.setting": "Søg efter opdateringer"
+}

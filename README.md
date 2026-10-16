@@ -93,6 +93,9 @@ EG-org); Cowork er ikke testet. Test: `tests/mcp_test.py` spiller Claude.
 
   Test i en sandkasse (midlertidig LOCALAPPDATA/APPDATA/USERPROFILE):
   `tests/install_test.py dist-1.9.9/Videosprog dist-1.9.10/Videosprog`.
+- **Selvopdatering (v2.1):** den installerede kopi spørger GitHub højst én gang i døgnet, henter en ny version,
+  tjekker signatur og SHA-256 og lægger den i sin egen versionsmappe. Et bånd under headeren siger "Ny version X er
+  klar", og "Genstart nu" skifter. Udgivelse med `tools/publish.ps1`. Detaljer: `docs/auto-opdatering.md`.
 
 ## Klip før undertekster og dub (v1.9)
 "Klip videoen først" (og `start_video(klip=true)`) tilføjer trinene Claude foreslår klip -> brugeren gennemser dem
@@ -113,6 +116,25 @@ EG-org); Cowork er ikke testet. Test: `tests/mcp_test.py` spiller Claude.
   `<navn> - klippet - ... undertekster.srt`. En blok, der ligger mere end halvt inde i et klip, fjernes.
   `textstate.record_cut` husker, at den klippede video er lavet af netop denne original, så den genbruges til
   flere sprog ("Klip videoen forfra" laver den igen).
+
+## Forbedr lyden
+Afkrydsning i trin 2 ("Forbedr lyden: ens lydstyrke og mindre støj"), standard fra Indstillinger -> Lyd
+(`settings.improve_audio`, til fra start). `app/subadubalingo/audio.py` sender den originale tale gennem et filter i
+de videoer, appen skriver: den klippede, den med indbrændte undertekster og originalen under dubben (når den
+beholdes). Dubbens egen stemme røres ikke.
+- **Første pass** (ebur128 på lyden alene, ca. 0,3 s pr. minut video) måler lydstyrken og støjgulvet (den stilleste
+  tiendedel af 400 ms-vinduerne).
+- **Filteret:** `afwtdn` med det målte støjniveau, kun ved vedvarende støj mindst 15 LU under talen (Teams' pauser
+  er digital stilhed, så Teams-optagelser springer det over), highpass 80 Hz, én forstærkning til -16 LUFS og en
+  limiter (-1,5 dB, `latency=1`).
+- **Intet filter flytter lyden i tid** (testet med krydskorrelation: 0,2 ms). Fravalgt: `loudnorm` (192 kHz; 6 min
+  for webinaret mod ca. 30 s), `afftdn` (forsinker 25 ms) og `afwtdn` adaptiv (0-8 dB på samme støj).
+- **Mærkning:** videoer med filteret får kommentaren "SubaDubaLingo: improved sound", så en klippet video ikke
+  renses igen, når den dubbes eller får undertekster.
+- **Whisper får den uændrede lyd.** Målt 16.10.2026 (large-v3, WER mod de rettede undertekster): webinaret, 4 stykker
+  med 1733 ord i alt, 223 fejl uden og 222 med filteret (det sidste mål med det endelige filter: 30 mod 30);
+  testopkaldet 4 mod 5 fejl. Kun med kunstig hvid/lyserød støj lagt på testopkaldet hjalp det (1-2 ord af 32).
+  Ingen målbar gevinst på rigtige optagelser, så Whisper er ikke ændret.
 
 ## Claude-skill'ens version (v1.9.3)
 `claude.SKILL_VERSION` er den skill-version, appen leveres med (tælles kun op, når SKILL_MD ændres). `settings.skill_installed` er den version, brugeren har bekræftet at have lagt i Claude.

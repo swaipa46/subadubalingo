@@ -306,6 +306,40 @@ class Card(ttk.Frame):
     config = configure
 
 
+def collapsible(card: Card, opened: bool = False):
+    """Let a Card fold to its title row, with ▸ (closed) or ▾ (open) on the right; a click on the row toggles it
+    (Indstillinger, design T8). Call after the card's content is packed."""
+    k = 2 if IMG.two else 1
+    arrow = ttk.Label(card, text="", style="CardTitle.TLabel", cursor="hand2")
+    left, top, right, _ = card._pad
+    arrow.place(relx=1.0, x=-right, y=top, anchor="ne", bordermode="outside")
+    hidden: list[tuple[tk.Widget, dict]] = []
+    stub = ttk.Frame(card, height=1)   # a frame without packed children would shrink to nothing, padding and all
+
+    def show(on: bool):
+        if on:
+            stub.pack_forget()
+            for w, info in hidden:
+                w.pack(**info)
+            hidden.clear()
+        else:
+            for w in card.pack_slaves():
+                info = {("in_" if key == "in" else key): v for key, v in w.pack_info().items()}
+                hidden.append((w, info))
+                w.pack_forget()
+            stub.pack(fill="x")
+        arrow.configure(text="▾" if on else "▸")
+        card.opened = on
+
+    def toggle(e=None):
+        show(not card.opened)
+    for w in (card.title, arrow):
+        w.configure(cursor="hand2")
+        w.bind("<Button-1>", toggle)
+    card.bind("<Button-1>", lambda e: toggle() if e.y < card.title.winfo_height() + 12 * k + top else None)
+    show(opened)
+
+
 class IconButton(ttk.Button):
     """A button with a 16 px pixel icon left of its text (design review round 1, item 13). On a primary (yellow)
     button the icon's -on-primary variant is used where there is one, also when the style changes later."""

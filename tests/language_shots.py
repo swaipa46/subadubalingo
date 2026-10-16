@@ -74,7 +74,8 @@ for path in app.created:
 app._show_result("error", "[FEJLBESKED FRA PROGRAMMET]", replay=True)
 shot(root, "done-error")
 app._show("setup")
-dlg = gui.SettingsDialog(root, app.settings, on_theme=app.set_theme, on_language=app.set_language)
+dlg = gui.SettingsDialog(root, app.settings, on_theme=app.set_theme, on_language=app.set_language,
+                         get_models=app._get_voice_models, on_report=app.open_report)
 area = _screen.other_work_area()
 if area:
     dlg.geometry(f"+{area[0] + 60}+{area[1] + 60}")

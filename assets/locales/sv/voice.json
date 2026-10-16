@@ -1,0 +1,13 @@
+{
+ "voice.sample": "Hej! Så här låter jag på svenska.",
+ "voice.listen": "Hör rösten · {singular}, {voices}",
+ "voice.stop": "Stoppa",
+ "voice.title": "Hör rösten",
+ "voice.hint_before": "Tryck på",
+ "voice.hint_after": "för att höra en röst läsa en provmening.",
+ "voice.male": "man",
+ "voice.female": "kvinna",
+ "voice.and": "{a} och {b}",
+ "voice.failed": "Provet kunde inte göras. Se loggen (Inställningar -> Öppna loggfil).",
+ "voice.missing": "Rösten är inte hämtad än."
+}

@@ -19,8 +19,10 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import claude, cutting, engine, jobs, textstate
-from . import i18n, skin, theme
+from . import audio, autoupdate, burnin, chapters, claude, cutting, editor, engine, jobs, report, textstate
+from .burnin_ui import BurninCard
+from .chapters_view import ChaptersCard
+from . import i18n, queue_view, skin, theme, voice_preview
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
 from .theme import IMG, P
@@ -62,13 +64,25 @@ class Settings:
         self.whisper_model = "large"
         self.use_gpu = True
         self.keep_original_audio = False   # under a dub you would still hear the original speaker
+        self.improve_audio = True          # Forbedr lyden: even loudness, less noise in the original speech (audio.py)
         self.cut_first = False             # "Klip videoen først", remembered from the last run
         self.gender_voices = True          # (v1.9.6) kept for old settings files; voice_mode replaces it
         self.voice_mode = "person"         # dub: "person" (a voice per person), "gender" (deep/light) or "one"
         self.skill_installed = 0           # the Claude skill version the user has put into Claude (0 = unknown)
         self.theme = "system"              # Udseende: "system" (follow Windows), "light" (Lys) or "night" (Nat)
         self.ui_language = ""              # Programmets sprog: da, sv, no or en ("" until picked: Windows' language)
+        self.queue_auto_cuts = False       # Kø: take Claude's cut suggestions without the review (queue_view.py)
         self.last_dir = str(Path.home() / "Videos")
+        self.last_video = ""               # the last video picked or run: the burn-in sample in Indstillinger shows it
+        # Burned-in subtitles (burnin.Look; the defaults are the look from before 2.1)
+        self.burnin_size = "m"             # text size: "s", "m" or "l"
+        self.burnin_position = "bottom"    # "bottom" or "top"
+        self.burnin_box = False            # a dark box behind the text instead of an outline
+        self.burnin_logo_on = False        # "Logo i et hjørne"
+        self.burnin_logo = ""              # the logo's image file (kept while the logo is turned off)
+        self.burnin_logo_corner = "br"     # "tl", "tr", "bl" or "br"
+        self.check_updates = True          # look for a new version on GitHub at start (autoupdate.py)
+        self.update_checked = 0.0          # when it last asked (time.time()); at most once a day
         try:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
             self.__dict__.update(saved)
@@ -269,6 +283,8 @@ class App:
         self.runner: Runner | None = None
         self.created: list[Path] = []
         self.learned_words: list[tuple[str, str]] = []
+        self.outline = chapters.Outline()   # Claude's chapters and summary for this run (chapters.py)
+        self.chapters_file: Path | None = None
         self.job: dict | None = None
         self._running = False
         self._starting = False   # The user's own start is waiting in a dialog (a question, the model download)
@@ -300,6 +316,7 @@ class App:
         self.redo = tk.BooleanVar(value=False)
         self.cut = tk.BooleanVar(value=bool(self.settings.cut_first))
         self.recut = tk.BooleanVar(value=False)
+        self.improve = tk.BooleanVar(value=bool(self.settings.improve_audio))   # Forbedr lyden, for this video
         self.cut_lines: list[str] = []       # Claude's cut suggestions from the last Claude round
         self._review = None
         self._review_done = threading.Event()
@@ -320,6 +337,10 @@ class App:
         self._theme_pending = None          # a theme picked during a run, applied at its end
         self._language_pending = None       # the same for the app's language
         self._status_written = 0.0
+        self._editor_session = None         # the subtitle editor's work (editor.Session) while it is open
+        self._editor = None
+        self.level = 1                      # the "world" in the step numbers (1-1, 1-2 ...): the video's place in a queue
+        self.vq = queue_view.QueueController(self)   # several videos in a queue (queue_view.py)
         try:
             jobs.cleanup()
         except Exception:
@@ -335,6 +356,10 @@ class App:
         root.after(150, self._animate)
         root.protocol("WM_DELETE_WINDOW", self._on_close)
         threading.Thread(target=self._self_check, daemon=True).start()
+        autoupdate.start(self)
+        root.after(300, self.vq.enable_drop)
+        if "--from-claude" not in sys.argv:
+            root.after(1200, self.vq.offer_resume)
         self._skill_guide = None
         self._skill_warning: tuple | None = None
         if "--from-claude" not in sys.argv and self.settings.skill_installed < claude.SKILL_VERSION:
@@ -387,6 +412,7 @@ class App:
         idle = ttk.Label(mid, justify="center", style="Hint.TLabel", text=t("gui.claude.idle"),
                          wraplength=int(360 * k))
         idle.pack()
+        autoupdate.build(self)   # the "new version is ready" band under the header, if there is one
 
     def _build_header(self):
         """The header band across the window: logo and CUT · DUB · SUB, then from the right Indstillinger (the cog),
@@ -438,7 +464,7 @@ class App:
         if name == self.theme_name:
             self.theme_picker.refresh()
             return
-        if self._running:
+        if self._running or self.vq.running:
             self._theme_pending = name
             self.theme_picker.refresh()
             self.detail.configure(text=t("gui.theme.after_run"))
@@ -478,7 +504,7 @@ class App:
         if code == i18n.current():
             self.language_picker.refresh(code)
             return
-        if self._running:
+        if self._running or self.vq.running:
             self._language_pending = code
             self.language_picker.refresh(code)
             self.detail.configure(text=t("pickers.after_run", lang=code))
@@ -512,6 +538,8 @@ class App:
         self._theme_pending = None
         self.theme_name = name
         view = getattr(self, "view", "setup")
+        if view == "editor":   # the editor's work is kept (editor.Session); its widget is rebuilt at the end
+            view = self._editor_session.back if self._editor_session else "setup"
         self.header.destroy()
         self.header_stripe.destroy()
         self.main.destroy()
@@ -526,16 +554,18 @@ class App:
         if view == "done" and self._last_result:
             self._show_result(*self._last_result, replay=True)
         skin.skin_cards(self.main)
+        if self._editor_session is not None:
+            editor.show(self)
 
     def _build_setup(self, parent) -> ttk.Frame:
         v = ttk.Frame(parent)
         v.columnconfigure(0, weight=1)
 
-        g1 = skin.Card(v, text=t("gui.setup.group_video"), padding=12)
+        g1 = self.g_video = skin.Card(v, text=t("gui.setup.group_video"), padding=12)
         g1.grid(row=0, column=0, sticky="ew", pady=(0, 10))
         g1.columnconfigure(1, weight=1)
         # The chosen file as a card (name, folder, change button) instead of an editable path
-        card = ttk.Frame(g1)
+        card = self.v_card = ttk.Frame(g1)
         card.grid(row=0, column=0, columnspan=2, sticky="ew")
         card.columnconfigure(0, weight=1)
         self.v_name = ttk.Label(card, text="", font="SunValleyBodyLargeFont")
@@ -546,20 +576,32 @@ class App:
         self._wrap(self.v_dir, card, 200)
         self.v_btn = skin.IconButton(card, "choose-video", text=t("gui.setup.pick_video"), command=self._pick_video)
         self.v_btn.grid(row=0, column=1, rowspan=2, sticky="e", padx=(12, 0))
+        # Subtitles already made for the video can be edited (editor.py); shown by _refresh when there are any
+        self.v_edit = skin.IconButton(card, "edit", text=t("editor.open_button"),
+                                      command=lambda: self.open_editor(video=self._edit_video))
+        self.v_edit.grid(row=2, column=0, sticky="w", pady=(10, 0))
+        self._edit_video: Path | None = None
         ttk.Label(g1, text=t("gui.setup.spoken_language")).grid(row=1, column=0, sticky="w", pady=(14, 0))
         c_lang = ttk.Combobox(g1, textvariable=self.lang, values=[l.name for l in LANGUAGES], state="readonly", width=14)
         c_lang.grid(row=1, column=1, sticky="w", padx=10, pady=(14, 0))
         c_lang.bind("<<ComboboxSelected>>", lambda e: self._refresh(lang_changed=True))
 
-        g2 = skin.Card(v, text=t("gui.setup.group_output"), padding=12)
+        g2 = self.g_output = skin.Card(v, text=t("gui.setup.group_output"), padding=12)
         g2.grid(row=1, column=0, sticky="ew", pady=(0, 10))
         g2.columnconfigure(1, weight=1)
         self.cb_cut = ttk.Checkbutton(g2, variable=self.cut, command=self._cut_changed,
                                       text=t("gui.setup.cut_first"))
         self.cb_cut.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
-        ttk.Label(g2, text=t("gui.setup.speech")).grid(row=1, column=0, sticky="w")
-        self.c_speech = ttk.Combobox(g2, textvariable=self.speech, state="readonly", width=22)
-        self.c_speech.grid(row=1, column=1, sticky="w", padx=8, pady=3)
+        self.speech_label = ttk.Label(g2, text=t("gui.setup.speech"))
+        self.speech_label.grid(row=1, column=0, sticky="w")
+        speech_row = ttk.Frame(g2)
+        speech_row.grid(row=1, column=1, sticky="w", padx=8, pady=3)
+        self.c_speech = ttk.Combobox(speech_row, textvariable=self.speech, state="readonly", width=22)
+        self.c_speech.grid(row=0, column=0, sticky="w")
+        # Hør stemmen (voice_preview): the play button right of the combo, only with a dub language (_refresh), and
+        # the sample bubble under it while it plays
+        self.voice_btn = voice_preview.PreviewButton(speech_row, self._speech_lang, lambda: self.settings.voice_mode,
+                                                     self._get_voice_models, speech_row, self._show_voice_bubble)
         self.c_speech.bind("<<ComboboxSelected>>", lambda e: self._refresh())
         ttk.Label(g2, text=t("gui.setup.subtitles")).grid(row=2, column=0, sticky="w")
         self.c_subs = ttk.Combobox(g2, textvariable=self.subs, state="readonly", width=22,
@@ -568,21 +610,22 @@ class App:
         self.c_subs.bind("<<ComboboxSelected>>", lambda e: self._refresh())
         # Short checkbox labels; what happens otherwise is on a wrapped hint line under each (lined up with the text)
         indent = int(30 * self.scale)   # under the label: indicator 16 + gap 12 + the check button's 2 px padding
+        self.cb_improve = audio.setup_option(g2, self.improve, 3, indent, self._wrap)
         self.cb_redo = ttk.Checkbutton(g2, variable=self.redo, command=self._refresh, text=t("gui.setup.redo"))
-        self.cb_redo.grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
+        self.cb_redo.grid(row=4, column=0, columnspan=2, sticky="w", pady=(8, 0))
         self.redo_hint = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
-        self.redo_hint.grid(row=4, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
+        self.redo_hint.grid(row=5, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
         self._wrap(self.redo_hint, g2, 40 + indent)
         self.cb_recut = ttk.Checkbutton(g2, variable=self.recut, command=self._refresh, text=t("gui.setup.recut"))
-        self.cb_recut.grid(row=5, column=0, columnspan=2, sticky="w", pady=(6, 0))
+        self.cb_recut.grid(row=6, column=0, columnspan=2, sticky="w", pady=(6, 0))
         self.recut_hint = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
-        self.recut_hint.grid(row=6, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
+        self.recut_hint.grid(row=7, column=0, columnspan=2, sticky="ew", padx=(indent, 0))
         self._wrap(self.recut_hint, g2, 40 + indent)
         self._recut_forced = False   # ticked by the program because the video is listened to again
         # What the user gets, under a dashed line: a small DU FÅR, then the file name (design review round 2, item 10)
         k = self.scale
         self.plan_row = ttk.Frame(g2)
-        self.plan_row.grid(row=7, column=0, columnspan=2, sticky="ew", pady=(int(14 * k), 0))
+        self.plan_row.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(int(14 * k), 0))
         self.plan_row.columnconfigure(1, weight=1)
         line = tk.Canvas(self.plan_row, height=max(2, int(2 * k)), highlightthickness=0, borderwidth=0,
                          background=P.card)
@@ -596,7 +639,7 @@ class App:
         self.plan_result.grid(row=1, column=1, sticky="ew")
         self._wrap(self.plan_result, g2, int(120 * k))
         self.plan_steps = ttk.Label(g2, text="", style="Hint.TLabel", justify="left")
-        self.plan_steps.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(int(6 * k), 0))
+        self.plan_steps.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(int(6 * k), 0))
         self._wrap(self.plan_steps, g2, 40)
 
         g3 = ttk.Frame(v, padding=(0, 6))
@@ -604,9 +647,10 @@ class App:
         g3.columnconfigure(0, weight=1)
         self.start_btn = skin.IconButton(g3, "play", text=t("gui.setup.start"), style="Main.Accent.TButton", command=self._start)
         self.start_btn.grid(row=0, column=0, sticky="w")
-        hint = ttk.Label(g3, text=t("gui.setup.start_hint"), style="Hint.TLabel", justify="left")
+        hint = self.start_hint = ttk.Label(g3, text=t("gui.setup.start_hint"), style="Hint.TLabel", justify="left")
         hint.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         self._wrap(hint, g3, 10)
+        self.vq.build_setup(g1)
         return v
 
     def _build_work(self, parent) -> ttk.Frame:
@@ -668,6 +712,7 @@ class App:
         self.pause_hint = ttk.Label(btns, text=t("gui.work.pause_hint"),
                                     style="Hint.TLabel")
         self.pause_hint.pack(side="left", padx=6)
+        self.vq.build_work(v)   # the queue card at the top (hidden unless a queue runs)
         return v
 
     class _FileRows(tk.Frame):
@@ -688,29 +733,37 @@ class App:
             k = self.app.scale
             i = len(self.rows)
             srt = name.lower().endswith(".srt")
+            txt = name.lower().endswith(".txt")   # the chapters file (chapters.py)
             row = tk.Frame(self, background=P.card, height=int(36 * k), takefocus=1, borderwidth=0,
                            highlightthickness=0)
             row.grid(row=i, column=0, sticky="ew")
             row.grid_propagate(False)
             row.columnconfigure(1, weight=1)
             row.rowconfigure(0, weight=1)
-            parts = [tk.Label(row, image=IMG.get("icons/file-subtitles" if srt else "icons/file-video"),
+            icon = "file-subtitles" if srt else chapters.ICON if txt else "file-video"
+            parts = [tk.Label(row, image=IMG.get(f"icons/{icon}"),
                               background=P.card, borderwidth=0),
                      tk.Label(row, text=name, background=P.card, foreground=P.text, font="SunValleyBodyFont",
                               anchor="w", borderwidth=0, padx=0, pady=0),
-                     tk.Label(row, text=t("gui.done.type_subtitles" if srt else "gui.done.type_video"),
+                     tk.Label(row, text=t("gui.done.type_subtitles" if srt else "chapters.type" if txt
+                                          else "gui.done.type_video"),
                               background=P.card, foreground=P.hint, font=("Segoe UI", -int(13 * k)),
                               borderwidth=0, padx=0, pady=0)]
             parts[0].grid(row=0, column=0, padx=(int(10 * k), int(12 * k)))
             parts[1].grid(row=0, column=1, sticky="ew")
-            parts[2].grid(row=0, column=2, padx=(int(12 * k), int(10 * k)))
-            self.rows.append({"frame": row, "parts": parts, "name": name})
+            parts[2].grid(row=0, column=3, padx=(int(12 * k), int(10 * k)))
+            # A .srt row shows a small "Ret" button while it is under the mouse or has focus (editor-entry mockup)
+            edit = editor.row_button(row, lambda n=i: self._open(n)) if srt else None
+            self.rows.append({"frame": row, "parts": parts, "name": name, "edit": edit})
             for w in [row] + parts:
                 w.bind("<Enter>", lambda e, r=row: self._set_hover(r))
                 w.bind("<Leave>", lambda e, r=row: self._left(r))
                 w.bind("<Button-1>", lambda e, n=i: self._focus(n))
                 w.bind("<Double-Button-1>", lambda e, n=i: self._open(n))
             row.bind("<Return>", lambda e, n=i: self._open(n))
+            if srt:   # the editor, or another program (editor.file_menu)
+                for w in [row] + parts:
+                    w.bind("<Button-3>", lambda e, n=i: self.app._file_menu(n, e))
             row.bind("<KP_Enter>", lambda e, n=i: self._open(n))
             row.bind("<Up>", lambda e, n=i: self._focus(n - 1))
             row.bind("<Down>", lambda e, n=i: self._focus(n + 1))
@@ -767,6 +820,8 @@ class App:
                 lit = r["frame"] is self._hover or r["frame"] is focus
                 for w in [r["frame"]] + r["parts"]:
                     w.configure(background=P.picker_hover_bg if lit else P.card)
+                if r.get("edit") is not None:
+                    r["edit"].grid(row=0, column=2) if lit else r["edit"].grid_remove()
 
     def _build_done(self, parent) -> ttk.Frame:
         """The done view (design review round 2, items 19-22): on the left the banner (STAGE CLEAR!, or CONTINUE?
@@ -833,8 +888,12 @@ class App:
         self.d_folder = skin.IconButton(self.d_acts, "show-in-folder", text=t("gui.show_in_folder"),
                                         style="Tall.TButton", command=lambda: self._show_in_folder(self.d_target))
         self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+        self.d_edit = skin.IconButton(self.d_acts, "edit", text=t("editor.open_button"), style="Tall.TButton",
+                                      command=self._edit_result)
         self.d_log = ttk.Button(self.d_acts, text=t("gui.open_log"), command=lambda: self._open(log_file()))
         self.d_log.pack(side="left")
+        self.d_report = skin.IconButton(self.d_acts, "mail", text=t("report.button"), command=self.open_report)
+        self.d_report_hint = ttk.Label(self.d_acts, text=t("report.button_hint"), style="Hint.TLabel")
         self.d_target: Path | None = None
 
         self.d_files = g = skin.Card(left, text=t("gui.done.group_files"), padding=card_pad)
@@ -842,7 +901,7 @@ class App:
         g.columnconfigure(0, weight=1)
         self.files = self._FileRows(g, self)
         self.files.grid(row=0, column=0, sticky="ew")
-        hint = ttk.Label(g, text=t("gui.done.files_hint"), style="Hint.TLabel", justify="left")
+        hint = self.d_files_hint = ttk.Label(g, text=t("gui.done.files_hint"), style="Hint.TLabel", justify="left")
         hint.grid(row=1, column=0, sticky="ew", pady=(int(10 * k), 0))
         self._wrap(hint, g, int(50 * k))
 
@@ -854,7 +913,7 @@ class App:
         self.d_next_hint.grid(row=0, column=0, sticky="ew", pady=(0, int(14 * k)))
         self._wrap(self.d_next_hint, nxt, int(50 * k))
         self.d_again = skin.IconButton(nxt, "retry", text=t("gui.done.try_again"), style="Wide.Main.Accent.TButton",
-                                       command=self._start)
+                                       command=self._again)
         self.d_again.grid(row=1, column=0, sticky="ew")
         self.d_same = skin.IconButton(nxt, "copy", text=t("gui.done.same_video"), style="Wide.Main.Accent.TButton",
                                       command=self._same_video)
@@ -863,9 +922,14 @@ class App:
                                      command=self._new_video)
         self.d_new.grid(row=3, column=0, sticky="ew", pady=(int(14 * k), 0))
 
+        # Claude's chapters and description with copy buttons (chapters_view.py), when the run has them
+        self.d_chapters = ChaptersCard(right, k, card_pad)
+        self.d_chapters.grid(row=1, column=0, sticky="ew", pady=(int(24 * k), 0))
+        self.d_chapters.grid_remove()
+
         # The run's steps, compact: 34 px rows, no connectors (filled in by _show_result)
         self.d_steps = skin.Card(right, text=t("gui.done.all_steps"), padding=card_pad)
-        self.d_steps.grid(row=1, column=0, sticky="ew", pady=(int(24 * k), 0))
+        self.d_steps.grid(row=2, column=0, sticky="ew", pady=(int(24 * k), 0))
         self.d_steps.columnconfigure(2, weight=1)
         return v
 
@@ -901,6 +965,33 @@ class App:
         """The speech combobox: (None = keep the original speech, its label), then the other languages."""
         return [(None, t("gui.setup.speech_original", singular=l.singular))] + [(x, x.name) for x in LANGUAGES if x != l]
 
+    def _show_voice_btn(self):
+        """The play button next to Ny tale: only with a dub language; a change of language stops the sample."""
+        sp = self._speech_lang()
+        if sp != getattr(self, "_voice_btn_lang", None):
+            self.voice_btn.stop()
+        self._voice_btn_lang = sp
+        if sp and not self.voice_btn.winfo_manager():
+            self.voice_btn.grid(row=0, column=1, sticky="w", padx=(int(8 * self.scale), 0))
+        elif not sp:
+            self.voice_btn.grid_remove()
+
+    def _show_voice_bubble(self, bubble):
+        """The sample bubble under Ny tale while it plays; "Tale:" stays level with the combo meanwhile."""
+        if bubble is None:
+            self.voice_btn.bubble.grid_remove()
+            self.speech_label.grid_configure(sticky="w", pady=0)
+            return
+        bubble.master.columnconfigure(2, weight=1)   # a wide bubble widens this column, not the combo's or the button's
+        bubble.grid(row=1, column=0, columnspan=3, sticky="w", pady=(int(8 * self.scale), int(4 * self.scale)))
+        self.c_speech.update_idletasks()
+        top = 3 + (self.c_speech.winfo_height() - self.speech_label.winfo_reqheight()) // 2
+        self.speech_label.grid_configure(sticky="nw", pady=(max(0, top), 0))
+
+    def _get_voice_models(self, missing, parent=None) -> bool:
+        """Fetch the voices a sample needs (the same dialog as before a run)."""
+        return bool(ModelDialog(parent or self.root, missing, scale=self.scale).result)
+
     def _subs_items(self) -> list[tuple[Language | None, str]]:
         """The subtitles combobox: (None = no subtitles, its label), then every language."""
         return [(None, t("gui.setup.subs_none"))] + [(x, x.word("choice")) for x in LANGUAGES]
@@ -933,6 +1024,7 @@ class App:
             self.speech.set(items[0][1])
         else:
             self.speech.set(sp.name)
+        self._show_voice_btn()
         self.c_subs.configure(values=[label for _, label in self._subs_items()])
         if not had_subs or (lang_changed and su is not None):
             su = l
@@ -943,6 +1035,8 @@ class App:
         if mode == "reuse":
             v = cut_path(v)
         has_srt = bool(v and v.is_file() and textstate.status(srt_path(v, l), v) == "ok")
+        self._edit_video = v if v and v.is_file() and editor.srts_for(v) else None
+        self.v_edit.grid() if self._edit_video else self.v_edit.grid_remove()
         self.redo_hint.configure(text=t("gui.setup.redo_hint", plural=l.plural))
         for w in (self.cb_redo, self.redo_hint):
             w.grid() if has_srt else w.grid_remove()
@@ -961,6 +1055,8 @@ class App:
             self.recut_hint.configure(text=t("gui.setup.recut_hint"))
         for w in (self.cb_recut, self.recut_hint):
             w.grid() if show_recut else w.grid_remove()
+        applies = audio.applies(self.cut.get(), self._speech_lang(), self._subs_lang(), self.settings.keep_original_audio)
+        audio.refresh_setup(self.cb_improve, applies)
         result, rest = self._plan_text()
         if result:
             self.plan_result.configure(text=result)
@@ -980,6 +1076,7 @@ class App:
             self.v_dir.configure(text=str(v.parent) if v.is_file() else t("gui.setup.video_gone"),
                                  foreground="" if v.is_file() else P.error)
             self.v_btn.configure(text=t("gui.setup.change_video"), style="TButton")
+        self.vq.refresh_setup()
 
     def _claude_plan(self, v: Path, lang: Language, transcribe: bool, targets) -> tuple[bool, list[Language]]:
         """(check the spoken-language text?, languages to translate to) for the Claude round.
@@ -1073,13 +1170,20 @@ class App:
         return result, "\n".join(lines)
 
     def _pick_video(self):
-        p = filedialog.askopenfilename(parent=self.root, title=t("gui.setup.pick_video_title"), filetypes=video_types(),
-                                       initialdir=self.settings.last_dir)
-        if p:
+        # Several files at once make a queue (queue_view); one file is handled as always
+        ps = filedialog.askopenfilenames(parent=self.root, title=t("gui.setup.pick_video_title"),
+                                         filetypes=video_types(), initialdir=self.settings.last_dir)
+        p = ps[0] if ps else ""
+        if p and self.vq.picked(ps):
+            self.settings.last_dir = str(Path(p).parent)
+            self.settings.save()
+        elif p:
             self.redo.set(False)
             self.recut.set(False)
+            self.improve.set(bool(self.settings.improve_audio))
             self.video.set(str(Path(p)))
             self.settings.last_dir = str(Path(p).parent)
+            self.settings.last_video = str(Path(p))
             self.settings.save()
 
     def _same_video(self):
@@ -1124,8 +1228,10 @@ class App:
             v = edited
         orig_srt = srt_path(v, lang)
         job = {"video": v, "original": original, "lang": lang, "speech": speech, "subs": subs, "outputs": [],
-               "translate": [], "cut": mode == "new", "edited": edited, "cut_reused": mode == "reuse"}
+               "translate": [], "cut": mode == "new", "edited": edited, "cut_reused": mode == "reuse",
+               "improve_audio": bool(self.improve.get())}
         job["transcribe"] = self.redo.get() or textstate.status(orig_srt, v) != "ok"
+        self.settings.last_video = str(original)
         if not speech and not subs and not job["transcribe"] and not job["cut"]:
             self._auto_reason = f"De {lang.word('plural', 'da')} undertekster findes allerede ({orig_srt.name}). Vælg tale eller undertekster."
             if auto:
@@ -1214,7 +1320,10 @@ class App:
         return names, claude_at
 
     def _start(self, auto: bool = False):
-        if self._running or self._starting:
+        if self._running or self._starting or self.vq.running:
+            return
+        if not auto and self.vq.active:
+            self.vq.start()   # several videos: the queue checks them all, then runs them
             return
         if not auto:
             self.mcp_job = None
@@ -1228,11 +1337,24 @@ class App:
                 jobs.set_status(self.mcp_job, state="error", message=self._auto_reason or "Appen kunne ikke starte jobbet.")
                 self.mcp_job = None
             return
+        self.level = 1
+        self._run_job(job)
+
+    def _again(self):
+        """Prøv igen / Fortsæt on the done view: the same run again, or after a queue the videos that did not finish."""
+        if self._last_result and self._last_result[0] == "queue":
+            self.vq.retry()
+        else:
+            self._start()
+
+    def _run_job(self, job: dict):
+        """Show the work view for a validated job and start its worker thread."""
         job["mcp"] = self.mcp_job
         self.job = job
         self.runner = Runner()
         self.created = []
         self.learned_words = []
+        self.outline, self.chapters_file = chapters.Outline(), None
         self.files.delete(0, "end")
         names, self.claude_at = self._step_names(job)
         for child in self.steps_box.winfo_children():
@@ -1253,7 +1375,7 @@ class App:
                                  width=max(2, int(2 * k)), dash=(4, 4))
             icon = tk.Label(self.steps_box, background=P.card, borderwidth=0)
             icon.grid(row=2 * i, column=0, sticky="w")
-            tk.Label(self.steps_box, text=f"1-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0,
+            tk.Label(self.steps_box, text=f"{self.level}-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0,
                      font=(theme.PIXEL_FONT, -int(10 * k)), pady=0).grid(row=2 * i, column=1, sticky="w",
                                                                           padx=(int(10 * k), 0), pady=(int(2 * k), 0))
             text = tk.Label(self.steps_box, text=name, foreground=P.step_pending, background=P.card,
@@ -1316,8 +1438,11 @@ class App:
             log.exception("inbox")
             return
         for req in reqs:
-            if self._running:
+            if self._running or self.vq.running:
                 jobs.reject(req, "busy", "Appen er i gang med en anden video. Prøv igen, når den er færdig.")
+                continue
+            if editor.is_open(self):
+                jobs.reject(req, "busy", editor.BUSY_MESSAGE)
                 continue
             jobs.accept(req)
             log.info("job from Claude: %s", req)
@@ -1325,6 +1450,7 @@ class App:
             self.redo.set(bool(req.get("redo")))
             self.cut.set(bool(req.get("cut")))
             self.recut.set(bool(req.get("cut")) and bool(req.get("redo")))
+            self.improve.set(bool(self.settings.improve_audio))
             self.video.set(req["video"])
             # A language code, or (requests before 2.1) its Danish name
             self.lang.set((lang_by_name(req.get("lang")) or LANG_BY_CODE["da"]).name)
@@ -1381,9 +1507,11 @@ class App:
         self.arrow.grid_configure(padx=(int((10 + (4 if (self._spin // 11) % 2 else 0)) * k), 0))
 
     def _busy(self) -> bool:
-        return self._running
+        return self._running or self.vq.running
 
     def _on_close(self):
+        if not editor.may_close_app(self):
+            return   # unsaved subtitle edits, and the user chose to stay
         if self._busy():
             if not boxes.askyesno(APP_NAME, t("gui.work.close_running", pause=t("gui.work.pause")),
                                   parent=self._owner()):
@@ -1399,7 +1527,7 @@ class App:
         if r.paused:
             r.resume()
             self.pause_btn.icon = "pause"
-            self.pause_btn.configure(text=t("gui.work.pause"))
+            self.pause_btn.configure(text=t("queue.pause") if self.vq.running else t("gui.work.pause"))
             self.status.configure(text=self._status_before_pause)
         else:
             r.pause()
@@ -1508,12 +1636,14 @@ class App:
                 engine.dub(runner, v, read_srt(srt_of(speech)), job["voice"], out, srt_of(subs) if subs else None,
                            self.settings.keep_original_audio, info, prog, work, s_voice, s_dub,
                            voices=job.get("voices"), palette=job.get("palette"),
-                           speaker_model=job.get("speaker_model"))
+                           speaker_model=job.get("speaker_model"), improve_audio=job["improve_audio"],
+                           look=burnin.Look.from_settings(self.settings))
                 post(("file", out))
             elif subs:
                 prog.start(s_burn)
                 out = burned_name(v, subs)
-                engine.burn(runner, v, srt_of(subs), out, info, prog, work)
+                engine.burn(runner, v, srt_of(subs), out, info, prog, work, job["improve_audio"],
+                            look=burnin.Look.from_settings(self.settings))
                 post(("file", out))
             post(("done", job["result"]))
         except Cancelled:
@@ -1548,9 +1678,12 @@ class App:
         log.info("cut suggestions: %d from Claude, %d pauses -> %d", len(claude_cuts), len(pauses), len(suggestions))
         self._review_done.clear()
         self._review_result = None
-        post(("review", v, info.duration_ms, cues, suggestions, env, wav))
-        while not self._review_done.wait(0.3):
-            runner.check()
+        if job.get("auto_cuts"):   # a queue that takes Claude's suggestions without the review (queue_view.py)
+            self._review_result = list(suggestions)
+        else:
+            post(("review", v, info.duration_ms, cues, suggestions, env, wav))
+            while not self._review_done.wait(0.3):
+                runner.check()
         runner.check()
         ranges = cutting.active(self._review_result or [], info.duration_ms)
         if not ranges:
@@ -1562,9 +1695,13 @@ class App:
             return v, info
         edited: Path = job["edited"]
         prog.start(step_name)
-        cutting.cut_video(runner, v, ranges, edited, info.duration_ms, info.has_audio, prog, work)
+        cutting.cut_video(runner, v, ranges, edited, info.duration_ms, info.has_audio, prog, work,
+                          job["improve_audio"])
         textstate.record_cut(edited, v, ranges)
         post(("file", edited))
+        if self.outline:
+            self.outline = chapters.remap(self.outline, ranges, info.duration_ms - cutting.removed_ms(ranges))
+            self.chapters_file = chapters.save(job["video"], self.outline) or self.chapters_file
         # The subtitles that belong to the original (and match its blocks) are moved to the cut video.
         checked = textstate.is_checked(srt_path(v, lang))
         for l in LANGUAGES:
@@ -1602,6 +1739,10 @@ class App:
 
     def _poll(self):
         self._inbox_tick += 1
+        try:
+            self.vq.poll_drops()
+        except Exception:
+            log.exception("dropped files")
         if self._inbox_tick % 6 == 0:
             try:
                 self._check_cancel()
@@ -1673,6 +1814,8 @@ class App:
                     else:
                         self._jstatus(state="cancelled", message=ev[1] or "Stoppet i appen.")
                     self.mcp_job = None
+                    if self.vq.job_ended(kind, ev[1]):
+                        continue   # the queue goes on with its next round (or shows its summary at the end)
                     self._show_result(kind, ev[1])
                     if self._theme_pending or self._language_pending:
                         self.root.after(300, self._apply_pending)
@@ -1685,7 +1828,11 @@ class App:
     def _show_result(self, kind: str, info, replay: bool = False):
         """The done view for a run's end: kind "done" (info: the result file), "error" (info: the error text),
         "skipped" (info: the message) or "cancelled". replay: drawn again after a theme or language switch, without
-        the side effects (skill guide, attention)."""
+        the side effects (skill guide, attention). Kind "queue": the summary after a queue (queue_view)."""
+        if kind == "queue":
+            self.vq.show_summary(replay)
+            return
+        self.vq.hide_summary()
         self._last_result = (kind, info)
         k = self.scale
         done = kind == "done"
@@ -1695,7 +1842,7 @@ class App:
         for w in (self.d_icon, self.d_where, self.d_stats, self.d_msg, self.d_error, self.d_extra, self.d_acts,
                   self.d_again, self.d_same):
             w.grid_remove()
-        for w in (self.d_log, self.d_folder, self.d_play):
+        for w in (self.d_log, self.d_report, self.d_report_hint, self.d_folder, self.d_play, self.d_edit):
             w.pack_forget()
         msg = ""
         if done:
@@ -1712,9 +1859,19 @@ class App:
             learned = ", ".join(f"{w} → {r}" for w, r in self.learned_words)
             if learned:
                 msg = t("gui.done.learned", words=learned)
-            self.d_play.configure(text=t("gui.done.open" if text_only else "gui.done.play"))
-            self.d_play.pack(side="left", padx=(0, int(14 * k)))
-            self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+            if text_only:   # subtitles open in the editor; another program is still a click away
+                self.d_edit.configure(style="Main.Accent.TButton")
+                self.d_edit.pack(side="left", padx=(0, int(14 * k)))
+                self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+                self.d_play.configure(text=t("editor.open_external"), style="Tall.TButton")
+                self.d_play.pack(side="left", padx=(0, int(14 * k)))
+            else:   # Afspil, Vis i mappe, then Ret undertekster when the run made any (editor-entry mockup)
+                self.d_play.configure(text=t("gui.done.play"), style="Main.Accent.TButton")
+                self.d_play.pack(side="left", padx=(0, int(14 * k)))
+                self.d_folder.pack(side="left", padx=(0, int(14 * k)))
+                if self._result_srt():
+                    self.d_edit.configure(style="Tall.TButton")
+                    self.d_edit.pack(side="left", padx=(0, int(14 * k)))
             self.d_acts.grid()
             if self._skill_warning and not replay:
                 reason, have = self._skill_warning
@@ -1736,10 +1893,12 @@ class App:
                 self.d_icon.grid()
                 self.d_title.configure(text=t("gui.done.failed"), foreground=P.error)
                 if failed:
-                    msg = t("gui.done.failed_at", n=f"1-{failed[0] + 1}", step=failed[1])
+                    msg = t("gui.done.failed_at", n=f"{self.level}-{failed[0] + 1}", step=failed[1])
                 self.d_error.configure(text=info or "")
                 self.d_error.grid()
-                self.d_log.pack(side="left")
+                self.d_log.pack(side="left", padx=(0, int(14 * k)))
+                self.d_report.pack(side="left", padx=(0, int(12 * k)))
+                self.d_report_hint.pack(side="left")
                 self.d_acts.grid()
                 if not replay:
                     self._call_attention()
@@ -1757,7 +1916,12 @@ class App:
         if msg:
             self.d_msg.grid()
         self.d_files.grid() if self.files.size() else self.d_files.grid_remove()
+        has_srt = any(p.suffix.lower() == ".srt" for p in self.created)
+        self.d_files_hint.configure(text=t("editor.files_hint" if has_srt else "gui.done.files_hint"))
+        shown = self.d_chapters.show(self.outline if done else None, self.chapters_file)
         self._fill_steps(steps, done)
+        if shown:
+            self.d_steps.grid_remove()   # the chapters card replaces the step list after a finished run (T8)
         self._show("done")
         skin.skin_cards(self.views["done"])
 
@@ -1817,7 +1981,7 @@ class App:
             colour = {"done": P.step_done, "error": P.error}.get(state, P.step_pending)
             tk.Label(box, image=IMG.get(f"icons/{icon}"), background=P.card,
                      borderwidth=0).grid(row=i, column=0, sticky="w")
-            tk.Label(box, text=f"1-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0, pady=0,
+            tk.Label(box, text=f"{self.level}-{i + 1}", foreground=P.hint, background=P.card, borderwidth=0, pady=0,
                      font=(theme.PIXEL_FONT, -int(10 * k))).grid(row=i, column=1, sticky="w", padx=(int(10 * k), 0),
                                                                 pady=(int(2 * k), 0))
             text = tk.Label(box, text=name, foreground=colour, background=P.card, font="SunValleyBodyFont",
@@ -1922,7 +2086,44 @@ class App:
     def _open_selected(self):
         sel = self.files.curselection()
         if sel and sel[0] < len(self.created):
-            self._open(self.created[sel[0]])
+            path = self.created[sel[0]]
+            if path.suffix.lower() == ".srt" and path.exists():
+                self.open_editor(path)   # in the app instead of Notepad (right-click: another program)
+            else:
+                self._open(path)
+
+    # --- The subtitle editor (editor.py) ----------------------------------------------------
+
+    def open_editor(self, srt: Path | None = None, video: Path | None = None):
+        """Edit srt (or the subtitles of video) in the main window. The corrected words of the spoken language's
+        text are offered to the word list: the run's language in the done view, the chosen one in setup."""
+        job = self.job or {}
+        done = getattr(self, "view", "") == "done"
+        source = job.get("lang") if done else None
+        # The run's video was made from these languages' subtitles (burned in, or the dub's text): after saving one
+        # of them, the editor offers to make the video again
+        made_video = done and self.d_target is not None and self.d_target.suffix.lower() != ".srt"
+        remake = {l for l in (job.get("subs"), job.get("speech")) if l} if made_video else set()
+        editor.open_in(self, srt=srt, video=video, source=source or self._lang(), remake=remake)
+
+    def _result_srt(self) -> Path | None:
+        """The subtitles the done view's "Ret underteksterne" opens: the result itself, the run's subtitle language,
+        else the first subtitle file the run made."""
+        target = self.d_target
+        if target is not None and target.suffix.lower() == ".srt":
+            return target if target.exists() else None
+        srts = [p for p in self.created if p.suffix.lower() == ".srt" and p.exists()]
+        subs = (self.job or {}).get("subs")
+        return next((p for p in srts if subs and editor.guess_srt_language(p) == subs), srts[0] if srts else None)
+
+    def _edit_result(self):
+        srt = self._result_srt()
+        if srt is not None:
+            self.open_editor(srt)
+
+    def _file_menu(self, n: int, event):
+        if 0 <= n < len(self.created):
+            editor.file_menu(self, self.created[n], event)
 
     # --- Self check (also tells us whether App Control blocks the bundled tools) ----------
 
@@ -1951,7 +2152,37 @@ class App:
     # --- Dialogs and the Claude panel ---------------------------------------------------
 
     def _settings_dialog(self):
-        SettingsDialog(self.root, self.settings, on_theme=self.set_theme, on_language=self.set_language)
+        improve = self.settings.improve_audio
+        dlg = SettingsDialog(self.root, self.settings, on_theme=self.set_theme, on_language=self.set_language,
+                             get_models=self._get_voice_models, on_report=self.open_report)
+        dlg.bind("<Destroy>", lambda e: e.widget is dlg and self._settings_closed(improve), add="+")
+
+    def _settings_closed(self, improve_before: bool):
+        """A new default for Forbedr lyden applies to the video on screen; keeping the original under a dub can
+        make that check box matter."""
+        if self.settings.improve_audio != improve_before:
+            self.improve.set(bool(self.settings.improve_audio))
+        try:
+            self._refresh()
+        except tk.TclError:
+            pass
+
+    def open_report(self, parent=None):
+        """Send fejlrapport (report.py), from the error done view or Indstillinger."""
+        report.ReportDialog(parent or self.root, self._report_state(), self.mcp_job, scale=self.scale)
+
+    def _report_state(self) -> dict:
+        """The app's view of the last run for an error report: options, steps and the result, no texts."""
+        job = self.job or {}
+        names = lambda v: [x.code for x in v] if isinstance(v, (list, tuple)) else getattr(v, "code", v)
+        state = {"view": self.view, "result": list(self._last_result) if self._last_result else None,
+                 "steps": [[r.get("name"), r.get("state")] for r in getattr(self, "step_rows", [])],
+                 "created": [Path(p).name for p in getattr(self, "created", [])]}
+        if job:
+            state["job"] = {k: (Path(v).name if isinstance(v, Path) else names(v)) for k, v in job.items()
+                            if k in ("video", "original", "edited", "lang", "speech", "subs", "translate", "cut",
+                                     "cut_reused", "transcribe", "check", "mcp")}
+        return state
 
     # --- The Claude skill's version ---------------------------------------------------------
 
@@ -2190,9 +2421,11 @@ class SkillGuide(tk.Toplevel):
 
 
 class SettingsDialog(tk.Toplevel):
-    """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles, then text and voices."""
+    """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles (folded until clicked), the
+    look of burned-in subtitles (burnin_ui.py), then text and voices."""
 
-    def __init__(self, parent, settings: Settings, on_theme=None, on_language=None):
+    def __init__(self, parent, settings: Settings, on_theme=None, on_language=None, get_models=None,
+                 on_report=None):
         super().__init__(parent)
         self.withdraw()
         self.title(t("gui.settings.title"))
@@ -2200,8 +2433,17 @@ class SettingsDialog(tk.Toplevel):
         self.resizable(False, False)
         self.s = settings
         self.on_theme, self.on_language = on_theme, on_language
-        outer = ttk.Frame(self, padding=14)
-        outer.pack(fill="both")
+        # The cards scroll when they are taller than the screen (burn-in look, voices and Lyd together are), so the
+        # footer with Gem always stays in view
+        host = ttk.Frame(self, padding=(14, 14, 14, 0))
+        host.pack(fill="both", expand=True)
+        canvas = tk.Canvas(host, highlightthickness=0, borderwidth=0, background=P.window)
+        sb = ttk.Scrollbar(host, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        outer = ttk.Frame(canvas)
+        canvas.create_window(0, 0, window=outer, anchor="nw")
+        self._body = (canvas, sb, outer)
         lang = skin.Card(outer, text=t("pickers.lang_title"), padding=12)
         lang.pack(fill="x")
         ttk.Label(lang, text=t("pickers.lang_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
@@ -2212,6 +2454,10 @@ class SettingsDialog(tk.Toplevel):
         ttk.Label(look, text=t("pickers.look_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
         self.look = tk.StringVar(value=settings.theme)
         theme_tiles(look, self.look).pack(fill="x")
+        skin.collapsible(lang)
+        skin.collapsible(look)
+        self.burnin = BurninCard(outer, settings)
+        self.burnin.pack(fill="x", pady=(14, 0))
         f = skin.Card(outer, text=t("pickers.text_voices"), padding=12)
         f.pack(fill="x", pady=(14, 0))
         ttk.Label(f, text=t("gui.settings.model")).grid(row=0, column=0, sticky="w")
@@ -2229,6 +2475,9 @@ class SettingsDialog(tk.Toplevel):
         for value in ("person", "gender", "one"):
             ttk.Radiobutton(dubopts, text=t(f"gui.settings.voice_{value}"), value=value,
                             variable=self.voice_mode).pack(anchor="w", padx=12)
+        # Hør stemmen: one row per dub language with the voices the chosen mode uses and a play button
+        self.voice_rows = voice_preview.settings_rows(dubopts, self.voice_mode,
+                                                      (lambda m: get_models(m, self)) if get_models else None)
         links = ttk.Frame(f)
         links.grid(row=6, column=0, sticky="w", pady=(12, 0))
         ttk.Button(links, text=t("gui.open_model_dir"), command=lambda: self._open(model_dirs()[0])).pack(side="left")
@@ -2236,9 +2485,16 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(links, text=t("gui.settings.save_skill"), command=self._save_skill).pack(side="left", padx=(0, 6))
         ttk.Button(links, text=t("gui.settings.connect"), command=self._connect_claude).pack(side="left", padx=(0, 6))
         ttk.Button(links, text=t("gui.open_log"), command=lambda: self._open(log_file())).pack(side="left")
-        foot = ttk.Frame(outer)
-        foot.pack(fill="x", pady=(14, 0))
+        self.improve_audio = tk.BooleanVar(value=settings.improve_audio)
+        audio.settings_card(outer, self.improve_audio).pack(fill="x", pady=(14, 0))
+        foot = ttk.Frame(self, padding=14)
+        foot.pack(side="bottom", fill="x", before=host)
         ttk.Label(foot, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").pack(side="left")
+        if on_report:   # Send fejlrapport next to the version, as in the T8 mockup
+            skin.IconButton(foot, "mail", text=t("report.button"),
+                            command=lambda: on_report(self)).pack(side="left", padx=(12, 0))
+        self.check_updates = tk.BooleanVar(value=settings.check_updates)
+        ttk.Checkbutton(foot, text=t("autoupdate.setting"), variable=self.check_updates).pack(side="left", padx=(12, 0))
         b = ttk.Frame(foot)
         b.pack(side="right")
         ttk.Button(b, text=t("gui.cancel"), command=self.destroy).pack(side="left", padx=(0, 6))
@@ -2246,10 +2502,40 @@ class SettingsDialog(tk.Toplevel):
         save_btn.pack(side="left")
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Return>", lambda e: self._save())
+        self._foot, self._parent_win = foot, parent.winfo_toplevel()
+        outer.bind("<Configure>", lambda e: self._fit_body())
+        self.bind("<MouseWheel>", self._wheel)
+        self._fit_body()
         place_over(self, parent.winfo_toplevel())
         save_btn.focus_set()
         self.wait_visibility()
         self.grab_set()
+
+    def _fit_body(self):
+        """The cards' scroll box as tall as the cards, but no taller than the app's monitor leaves room for (with
+        the title bar and the footer); the scroll bar only when they do not fit. Also after a card folds open."""
+        canvas, sb, outer = self._body
+        try:
+            self.update_idletasks()
+            area = work_area(frame_hwnd(self._parent_win))
+        except tk.TclError:
+            return
+        k = self.winfo_fpixels("1i") / 96
+        top, bottom = (area[1], area[3]) if area else (0, self.winfo_screenheight())
+        room = bottom - top - int(40 * k) - self._foot.winfo_reqheight() - int(14 * k) - int(16 * k)
+        w, h = outer.winfo_reqwidth(), outer.winfo_reqheight()
+        fits = h <= room
+        canvas.configure(width=w, height=h if fits else max(int(200 * k), room), scrollregion=(0, 0, w, h))
+        if fits:
+            sb.pack_forget()
+            canvas.yview_moveto(0)
+        elif not sb.winfo_manager():
+            sb.pack(side="right", fill="y", padx=(int(6 * k), 0))
+
+    def _wheel(self, e):
+        canvas, sb, _ = self._body
+        if sb.winfo_manager():
+            canvas.yview_scroll(int(-e.delta / 120), "units")
 
     def _open(self, p: Path):
         if p.suffix:
@@ -2280,6 +2566,9 @@ class SettingsDialog(tk.Toplevel):
     def _save(self):
         self.s.whisper_model, self.s.use_gpu, self.s.keep_original_audio = self.model.get(), self.gpu.get(), self.keep.get()
         self.s.voice_mode = self.voice_mode.get()
+        self.s.improve_audio = self.improve_audio.get()
+        self.burnin.save_to(self.s)
+        self.s.check_updates = self.check_updates.get()
         self.s.save()
         look, code = self.look.get(), self.ui_language.get()
         self.destroy()
@@ -2416,6 +2705,10 @@ class ClaudePanel(ttk.Frame):
         self.app, self.video, self.src, self.src_srt = app, video, src, src_srt
         self.check, self.targets, self.on_finish = check, list(targets), on_finish
         self.codes = ([src.code] if check else []) + [t.code for t in self.targets]
+        # Chapters and a summary, in the language of the new video (chapters.py)
+        self.chapter_lang = chapters.language_for(app.job or {}) or src
+        self.outline = chapters.Outline()
+        self.part_outlines: dict[int, chapters.Outline] = {}
         self.cues = read_srt(src_srt)
         self.words: list[tuple[str, str]] = []
         self.job_id = uuid.uuid4().hex[:10]
@@ -2433,7 +2726,7 @@ class ClaudePanel(ttk.Frame):
         todo = ([t("gui.claude.task_check", plural=src.plural)] if check else []) + \
                ([t("gui.claude.task_translate", langs=join_and([x.singular for x in self.targets]))]
                 if self.targets else []) + \
-               ([t("gui.claude.task_cut")] if cut else [])
+               ([t("gui.claude.task_cut")] if cut else []) + [t("chapters.task")]
         top = ttk.Frame(self)
         top.grid(row=0, column=0, sticky="w")
         self.head = ttk.Label(top, text=t("gui.claude.your_turn"), style="Big.TLabel", foreground=P.your_turn_title)
@@ -2475,7 +2768,7 @@ class ClaudePanel(ttk.Frame):
         jobs.write_json(d / "task.json", {
             "src": self.src.code, "check": self.check, "targets": [t.code for t in self.targets],
             "codes": self.codes, "blocks": len(self.cues), "words": claude.known_words(),
-            "cut": self.cut, "duration": self.duration,
+            "cut": self.cut, "duration": self.duration, "chapters": self.chapter_lang.code,
             "rules": [list(r) for r in claude.word_rules()[:80]]})
         b = self.body
         msg = ttk.Label(b, justify="left", text=t("gui.claude.mcp_intro"))
@@ -2498,6 +2791,8 @@ class ClaudePanel(ttk.Frame):
         if self.cut:
             self.mcp_cut_lbl = ttk.Label(b, text=t("gui.claude.cuts_none"), style="Hint.TLabel")
             self.mcp_cut_lbl.grid(row=len(self.codes) + 1, column=0, sticky="w", pady=(10, 0))
+        self.mcp_ch_lbl = ttk.Label(b, text=t("chapters.mcp_waiting"), style="Hint.TLabel")
+        self.mcp_ch_lbl.grid(row=len(self.codes) + 2, column=0, sticky="w", pady=(6, 0))
         self.switch_btn.configure(text=t("gui.claude.to_file"), command=self._mcp_to_file)
 
     def _mcp_to_file(self):
@@ -2522,10 +2817,14 @@ class ClaudePanel(ttk.Frame):
             k = jobs.read_json(d / "parts" / "cuts.json", {}) or {}
             n = len(k.get("lines") or [])
             self.mcp_cut_lbl.configure(text=t("gui.claude.cuts_done" if k.get("done") else "gui.claude.cuts_got", n=n))
+        got = jobs.read_json(d / "parts" / "chapters.json")
+        if got is not None:
+            self.mcp_ch_lbl.configure(text=t("chapters.mcp_done", n=len(got.get("chapters") or [])))
         done = jobs.read_json(d / "complete.json")
         if done:
             self.words = [tuple(w) for w in done.get("words", [])]
             self.app.cut_lines = list(done.get("cuts") or [])
+            self.outline = chapters.Outline.from_json(done.get("outline"))
             skill = jobs.read_json(d / "skill.json")
             if skill is not None:
                 self.app.note_skill(skill.get("skill"))
@@ -2537,7 +2836,8 @@ class ClaudePanel(ttk.Frame):
     def _build_file_mode(self):
         try:
             self.work_file.write_text(claude.work_file_text(self.src, self.check, self.targets, self.cues,
-                                                            self.job_id, self.answer_name, self.cut), encoding="utf-8")
+                                                            self.job_id, self.answer_name, self.cut,
+                                                            self.chapter_lang), encoding="utf-8")
         except OSError as e:
             log.error("could not write work file: %s", e)
             boxes.showwarning("Claude", t("gui.claude.work_file_failed", error=e),
@@ -2680,6 +2980,7 @@ class ClaudePanel(ttk.Frame):
             return
         self.words = list(words)
         self.app.cut_lines = claude.answer_cuts(text) or []
+        self.outline = claude.answer_outline(text, self.duration or None)
         self.app.note_skill(claude.answer_skill(text))
         self._set_fstep(3)
         self.wait_lbl.configure(text=t("gui.claude.found", name=f.name))
@@ -2739,6 +3040,7 @@ class ClaudePanel(ttk.Frame):
                 if msg is None:
                     self.words = list(words)
                     self.app.cut_lines = claude.answer_cuts(text) or []
+                    self.outline = claude.answer_outline(text, self.duration or None)
                     self.app.note_skill(claude.answer_skill(text))
                     self._set_fstep(3)
                     self._answer_found = True
@@ -2756,6 +3058,7 @@ class ClaudePanel(ttk.Frame):
         self.mode = "parts"
         for w in self.body.winfo_children():
             w.destroy()
+        self.fsteps = []   # their icons are gone: the spinner must not draw them any more
         self.switch_btn.grid_remove()
         self.save_btn.grid(row=0, column=2)
         self.parts = claude.split_parts(self.cues, len(self.codes))
@@ -2859,7 +3162,7 @@ class ClaudePanel(ttk.Frame):
 
     def _copy(self, i: int):
         text = claude.prompt(self.src, self.check, self.targets, self.parts[i], self._first_number(i), i, len(self.parts),
-                             self.cut)
+                             self.cut, self.chapter_lang)
         self.clipboard_clear()
         self.clipboard_append(text)
         self.update()
@@ -2880,6 +3183,9 @@ class ClaudePanel(ttk.Frame):
         cut_lines = claude.answer_cuts(text) if self.cut else None
         if cut_lines is not None:
             self.cut_parts[i] = cut_lines
+        part_outline = claude.answer_outline(text, raw=True)
+        if part_outline:
+            self.part_outlines[i] = part_outline
         self.words += words
         if msg:
             self.answers[i] = None
@@ -2901,6 +3207,8 @@ class ClaudePanel(ttk.Frame):
         if not all(self.answers):
             return
         self.app.cut_lines = [l for i in sorted(self.cut_parts) for l in self.cut_parts[i]]
+        self.outline = chapters.merge_parts([self.part_outlines[i] for i in sorted(self.part_outlines)],
+                                            self.duration or None)
         self._finish({code: [c for part in self.answers for c in part[code]] for code in self.codes})
 
     # --- Both modes ------------------------------------------------------------------------
@@ -2930,6 +3238,14 @@ class ClaudePanel(ttk.Frame):
             self.app.add_file(out)
         new = claude.add_words(list(dict.fromkeys(self.words)))
         log.info("claude round saved: %s; new words %s", [w.name for w in written], new)
+        # Chapters and summary: next to the original video, in its times (moved again if the video is cut)
+        self.app.outline = self.outline
+        try:
+            self.app.chapters_file = chapters.save(self.video, self.outline)
+        except OSError:
+            log.exception("could not save the chapters")
+        if self.app.chapters_file:
+            self.app.add_file(self.app.chapters_file)
         try:
             self.work_file.unlink(missing_ok=True)
         except OSError:

@@ -235,8 +235,9 @@ def point_claude_at(exe: Path, args: list[str] | None = None, add_if_missing: bo
 
 
 def cleanup() -> list[str]:
-    """Remove version folders nothing runs from, except the current and the previous one, and leftovers (the flat
-    layout, *.new/*.old, the folders from before). Returns what was removed."""
+    """Remove version folders nothing runs from, except the current and the previous one and the newest one above
+    the current (an update unpacked by update.stage, waiting for the restart), and leftovers (the flat layout,
+    *.new/*.old, the folders from before). Returns what was removed."""
     base = install_dir()
     cur = _read(base / CURRENT)
     if not base.is_dir() or not cur:
@@ -244,9 +245,10 @@ def cleanup() -> list[str]:
     images = _process_images()
     versions = [d.name for d in base.iterdir() if d.is_dir() and VERSION_DIR.match(d.name)]
     previous = max((v for v in versions if _vtuple(v) < _vtuple(cur)), key=_vtuple, default=None)
+    staged = max((v for v in versions if _vtuple(v) > _vtuple(cur)), key=_vtuple, default=None)   # self-update
     removed = []
     for d in base.iterdir():
-        stale = d.is_dir() and ((VERSION_DIR.match(d.name) and d.name not in (cur, previous))
+        stale = d.is_dir() and ((VERSION_DIR.match(d.name) and d.name not in (cur, previous, staged))
                                 or d.name.endswith((".new", ".old")))
         if stale and not running_from(d, images):
             shutil.rmtree(d, ignore_errors=True)
@@ -265,40 +267,50 @@ def cleanup() -> list[str]:
     return removed
 
 
-def install(connect_claude: bool) -> Path:
-    """Copy this program folder to its own version folder and make it the current one. Never touches a folder
-    something runs from, so it works while Claude runs the MCP server. Raises PermissionError only when this very
-    version is installed and running (reinstalling it would mean replacing it)."""
-    src, base = app_dir(), install_dir()
-    dst = base / APP_VERSION
+def place(src: Path, version: str) -> Path:
+    """Copy the program folder src into its own version folder (via <version>.new, checked, then renamed), without
+    making it the current one. Never touches a folder something runs from: raises PermissionError when that very
+    version folder is in use. Used by install() and by the self-update (update.stage) for an unpacked release."""
+    base = install_dir()
+    dst = base / version
     base.mkdir(parents=True, exist_ok=True)
     if dst.exists():
         if running_from(dst):
             raise PermissionError(f"{dst} is in use")
         shutil.rmtree(dst)
-    staging = base / f"{APP_VERSION}.new"
+    staging = base / f"{version}.new"
     shutil.rmtree(staging, ignore_errors=True)
     # Skip only the top-level models folder (models next to the exe move to the data folder, so they are not
     # copied with every update); everything else is needed (_internal\base_library.zip is Python's standard
     # library - leaving out *.zip everywhere broke the installed exe in v1.7.1).
     shutil.copytree(src, staging, ignore=lambda d, names: list(MODEL_FOLDERS) if Path(d) == src else [])
-    (staging / "version.txt").write_text(APP_VERSION, encoding="utf-8")
+    (staging / "version.txt").write_text(version, encoding="utf-8")
     for need in ((EXE_NAME,), ("_internal", "base_library.zip")):
         if (src.joinpath(*need)).exists() and not staging.joinpath(*need).exists():
             shutil.rmtree(staging, ignore_errors=True)
             raise RuntimeError(t("installer.copy_incomplete", name=need[-1]))
     staging.rename(dst)
+    return dst
+
+
+def activate(version: str, connect_claude: bool, models_from: Path | None = None) -> Path:
+    """Make an installed version folder the current one: current.txt, the shortcuts and Claude's MCP entry point at
+    its exe (a server Claude still runs from the old folder then says "restart Claude"), models next to the exe in
+    models_from move to the data folder, and old folders nothing runs from are removed. Returns the exe."""
+    base = install_dir()
+    exe = base / version / EXE_NAME
+    if not exe.is_file():
+        raise FileNotFoundError(exe)
     tmp = base / (CURRENT + ".tmp")
-    tmp.write_text(APP_VERSION, encoding="utf-8")
+    tmp.write_text(version, encoding="utf-8")
     tmp.replace(base / CURRENT)
-    for models in (src / m for m in MODEL_FOLDERS):
+    for models in (models_from / m for m in MODEL_FOLDERS) if models_from else ():
         if models.is_dir():
             target = data_dir() / "models"
             target.mkdir(parents=True, exist_ok=True)
             for f in models.iterdir():
                 if f.is_file() and not (target / f.name).exists():
                     shutil.copy2(f, target / f.name)
-    exe = dst / EXE_NAME
     try:
         _update_shortcuts(exe)
     except Exception:
@@ -312,14 +324,25 @@ def install(connect_claude: bool) -> Path:
     for old in old_install_dirs():
         if (old / CURRENT).exists():
             try:
-                (old / CURRENT).write_text(APP_VERSION, encoding="utf-8")
+                (old / CURRENT).write_text(version, encoding="utf-8")
             except OSError:
                 pass
-    log.info("installed %s to %s", APP_VERSION, dst)
+    log.info("current version is now %s (%s)", version, exe)
     try:
         cleanup()
     except Exception:
         log.exception("installer cleanup")
+    return exe
+
+
+def install(connect_claude: bool) -> Path:
+    """Copy this program folder to its own version folder and make it the current one. Never touches a folder
+    something runs from, so it works while Claude runs the MCP server. Raises PermissionError only when this very
+    version is installed and running (reinstalling it would mean replacing it)."""
+    src = app_dir()
+    place(src, APP_VERSION)
+    exe = activate(APP_VERSION, connect_claude, models_from=src)
+    log.info("installed %s to %s", APP_VERSION, exe.parent)
     return exe
 
 

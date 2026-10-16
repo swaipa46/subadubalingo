@@ -1,0 +1,9 @@
+{
+ "audio.setup_option": "Forbedre lyden: jevn lydstyrke og mindre støy",
+ "audio.setup_hint": "Gjør talen lettere å høre og fjerner sus og brum. Påvirker bare den nye videoen.",
+ "audio.settings_title": "Lyd",
+ "audio.settings_option": "Forbedre lyden som standard",
+ "audio.settings_hint": "Jevn lydstyrke og mindre støy. Kan slås av for hver video.",
+ "audio.measuring": "Måler lyden...",
+ "audio.setup_hint_off": "Den nye videoen har bare dubbens stemme, så det er ingen original lyd å forbedre."
+}

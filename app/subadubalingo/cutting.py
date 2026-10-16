@@ -51,6 +51,7 @@ KINDS = _Kinds({
     "offtopic": ("#9d5d00", "#fff4ce"),
     "unclear": ("#00666d", "#ddf1ef"),
     "manual": ("#0f6cbd", "#e1effa"),
+    "filler": ("#4d7c0f", "#ecf5dc"),
 })
 # Also the Danish words the skill used before v2.0 (skill version 3), and what Claude writes when it improvises
 KIND_ALIASES = {
@@ -65,12 +66,17 @@ KIND_ALIASES = {
     "fjol": "offtopic", "udenfor": "offtopic", "snak": "offtopic",
     "unclear": "unclear", "inaudible": "unclear", "unintelligible": "unclear",
     "uklart": "unclear", "uforståeligt": "unclear", "utydeligt": "unclear", "uforstaaeligt": "unclear",
+    "filler": "filler", "fillers": "filler", "hesitation": "filler", "um": "filler", "uh": "filler",
+    "fyldord": "filler", "fyld": "filler", "øh": "filler", "øhm": "filler", "tøven": "filler", "gentagelse": "filler",
+    "utfyllingsord": "filler", "fyllord": "filler", "nøling": "filler",
+    "utfyllnadsord": "filler", "utfyllnad": "filler", "tvekan": "filler", "upprepning": "filler",
     "manual": "manual", "other": "manual", "manuel": "manual", "andet": "manual",
 }
 
 MIN_PAUSE_MS = 20_000   # silence this long (between blocks) is suggested as a pause
 PAUSE_MARGIN_MS = 750   # kept on each side of a pause, so the cut does not clip a breath or a word
 MIN_CUT_MS = 300
+FILLER_JOIN_MS = 40     # filler cuts are only joined when they touch: the gap between two may hold a word
 
 
 @dataclass
@@ -124,6 +130,15 @@ def block_range(cues: list[Cue], a: int, b: int, duration: int, kind: str) -> tu
     first, last = cues[a - 1], cues[b - 1]
     start = 0 if a == 1 else max(cues[a - 2].end, first.start - 200)
     end = duration if b == n else min(last.end, cues[b].start - 50)
+    if end - start < MIN_CUT_MS:
+        # A very short block ("øh"): grow into the silence on both sides, never into the blocks around it
+        lo = 0 if a == 1 else cues[a - 2].end
+        hi = duration if b == n else cues[b].start
+        need = MIN_CUT_MS - (end - start)
+        grow_l = min(need // 2, start - lo)
+        grow_r = min(need - grow_l, hi - end)
+        grow_l += min(need - grow_l - grow_r, start - grow_l - lo)
+        start, end = start - grow_l, end + grow_r
     return start, max(end, start + MIN_CUT_MS)
 
 
@@ -238,7 +253,8 @@ def merge(cuts: list[Cut], join_ms: int = 400) -> list[Cut]:
     """Overlapping (or nearly touching) cuts become one. Used on the cuts that are switched on."""
     out: list[Cut] = []
     for c in sorted(cuts, key=lambda c: c.start):
-        if out and c.start <= out[-1].end + join_ms:
+        join = FILLER_JOIN_MS if out and "filler" in (c.kind, out[-1].kind) else join_ms
+        if out and c.start <= out[-1].end + join:
             last = out[-1]
             reason = last.reason if c.reason in last.reason else "; ".join(x for x in (last.reason, c.reason) if x)
             out[-1] = Cut(last.start, max(last.end, c.end), last.kind, reason, True, last.source)
@@ -330,7 +346,8 @@ def excerpt(cues: list[Cue], start: int, end: int, chars: int = 90) -> str:
 
 # --- ffmpeg -------------------------------------------------------------------------------
 
-def _filters(ranges: list[tuple[int, int]], fmt: str, has_audio: bool) -> str:
+def _filters(ranges: list[tuple[int, int]], fmt: str, has_audio: bool, clean: str | None = None) -> str:
+    """`clean`: audio.py's chain for the speech (Forbedr lyden), applied before cutting."""
     secs = [(a / 1000, b / 1000) for a, b in ranges]
     inside = "+".join(f"between(t,{a:.3f},{b:.3f})" for a, b in secs)
     # Kept frames move back by the length of every cut before them. This keeps the original frame timing
@@ -344,25 +361,29 @@ def _filters(ranges: list[tuple[int, int]], fmt: str, has_audio: bool) -> str:
     dist = f"abs(t-{edges[0]:.3f})"
     for x in edges[1:]:
         dist = f"min({dist},abs(t-{x:.3f}))"
-    a = (f"[0:a:0]aresample=48000,asetnsamples=n=240:p=0,aselect='not({inside})',"
+    a = (f"[0:a:0]{clean + ',' if clean else ''}aresample=48000,asetnsamples=n=240:p=0,aselect='not({inside})',"
          f"volume='min(1,({dist})/0.025)':eval=frame,asetpts='PTS-STARTPTS-({shift})/TB',"
          f"aformat=channel_layouts=stereo[a]")
     return v + ";\n" + a
 
 
 def cut_video(runner: Runner, video: Path, ranges: list[tuple[int, int]], out: Path, duration_ms: int,
-              has_audio: bool, prog, workdir: Path):
+              has_audio: bool, prog, workdir: Path, improve_audio: bool = False):
     """Write the video without `ranges`, in one pass. Quick Sync first (fast on Intel laptops), then libx264.
     The filter graph goes in a file: with many cuts it is longer than Windows allows on a command line."""
+    from . import audio
     from .engine import AUDIO_AAC, _ffmpeg_progress
     new_ms = duration_ms - removed_ms(ranges)
+    clean = audio.prepare(runner, video, improve_audio and has_audio, prog)
     tmp_out = out.with_name(out.stem + ".tmp" + out.suffix)
     attempts = [("nv12", ["-c:v", "h264_qsv", "-preset", "medium", "-global_quality", "20"]),
                 ("yuv420p", ["-c:v", "libx264", "-preset", "veryfast", "-crf", "19"])]
     for n, (fmt, video_args) in enumerate(attempts):
         graph = workdir / f"cut{n}.txt"
-        graph.write_text(_filters(ranges, fmt, has_audio), encoding="utf-8")
+        graph.write_text(_filters(ranges, fmt, has_audio, clean), encoding="utf-8")
         maps = ["-map", "[v]"] + (["-map", "[a]"] + AUDIO_AAC if has_audio else [])
+        if clean:
+            maps += audio.MARK_ARGS
         args = [FFMPEG(), "-hide_banner", "-y", "-i", video, "-/filter_complex", graph.name] + maps + video_args + \
                ["-movflags", "+faststart", "-progress", "pipe:1", "-nostats", tmp_out]
         code, _ = runner.run(args, _ffmpeg_progress(prog, new_ms), cwd=workdir)
