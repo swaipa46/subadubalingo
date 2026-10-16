@@ -561,9 +561,19 @@ class LineList(ttk.Frame):
         self.sb = ttk.Scrollbar(self, orient="vertical", command=self._yview)
         self.sb.grid(row=1, column=1, sticky="ns")
         self.c.configure(yscrollcommand=self.sb.set)
-        self.foot = tk.Label(self, text="", background=P.card, foreground=P.hint, font=self.f_head, anchor="w",
-                             borderwidth=0, padx=int(NUM_X * k))
-        self.foot.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(int(10 * k), 0))
+        # "6 linjer", and when lines are too fast "· [warning square] 1 linje er svær at nå at læse (over 20 tegn/s)"
+        # (design review round 4, decision 3)
+        foot = tk.Frame(self, background=P.card, borderwidth=0)
+        foot.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(int(10 * k), 0))
+        self.foot = tk.Label(foot, text="", background=P.card, foreground=P.hint, font=self.f_head, anchor="w",
+                             borderwidth=0, padx=0)
+        self.foot.pack(side="left", padx=(int(NUM_X * k), 0))
+        sq = 10 * editor.kd
+        self.foot_warn = tk.Canvas(foot, width=sq, height=sq, background=P.warning, highlightthickness=0,
+                                   borderwidth=0)
+        self.foot_warn.keep_colour = True
+        self.foot_fast = tk.Label(foot, text="", background=P.card, foreground=P.hint, font=self.f_head,
+                                  anchor="w", borderwidth=0, padx=0)
         self._wrap_cache: dict = {}
         self.tops: list[int] = []
         self.heights: list[int] = []
@@ -692,10 +702,15 @@ class LineList(ttk.Frame):
         if not field_shown:
             self.ed.hide_field(c)
         fast = sum(1 for q in cues if chars_per_second(q) > CPS_WARN)
-        foot = plural_t("editor.footer", len(cues))
+        self.foot.configure(text=plural_t("editor.footer", len(cues)) + (" ·" if fast else ""))
         if fast:
-            foot += "  ·  " + plural_t("editor.footer_fast", fast, cps=CPS_WARN)
-        self.foot.configure(text=foot)
+            self.foot_fast.configure(text=plural_t("editor.footer_fast", fast, cps=CPS_WARN))
+            if not self.foot_warn.winfo_manager():
+                self.foot_warn.pack(side="left", padx=(int(6 * k), int(6 * k)))
+                self.foot_fast.pack(side="left")
+        elif self.foot_warn.winfo_manager():
+            self.foot_warn.pack_forget()
+            self.foot_fast.pack_forget()
 
 
 class SubtitleEditor(ttk.Frame):
@@ -737,7 +752,9 @@ class SubtitleEditor(ttk.Frame):
         self.picker.grid(row=0, column=1, sticky="e", padx=(0, int(14 * k)))
         if len(self.s.docs) < 2:
             self.picker.grid_remove()
-        self.b_close = ttk.Button(head, text=t("editor.cancel"), command=self.on_close)
+        # Luk while nothing is unsaved, Annullér as soon as something is (design review round 4, decision 3)
+        self.b_close = ttk.Button(head, text=t("editor.cancel" if self.s.dirty else "editor.close"),
+                                  command=self.on_close)
         self.b_close.grid(row=0, column=2, sticky="e", padx=(0, int(14 * k)))
         self.b_save = skin.IconButton(head, "file-subtitles", text=t("editor.save"), style="Accent.TButton",
                                       command=self.save)
@@ -746,6 +763,10 @@ class SubtitleEditor(ttk.Frame):
         sub.grid(row=1, column=0, sticky="ew", pady=(int(10 * k), int(14 * k)))
         self.l_file = ttk.Label(sub, text="", font="SunValleyBodyStrongFont")
         self.l_file.pack(side="left")
+        # A long name is shortened in the middle, with the whole name as a tooltip (design review round 4, item 9)
+        self._file_short = False
+        Tooltip(self.l_file, lambda: self.s.doc.path.name if self._file_short else "")
+        self.bind("<Configure>", lambda e: self._file_label() if e.widget is self else None, add="+")
         hint = t("editor.hint") + ("" if self.s.video else "  " + t("editor.no_video"))
         ttk.Label(sub, text=hint, style="Hint.TLabel").pack(side="left", padx=(int(6 * k), 0))
 
@@ -872,9 +893,27 @@ class SubtitleEditor(ttk.Frame):
         else:
             self._draw_video()
 
+    def _file_label(self):
+        """The file name, shortened in the middle with "…" when it is wider than 60 % of the editor."""
+        name = self.s.doc.path.name
+        font = tkfont.nametofont("SunValleyBodyStrongFont")
+        room = int(self.winfo_width() * 0.6)
+        short = name
+        if room > 50 and font.measure(name) > room:
+            keep = len(name)
+            while keep > 8:
+                keep -= 1
+                head = (keep + 1) // 2
+                short = name[:head].rstrip() + "…" + name[len(name) - (keep - head):].lstrip()
+                if font.measure(short) <= room:
+                    break
+        self._file_short = short != name
+        if str(self.l_file.cget("text")) != short:
+            self.l_file.configure(text=short)
+
     def _show_line_info(self):
         cues, i = self.s.doc.cues, self.s.sel
-        self.l_file.configure(text=self.s.doc.path.name)
+        self._file_label()
         if 0 <= i < len(cues):
             q = cues[i]
             self.l_line.configure(text=t("editor.line_info", n=i + 1, start=fmt_time(q.start), end=fmt_time(q.end),
@@ -1271,9 +1310,12 @@ class SubtitleEditor(ttk.Frame):
             ymid = (box0 + box1) // 2
             dragging = self._drag["side"] if self._drag else None
             for side, x in (("start", x0), ("end", x1)):
-                hw, hh = (6 if dragging == side else 4) * kd, 13 * kd
-                c.create_rectangle(x - hw, ymid - hh, x + hw, ymid + hh, fill=P.accent, outline=P.card_border
-                                   if dragging == side else "", width=kd)
+                if dragging == side:   # as the cut review's dragged edge; kept inside the canvas
+                    img = IMG.get("art/timeline-handle-dragging")
+                    c.create_image(x, min(ymid, box1 - img.height() // 2), image=img)
+                    continue
+                hw, hh = 4 * kd, 13 * kd
+                c.create_rectangle(x - hw, ymid - hh, x + hw, ymid + hh, fill=P.accent, outline="")
         # The ruler (24 px), over anything that reaches up there
         c.create_rectangle(0, 0, w, top, fill=P.timeline_bg, outline="")
         c.create_rectangle(m, ruler, w - m, top, fill=P.card_border, outline="")

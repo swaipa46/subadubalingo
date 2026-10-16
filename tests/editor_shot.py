@@ -134,6 +134,7 @@ ed.select(i_anne)
 assert wait_for(lambda: ed._img is not None), "no picture"
 pump(1)
 take(tag if "--lang" not in sys.argv else f"{tag}-{forced_lang}")
+assert not ed.s.dirty and ed.b_close.cget("text") == gui.t("editor.close")   # Luk until something changes
 if "--lang" in sys.argv:   # a language check only
     root.destroy()
     shutil.rmtree(tmp, ignore_errors=True)
@@ -172,7 +173,11 @@ q2 = ed.s.doc.cues[2]
 old2, q2.text = q2.text, "Testing, testing, en, to, tre, fire, fem, seks, syv, otte, ni og ti."
 ed.lines.layout()
 assert editor.chars_per_second(q2) > editor.CPS_WARN
-assert gui.t("editor.footer_fast_one", n=1, cps=editor.CPS_WARN) in ed.lines.foot.cget("text")
+assert gui.t("editor.footer_fast_one", n=1, cps=editor.CPS_WARN) == ed.lines.foot_fast.cget("text")
+assert ed.lines.foot_warn.winfo_manager() == "pack"   # the warning square before it (design review round 4)
+ed.select(2, focus=False)
+take("fast-" + tag)
+ed.select(0, focus=False)   # off the line again, so its field does not keep the long text
 assert any(ed.lines.c.itemcget(i, "text") == gui.t("editor.cps", n=round(editor.chars_per_second(q2)))
            for i in ed.lines.c.find_withtag("row") if ed.lines.c.type(i) == "text")
 q2.text = old2
@@ -220,6 +225,16 @@ take("drag-" + tag)
 ed._on_release(Ev(x, 0))
 assert len(played) > n_played, "no sound snippets while dragging"
 assert ed.s.doc.cues[1].end <= ed.s.doc.cues[2].start
+
+# A name wider than 60 % of the editor is shortened in the middle (design review round 4, item 9)
+geo = root.geometry()
+root.geometry("1000x900")
+pump(0.8)
+assert ed._file_short and "…" in ed.l_file.cget("text"), ed.l_file.cget("text")
+take("narrow-" + tag)
+root.geometry(geo)
+pump(0.8)
+assert not ed._file_short
 
 # Switch to English (if made) and back, with the picker
 codes = [d.lang.code for d in ed.s.docs]

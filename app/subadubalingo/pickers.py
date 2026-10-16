@@ -24,9 +24,11 @@ class Tooltip:
 
     def _show(self, e=None):
         self._hide()
+        text = self.text() if callable(self.text) else self.text
+        if not text:   # nothing to say right now (a file name that is shown whole)
+            return
         self.tip = tk.Toplevel(self.widget)
         self.tip.wm_overrideredirect(True)
-        text = self.text() if callable(self.text) else self.text
         tk.Label(self.tip, text=text, background=P.tooltip_bg, foreground=P.tooltip_text, padx=8, pady=4,
                  font="SunValleyCaptionFont").pack()
         x = self.widget.winfo_rootx()
