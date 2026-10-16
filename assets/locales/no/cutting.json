@@ -5,6 +5,7 @@
  "cutting.kind.inappropriate": "Upassende",
  "cutting.kind.offtopic": "Utenfor temaet",
  "cutting.kind.unclear": "Uklart",
+ "cutting.kind.filler": "Fyllord",
  "cutting.kind.manual": "Ditt eget klipp",
  "cutting.pause.start": "Ingen tale de første {length}",
  "cutting.pause.end": "Ingen tale de siste {length}",

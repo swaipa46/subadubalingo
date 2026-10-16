@@ -19,7 +19,8 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import claude, cutting, engine, jobs, textstate
+from . import chapters, claude, cutting, engine, jobs, textstate
+from .chapters_view import ChaptersCard
 from . import i18n, skin, theme
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
@@ -269,6 +270,8 @@ class App:
         self.runner: Runner | None = None
         self.created: list[Path] = []
         self.learned_words: list[tuple[str, str]] = []
+        self.outline = chapters.Outline()   # Claude's chapters and summary for this run (chapters.py)
+        self.chapters_file: Path | None = None
         self.job: dict | None = None
         self._running = False
         self._starting = False   # The user's own start is waiting in a dialog (a question, the model download)
@@ -688,17 +691,20 @@ class App:
             k = self.app.scale
             i = len(self.rows)
             srt = name.lower().endswith(".srt")
+            txt = name.lower().endswith(".txt")   # the chapters file (chapters.py)
             row = tk.Frame(self, background=P.card, height=int(36 * k), takefocus=1, borderwidth=0,
                            highlightthickness=0)
             row.grid(row=i, column=0, sticky="ew")
             row.grid_propagate(False)
             row.columnconfigure(1, weight=1)
             row.rowconfigure(0, weight=1)
-            parts = [tk.Label(row, image=IMG.get("icons/file-subtitles" if srt else "icons/file-video"),
+            icon = "file-subtitles" if srt else chapters.ICON if txt else "file-video"
+            parts = [tk.Label(row, image=IMG.get(f"icons/{icon}"),
                               background=P.card, borderwidth=0),
                      tk.Label(row, text=name, background=P.card, foreground=P.text, font="SunValleyBodyFont",
                               anchor="w", borderwidth=0, padx=0, pady=0),
-                     tk.Label(row, text=t("gui.done.type_subtitles" if srt else "gui.done.type_video"),
+                     tk.Label(row, text=t("gui.done.type_subtitles" if srt else "chapters.type" if txt
+                                          else "gui.done.type_video"),
                               background=P.card, foreground=P.hint, font=("Segoe UI", -int(13 * k)),
                               borderwidth=0, padx=0, pady=0)]
             parts[0].grid(row=0, column=0, padx=(int(10 * k), int(12 * k)))
@@ -863,9 +869,14 @@ class App:
                                      command=self._new_video)
         self.d_new.grid(row=3, column=0, sticky="ew", pady=(int(14 * k), 0))
 
+        # Claude's chapters and description with copy buttons (chapters_view.py), when the run has them
+        self.d_chapters = ChaptersCard(right, k, card_pad)
+        self.d_chapters.grid(row=1, column=0, sticky="ew", pady=(int(24 * k), 0))
+        self.d_chapters.grid_remove()
+
         # The run's steps, compact: 34 px rows, no connectors (filled in by _show_result)
         self.d_steps = skin.Card(right, text=t("gui.done.all_steps"), padding=card_pad)
-        self.d_steps.grid(row=1, column=0, sticky="ew", pady=(int(24 * k), 0))
+        self.d_steps.grid(row=2, column=0, sticky="ew", pady=(int(24 * k), 0))
         self.d_steps.columnconfigure(2, weight=1)
         return v
 
@@ -1233,6 +1244,7 @@ class App:
         self.runner = Runner()
         self.created = []
         self.learned_words = []
+        self.outline, self.chapters_file = chapters.Outline(), None
         self.files.delete(0, "end")
         names, self.claude_at = self._step_names(job)
         for child in self.steps_box.winfo_children():
@@ -1565,6 +1577,9 @@ class App:
         cutting.cut_video(runner, v, ranges, edited, info.duration_ms, info.has_audio, prog, work)
         textstate.record_cut(edited, v, ranges)
         post(("file", edited))
+        if self.outline:
+            self.outline = chapters.remap(self.outline, ranges, info.duration_ms - cutting.removed_ms(ranges))
+            self.chapters_file = chapters.save(job["video"], self.outline) or self.chapters_file
         # The subtitles that belong to the original (and match its blocks) are moved to the cut video.
         checked = textstate.is_checked(srt_path(v, lang))
         for l in LANGUAGES:
@@ -1757,7 +1772,10 @@ class App:
         if msg:
             self.d_msg.grid()
         self.d_files.grid() if self.files.size() else self.d_files.grid_remove()
+        shown = self.d_chapters.show(self.outline if done else None, self.chapters_file)
         self._fill_steps(steps, done)
+        if shown:
+            self.d_steps.grid_remove()   # the chapters card replaces the step list after a finished run (T8)
         self._show("done")
         skin.skin_cards(self.views["done"])
 
@@ -2416,6 +2434,10 @@ class ClaudePanel(ttk.Frame):
         self.app, self.video, self.src, self.src_srt = app, video, src, src_srt
         self.check, self.targets, self.on_finish = check, list(targets), on_finish
         self.codes = ([src.code] if check else []) + [t.code for t in self.targets]
+        # Chapters and a summary, in the language of the new video (chapters.py)
+        self.chapter_lang = chapters.language_for(app.job or {}) or src
+        self.outline = chapters.Outline()
+        self.part_outlines: dict[int, chapters.Outline] = {}
         self.cues = read_srt(src_srt)
         self.words: list[tuple[str, str]] = []
         self.job_id = uuid.uuid4().hex[:10]
@@ -2433,7 +2455,7 @@ class ClaudePanel(ttk.Frame):
         todo = ([t("gui.claude.task_check", plural=src.plural)] if check else []) + \
                ([t("gui.claude.task_translate", langs=join_and([x.singular for x in self.targets]))]
                 if self.targets else []) + \
-               ([t("gui.claude.task_cut")] if cut else [])
+               ([t("gui.claude.task_cut")] if cut else []) + [t("chapters.task")]
         top = ttk.Frame(self)
         top.grid(row=0, column=0, sticky="w")
         self.head = ttk.Label(top, text=t("gui.claude.your_turn"), style="Big.TLabel", foreground=P.your_turn_title)
@@ -2475,7 +2497,7 @@ class ClaudePanel(ttk.Frame):
         jobs.write_json(d / "task.json", {
             "src": self.src.code, "check": self.check, "targets": [t.code for t in self.targets],
             "codes": self.codes, "blocks": len(self.cues), "words": claude.known_words(),
-            "cut": self.cut, "duration": self.duration,
+            "cut": self.cut, "duration": self.duration, "chapters": self.chapter_lang.code,
             "rules": [list(r) for r in claude.word_rules()[:80]]})
         b = self.body
         msg = ttk.Label(b, justify="left", text=t("gui.claude.mcp_intro"))
@@ -2498,6 +2520,8 @@ class ClaudePanel(ttk.Frame):
         if self.cut:
             self.mcp_cut_lbl = ttk.Label(b, text=t("gui.claude.cuts_none"), style="Hint.TLabel")
             self.mcp_cut_lbl.grid(row=len(self.codes) + 1, column=0, sticky="w", pady=(10, 0))
+        self.mcp_ch_lbl = ttk.Label(b, text=t("chapters.mcp_waiting"), style="Hint.TLabel")
+        self.mcp_ch_lbl.grid(row=len(self.codes) + 2, column=0, sticky="w", pady=(6, 0))
         self.switch_btn.configure(text=t("gui.claude.to_file"), command=self._mcp_to_file)
 
     def _mcp_to_file(self):
@@ -2522,10 +2546,14 @@ class ClaudePanel(ttk.Frame):
             k = jobs.read_json(d / "parts" / "cuts.json", {}) or {}
             n = len(k.get("lines") or [])
             self.mcp_cut_lbl.configure(text=t("gui.claude.cuts_done" if k.get("done") else "gui.claude.cuts_got", n=n))
+        got = jobs.read_json(d / "parts" / "chapters.json")
+        if got is not None:
+            self.mcp_ch_lbl.configure(text=t("chapters.mcp_done", n=len(got.get("chapters") or [])))
         done = jobs.read_json(d / "complete.json")
         if done:
             self.words = [tuple(w) for w in done.get("words", [])]
             self.app.cut_lines = list(done.get("cuts") or [])
+            self.outline = chapters.Outline.from_json(done.get("outline"))
             skill = jobs.read_json(d / "skill.json")
             if skill is not None:
                 self.app.note_skill(skill.get("skill"))
@@ -2537,7 +2565,8 @@ class ClaudePanel(ttk.Frame):
     def _build_file_mode(self):
         try:
             self.work_file.write_text(claude.work_file_text(self.src, self.check, self.targets, self.cues,
-                                                            self.job_id, self.answer_name, self.cut), encoding="utf-8")
+                                                            self.job_id, self.answer_name, self.cut,
+                                                            self.chapter_lang), encoding="utf-8")
         except OSError as e:
             log.error("could not write work file: %s", e)
             boxes.showwarning("Claude", t("gui.claude.work_file_failed", error=e),
@@ -2680,6 +2709,7 @@ class ClaudePanel(ttk.Frame):
             return
         self.words = list(words)
         self.app.cut_lines = claude.answer_cuts(text) or []
+        self.outline = claude.answer_outline(text, self.duration or None)
         self.app.note_skill(claude.answer_skill(text))
         self._set_fstep(3)
         self.wait_lbl.configure(text=t("gui.claude.found", name=f.name))
@@ -2739,6 +2769,7 @@ class ClaudePanel(ttk.Frame):
                 if msg is None:
                     self.words = list(words)
                     self.app.cut_lines = claude.answer_cuts(text) or []
+                    self.outline = claude.answer_outline(text, self.duration or None)
                     self.app.note_skill(claude.answer_skill(text))
                     self._set_fstep(3)
                     self._answer_found = True
@@ -2756,6 +2787,7 @@ class ClaudePanel(ttk.Frame):
         self.mode = "parts"
         for w in self.body.winfo_children():
             w.destroy()
+        self.fsteps = []   # their icons are gone: the spinner must not draw them any more
         self.switch_btn.grid_remove()
         self.save_btn.grid(row=0, column=2)
         self.parts = claude.split_parts(self.cues, len(self.codes))
@@ -2859,7 +2891,7 @@ class ClaudePanel(ttk.Frame):
 
     def _copy(self, i: int):
         text = claude.prompt(self.src, self.check, self.targets, self.parts[i], self._first_number(i), i, len(self.parts),
-                             self.cut)
+                             self.cut, self.chapter_lang)
         self.clipboard_clear()
         self.clipboard_append(text)
         self.update()
@@ -2880,6 +2912,9 @@ class ClaudePanel(ttk.Frame):
         cut_lines = claude.answer_cuts(text) if self.cut else None
         if cut_lines is not None:
             self.cut_parts[i] = cut_lines
+        part_outline = claude.answer_outline(text, raw=True)
+        if part_outline:
+            self.part_outlines[i] = part_outline
         self.words += words
         if msg:
             self.answers[i] = None
@@ -2901,6 +2936,8 @@ class ClaudePanel(ttk.Frame):
         if not all(self.answers):
             return
         self.app.cut_lines = [l for i in sorted(self.cut_parts) for l in self.cut_parts[i]]
+        self.outline = chapters.merge_parts([self.part_outlines[i] for i in sorted(self.part_outlines)],
+                                            self.duration or None)
         self._finish({code: [c for part in self.answers for c in part[code]] for code in self.codes})
 
     # --- Both modes ------------------------------------------------------------------------
@@ -2930,6 +2967,14 @@ class ClaudePanel(ttk.Frame):
             self.app.add_file(out)
         new = claude.add_words(list(dict.fromkeys(self.words)))
         log.info("claude round saved: %s; new words %s", [w.name for w in written], new)
+        # Chapters and summary: next to the original video, in its times (moved again if the video is cut)
+        self.app.outline = self.outline
+        try:
+            self.app.chapters_file = chapters.save(self.video, self.outline)
+        except OSError:
+            log.exception("could not save the chapters")
+        if self.app.chapters_file:
+            self.app.add_file(self.app.chapters_file)
         try:
             self.work_file.unlink(missing_ok=True)
         except OSError:

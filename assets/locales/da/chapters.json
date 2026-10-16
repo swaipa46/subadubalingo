@@ -1,0 +1,14 @@
+{
+ "chapters.title": "Kapitler og beskrivelse",
+ "chapters.copy_chapters": "Kopiér kapitler",
+ "chapters.copy_summary": "Kopiér beskrivelse",
+ "chapters.copied": "Kopieret ✓",
+ "chapters.hint": "Begge dele ligger også i \"{file}\".",
+ "chapters.no_chapters": "Videoen er for kort til kapitler.",
+ "chapters.more": "... og {n} til",
+ "chapters.task": "lave kapitler og en kort beskrivelse af videoen",
+ "chapters.mcp_waiting": "Kapitler og beskrivelse: ikke modtaget endnu",
+ "chapters.mcp_done": "Kapitler og beskrivelse: {n} kapitler modtaget",
+ "chapters.type": "kapitler",
+ "chapters.from_claude": "Fra Claude"
+}
