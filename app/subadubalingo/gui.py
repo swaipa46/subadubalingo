@@ -22,7 +22,7 @@ from tkinter import filedialog, messagebox, ttk
 from . import audio, burnin, chapters, claude, cutting, engine, jobs, textstate
 from .burnin_ui import BurninCard
 from .chapters_view import ChaptersCard
-from . import i18n, skin, theme
+from . import i18n, skin, theme, voice_preview
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
 from .theme import IMG, P
@@ -571,9 +571,16 @@ class App:
         self.cb_cut = ttk.Checkbutton(g2, variable=self.cut, command=self._cut_changed,
                                       text=t("gui.setup.cut_first"))
         self.cb_cut.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 8))
-        ttk.Label(g2, text=t("gui.setup.speech")).grid(row=1, column=0, sticky="w")
-        self.c_speech = ttk.Combobox(g2, textvariable=self.speech, state="readonly", width=22)
-        self.c_speech.grid(row=1, column=1, sticky="w", padx=8, pady=3)
+        self.speech_label = ttk.Label(g2, text=t("gui.setup.speech"))
+        self.speech_label.grid(row=1, column=0, sticky="w")
+        speech_row = ttk.Frame(g2)
+        speech_row.grid(row=1, column=1, sticky="w", padx=8, pady=3)
+        self.c_speech = ttk.Combobox(speech_row, textvariable=self.speech, state="readonly", width=22)
+        self.c_speech.grid(row=0, column=0, sticky="w")
+        # Hør stemmen (voice_preview): the play button right of the combo, only with a dub language (_refresh), and
+        # the sample bubble under it while it plays
+        self.voice_btn = voice_preview.PreviewButton(speech_row, self._speech_lang, lambda: self.settings.voice_mode,
+                                                     self._get_voice_models, speech_row, self._show_voice_bubble)
         self.c_speech.bind("<<ComboboxSelected>>", lambda e: self._refresh())
         ttk.Label(g2, text=t("gui.setup.subtitles")).grid(row=2, column=0, sticky="w")
         self.c_subs = ttk.Combobox(g2, textvariable=self.subs, state="readonly", width=22,
@@ -924,6 +931,33 @@ class App:
         """The speech combobox: (None = keep the original speech, its label), then the other languages."""
         return [(None, t("gui.setup.speech_original", singular=l.singular))] + [(x, x.name) for x in LANGUAGES if x != l]
 
+    def _show_voice_btn(self):
+        """The play button next to Ny tale: only with a dub language; a change of language stops the sample."""
+        sp = self._speech_lang()
+        if sp != getattr(self, "_voice_btn_lang", None):
+            self.voice_btn.stop()
+        self._voice_btn_lang = sp
+        if sp and not self.voice_btn.winfo_manager():
+            self.voice_btn.grid(row=0, column=1, sticky="w", padx=(int(8 * self.scale), 0))
+        elif not sp:
+            self.voice_btn.grid_remove()
+
+    def _show_voice_bubble(self, bubble):
+        """The sample bubble under Ny tale while it plays; "Tale:" stays level with the combo meanwhile."""
+        if bubble is None:
+            self.voice_btn.bubble.grid_remove()
+            self.speech_label.grid_configure(sticky="w", pady=0)
+            return
+        bubble.master.columnconfigure(2, weight=1)   # a wide bubble widens this column, not the combo's or the button's
+        bubble.grid(row=1, column=0, columnspan=3, sticky="w", pady=(int(8 * self.scale), int(4 * self.scale)))
+        self.c_speech.update_idletasks()
+        top = 3 + (self.c_speech.winfo_height() - self.speech_label.winfo_reqheight()) // 2
+        self.speech_label.grid_configure(sticky="nw", pady=(max(0, top), 0))
+
+    def _get_voice_models(self, missing, parent=None) -> bool:
+        """Fetch the voices a sample needs (the same dialog as before a run)."""
+        return bool(ModelDialog(parent or self.root, missing, scale=self.scale).result)
+
     def _subs_items(self) -> list[tuple[Language | None, str]]:
         """The subtitles combobox: (None = no subtitles, its label), then every language."""
         return [(None, t("gui.setup.subs_none"))] + [(x, x.word("choice")) for x in LANGUAGES]
@@ -956,6 +990,7 @@ class App:
             self.speech.set(items[0][1])
         else:
             self.speech.set(sp.name)
+        self._show_voice_btn()
         self.c_subs.configure(values=[label for _, label in self._subs_items()])
         if not had_subs or (lang_changed and su is not None):
             su = l
@@ -1992,7 +2027,8 @@ class App:
 
     def _settings_dialog(self):
         improve = self.settings.improve_audio
-        dlg = SettingsDialog(self.root, self.settings, on_theme=self.set_theme, on_language=self.set_language)
+        dlg = SettingsDialog(self.root, self.settings, on_theme=self.set_theme, on_language=self.set_language,
+                             get_models=self._get_voice_models)
         dlg.bind("<Destroy>", lambda e: e.widget is dlg and self._settings_closed(improve), add="+")
 
     def _settings_closed(self, improve_before: bool):
@@ -2245,7 +2281,7 @@ class SettingsDialog(tk.Toplevel):
     """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles (folded until clicked), the
     look of burned-in subtitles (burnin_ui.py), then text and voices."""
 
-    def __init__(self, parent, settings: Settings, on_theme=None, on_language=None):
+    def __init__(self, parent, settings: Settings, on_theme=None, on_language=None, get_models=None):
         super().__init__(parent)
         self.withdraw()
         self.title(t("gui.settings.title"))
@@ -2286,6 +2322,9 @@ class SettingsDialog(tk.Toplevel):
         for value in ("person", "gender", "one"):
             ttk.Radiobutton(dubopts, text=t(f"gui.settings.voice_{value}"), value=value,
                             variable=self.voice_mode).pack(anchor="w", padx=12)
+        # Hør stemmen: one row per dub language with the voices the chosen mode uses and a play button
+        self.voice_rows = voice_preview.settings_rows(dubopts, self.voice_mode,
+                                                      (lambda m: get_models(m, self)) if get_models else None)
         links = ttk.Frame(f)
         links.grid(row=6, column=0, sticky="w", pady=(12, 0))
         ttk.Button(links, text=t("gui.open_model_dir"), command=lambda: self._open(model_dirs()[0])).pack(side="left")
