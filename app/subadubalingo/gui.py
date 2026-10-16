@@ -2433,8 +2433,17 @@ class SettingsDialog(tk.Toplevel):
         self.resizable(False, False)
         self.s = settings
         self.on_theme, self.on_language = on_theme, on_language
-        outer = ttk.Frame(self, padding=14)
-        outer.pack(fill="both")
+        # The cards scroll when they are taller than the screen (burn-in look, voices and Lyd together are), so the
+        # footer with Gem always stays in view
+        host = ttk.Frame(self, padding=(14, 14, 14, 0))
+        host.pack(fill="both", expand=True)
+        canvas = tk.Canvas(host, highlightthickness=0, borderwidth=0, background=P.window)
+        sb = ttk.Scrollbar(host, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        outer = ttk.Frame(canvas)
+        canvas.create_window(0, 0, window=outer, anchor="nw")
+        self._body = (canvas, sb, outer)
         lang = skin.Card(outer, text=t("pickers.lang_title"), padding=12)
         lang.pack(fill="x")
         ttk.Label(lang, text=t("pickers.lang_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
@@ -2478,8 +2487,8 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(links, text=t("gui.open_log"), command=lambda: self._open(log_file())).pack(side="left")
         self.improve_audio = tk.BooleanVar(value=settings.improve_audio)
         audio.settings_card(outer, self.improve_audio).pack(fill="x", pady=(14, 0))
-        foot = ttk.Frame(outer)
-        foot.pack(fill="x", pady=(14, 0))
+        foot = ttk.Frame(self, padding=14)
+        foot.pack(side="bottom", fill="x", before=host)
         ttk.Label(foot, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").pack(side="left")
         if on_report:   # Send fejlrapport next to the version, as in the T8 mockup
             skin.IconButton(foot, "mail", text=t("report.button"),
@@ -2493,10 +2502,40 @@ class SettingsDialog(tk.Toplevel):
         save_btn.pack(side="left")
         self.bind("<Escape>", lambda e: self.destroy())
         self.bind("<Return>", lambda e: self._save())
+        self._foot, self._parent_win = foot, parent.winfo_toplevel()
+        outer.bind("<Configure>", lambda e: self._fit_body())
+        self.bind("<MouseWheel>", self._wheel)
+        self._fit_body()
         place_over(self, parent.winfo_toplevel())
         save_btn.focus_set()
         self.wait_visibility()
         self.grab_set()
+
+    def _fit_body(self):
+        """The cards' scroll box as tall as the cards, but no taller than the app's monitor leaves room for (with
+        the title bar and the footer); the scroll bar only when they do not fit. Also after a card folds open."""
+        canvas, sb, outer = self._body
+        try:
+            self.update_idletasks()
+            area = work_area(frame_hwnd(self._parent_win))
+        except tk.TclError:
+            return
+        k = self.winfo_fpixels("1i") / 96
+        top, bottom = (area[1], area[3]) if area else (0, self.winfo_screenheight())
+        room = bottom - top - int(40 * k) - self._foot.winfo_reqheight() - int(14 * k) - int(16 * k)
+        w, h = outer.winfo_reqwidth(), outer.winfo_reqheight()
+        fits = h <= room
+        canvas.configure(width=w, height=h if fits else max(int(200 * k), room), scrollregion=(0, 0, w, h))
+        if fits:
+            sb.pack_forget()
+            canvas.yview_moveto(0)
+        elif not sb.winfo_manager():
+            sb.pack(side="right", fill="y", padx=(int(6 * k), 0))
+
+    def _wheel(self, e):
+        canvas, sb, _ = self._body
+        if sb.winfo_manager():
+            canvas.yview_scroll(int(-e.delta / 120), "units")
 
     def _open(self, p: Path):
         if p.suffix:
