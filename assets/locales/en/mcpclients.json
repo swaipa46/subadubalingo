@@ -1,0 +1,21 @@
+{
+ "mcpclients.title": "Use with other AI tools",
+ "mcpclients.intro": "SubaDubaLingo works with every AI tool that can start a local MCP server, and best with Claude. Pick your tool and copy the setup.",
+ "mcpclients.copy": "Copy",
+ "mcpclients.copied": "Copied ✓",
+ "mcpclients.tested": "Tested with SubaDubaLingo",
+ "mcpclients.untested": "Should work (not tested yet)",
+ "mcpclients.not_installed": "Install SubaDubaLingo first: the setup points at the installed app.",
+ "mcpclients.claude_desktop.hint": "The desktop app",
+ "mcpclients.claude_code.hint": "In the terminal",
+ "mcpclients.gemini.hint": "Google, in the terminal",
+ "mcpclients.codex.hint": "OpenAI, in the terminal",
+ "mcpclients.vscode.hint": "GitHub Copilot",
+ "mcpclients.cursor.hint": "The code editor",
+ "mcpclients.claude_desktop.where": "Press the button. Then quit Claude completely (right-click the Claude icon by the clock -> Quit) and open it again.",
+ "mcpclients.claude_code.where": "Run the command in a terminal (PowerShell or Command Prompt), then start Claude Code again.",
+ "mcpclients.gemini.where": "Paste it into %USERPROFILE%\\.gemini\\settings.json. If the file already has \"mcpServers\", add only the \"subadubalingo\" part. Then start Gemini CLI again.",
+ "mcpclients.codex.where": "Paste it at the end of %USERPROFILE%\\.codex\\config.toml (create the file if there is none), then start Codex again.",
+ "mcpclients.vscode.where": "In VS Code: Ctrl+Shift+P -> \"MCP: Open User Configuration\", and paste it. If the file already has \"servers\", add only the \"subadubalingo\" part. Use Copilot Chat in agent mode.",
+ "mcpclients.cursor.where": "Paste it into %USERPROFILE%\\.cursor\\mcp.json. If the file already has \"mcpServers\", add only the \"subadubalingo\" part. Then restart Cursor."
+}

@@ -22,7 +22,7 @@ from tkinter import filedialog, messagebox, ttk
 from . import audio, autoupdate, burnin, chapters, claude, cutting, editor, engine, jobs, report, textstate
 from .burnin_ui import BurninCard
 from .chapters_view import ChaptersCard
-from . import i18n, queue_view, skin, theme, voice_preview
+from . import i18n, mcpclients, queue_view, skin, theme, voice_preview
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
 from .theme import IMG, P
@@ -2508,7 +2508,8 @@ class SkillGuide(tk.Toplevel):
 
 class SettingsDialog(tk.Toplevel):
     """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles, the look of burned-in subtitles
-    (burnin_ui.py), text and voices, and Lyd, as cards of which one is open at a time."""
+    (burnin_ui.py), text and voices, Lyd, and Brug med andre AI-værktøjer (mcpclients.py), as cards of which one is
+    open at a time."""
 
     last_open = "text"   # the card opened last, for the rest of the session (design review round 4, decision 1)
 
@@ -2569,14 +2570,20 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(links, text=t("gui.open_model_dir"), command=lambda: self._open(model_dirs()[0])).pack(side="left")
         ttk.Button(links, text=t("gui.settings.edit_corrections"), command=lambda: self._open(engine.corrections_file())).pack(side="left", padx=6)
         ttk.Button(links, text=t("gui.settings.save_skill"), command=self._save_skill).pack(side="left", padx=(0, 6))
-        ttk.Button(links, text=t("gui.settings.connect"), command=self._connect_claude).pack(side="left", padx=(0, 6))
         ttk.Button(links, text=t("gui.open_log"), command=lambda: self._open(log_file())).pack(side="left")
         self.improve_audio = tk.BooleanVar(value=settings.improve_audio)
         sound = audio.settings_card(outer, self.improve_audio)
         sound.pack(fill="x", pady=(14, 0))
+        # Brug med andre AI-værktøjer: the setup per AI tool, and Forbind med Claude (moved here from the text card)
+        from .installer import launcher_path
+        launcher = launcher_path()
+        self.aitools = mcpclients.ClientsCard(outer, launcher, self._connect_claude,
+                                              installed=launcher.is_file() or not getattr(sys, "frozen", False))
+        self.aitools.pack(fill="x", pady=(14, 0))
         # One card open at a time (design review round 4, decision 1): Tekst og stemmer at first, then the one
         # opened last, for as long as the program runs
-        self._cards = {"language": lang, "look": look, "burnin": self.burnin, "text": f, "sound": sound}
+        self._cards = {"language": lang, "look": look, "burnin": self.burnin, "text": f, "sound": sound,
+                       "aitools": self.aitools}
         skin.accordion(self._cards, SettingsDialog.last_open, self._card_opened)
         foot = ttk.Frame(self, padding=14)
         foot.pack(side="bottom", fill="x", before=host)
