@@ -33,6 +33,7 @@ import sys
 import time
 import tkinter as tk
 from pathlib import Path
+from typing import Callable
 from tkinter import messagebox, ttk
 
 from .common import APP_NAME, APP_VERSION, NO_WINDOW, app_dir, data_dir, log, set_app_icon, set_app_id
@@ -51,6 +52,10 @@ VERSION_DIR = re.compile(r"^\d+(\.\d+)+$")
 FLAT_ITEMS = (EXE_NAME, "_internal", "version.txt")   # the layout up to v1.9.9
 MODEL_FOLDERS = ("models", "modeller")   # next to the exe in the zip (modeller before v2.0)
 # The user guide next to the exe in the zip, one per UI language (in docs/, copied by build.ps1)
+# progress(step, fraction) during install(): the steps in order (the install window's status lines, T12). fraction is
+# how far the step is (0..1), or None for "started". Optional everywhere; the --install CLI path passes none.
+STEPS = ("start", "copy", "check", "models", "shortcuts", "claude", "cleanup", "final")
+Progress = Callable[[str, "float | None"], None]
 GUIDE_NAMES = {"da": f"Sådan bruger du {APP_NAME}.txt", "sv": f"Så använder du {APP_NAME}.txt",
                "no": f"Slik bruker du {APP_NAME}.txt", "en": f"How to use {APP_NAME}.txt"}
 
@@ -308,7 +313,29 @@ def cleanup() -> list[str]:
     return removed
 
 
-def place(src: Path, version: str) -> Path:
+def _report(progress: Progress | None, step: str, fraction: float | None = None):
+    """Tell the install window how far it is; a failing callback never stops the install."""
+    if progress:
+        try:
+            progress(step, fraction)
+        except Exception:
+            log.exception("install progress callback")
+
+
+def _tree_size(src: Path, skip: tuple[str, ...] = ()) -> int:
+    total = 0
+    for d, dirs, files in os.walk(src):
+        if Path(d) == src:
+            dirs[:] = [x for x in dirs if x not in skip]
+        for f in files:
+            try:
+                total += os.path.getsize(os.path.join(d, f))
+            except OSError:
+                pass
+    return total
+
+
+def place(src: Path, version: str, progress: Progress | None = None) -> Path:
     """Copy the program folder src into its own version folder (via <version>.new, checked, then renamed), without
     making it the current one. Never touches a folder something runs from: raises PermissionError when that very
     version folder is in use. Used by install() and by the self-update (update.stage) for an unpacked release."""
@@ -324,7 +351,23 @@ def place(src: Path, version: str) -> Path:
     # Skip only the top-level models folder (models next to the exe move to the data folder, so they are not
     # copied with every update); everything else is needed (_internal\base_library.zip is Python's standard
     # library - leaving out *.zip everywhere broke the installed exe in v1.7.1).
-    shutil.copytree(src, staging, ignore=lambda d, names: list(MODEL_FOLDERS) if Path(d) == src else [])
+    copy = shutil.copy2
+    if progress:
+        total, done = max(1, _tree_size(src, MODEL_FOLDERS)), 0
+        _report(progress, "copy", 0.0)
+
+        def copy(s, d, *, follow_symlinks=True):
+            nonlocal done
+            out = shutil.copy2(s, d, follow_symlinks=follow_symlinks)
+            try:
+                done += os.path.getsize(s)
+            except OSError:
+                pass
+            _report(progress, "copy", min(1.0, done / total))
+            return out
+    shutil.copytree(src, staging, ignore=lambda d, names: list(MODEL_FOLDERS) if Path(d) == src else [],
+                    copy_function=copy)
+    _report(progress, "check")
     (staging / "version.txt").write_text(version, encoding="utf-8")
     for need in ((EXE_NAME,), ("_internal", "base_library.zip")):
         if (src.joinpath(*need)).exists() and not staging.joinpath(*need).exists():
@@ -334,7 +377,8 @@ def place(src: Path, version: str) -> Path:
     return dst
 
 
-def activate(version: str, connect_claude: bool, models_from: Path | None = None) -> Path:
+def activate(version: str, connect_claude: bool, models_from: Path | None = None,
+             progress: Progress | None = None) -> Path:
     """Make an installed version folder the current one: current.txt, the MCP launcher, the shortcuts and Claude's MCP
     entry point at its exe (a server Claude still runs from the old folder then says "restart Claude"), models next to the exe in
     models_from move to the data folder, and old folders nothing runs from are removed. Returns the exe."""
@@ -342,16 +386,19 @@ def activate(version: str, connect_claude: bool, models_from: Path | None = None
     exe = base / version / EXE_NAME
     if not exe.is_file():
         raise FileNotFoundError(exe)
+    _report(progress, "models")
     tmp = base / (CURRENT + ".tmp")
     tmp.write_text(version, encoding="utf-8")
     tmp.replace(base / CURRENT)
-    for models in (models_from / m for m in MODEL_FOLDERS) if models_from else ():
-        if models.is_dir():
-            target = data_dir() / "models"
-            target.mkdir(parents=True, exist_ok=True)
-            for f in models.iterdir():
-                if f.is_file() and not (target / f.name).exists():
-                    shutil.copy2(f, target / f.name)
+    moves = [f for m in MODEL_FOLDERS if models_from and (models_from / m).is_dir()
+             for f in (models_from / m).iterdir() if f.is_file()]
+    for i, f in enumerate(moves):
+        target = data_dir() / "models"
+        target.mkdir(parents=True, exist_ok=True)
+        if not (target / f.name).exists():
+            shutil.copy2(f, target / f.name)
+        _report(progress, "models", (i + 1) / len(moves))
+    _report(progress, "shortcuts")
     try:
         update_launcher(version)
     except Exception:
@@ -360,6 +407,8 @@ def activate(version: str, connect_claude: bool, models_from: Path | None = None
         _update_shortcuts(exe)
     except Exception:
         log.exception("shortcuts failed")
+    if connect_claude:
+        _report(progress, "claude")
     try:
         point_claude_at(exe, add_if_missing=connect_claude)
     except Exception:
@@ -373,6 +422,7 @@ def activate(version: str, connect_claude: bool, models_from: Path | None = None
             except OSError:
                 pass
     log.info("current version is now %s (%s)", version, exe)
+    _report(progress, "cleanup")
     try:
         cleanup()
     except Exception:
@@ -380,13 +430,16 @@ def activate(version: str, connect_claude: bool, models_from: Path | None = None
     return exe
 
 
-def install(connect_claude: bool) -> Path:
+def install(connect_claude: bool, progress: Progress | None = None) -> Path:
     """Copy this program folder to its own version folder and make it the current one. Never touches a folder
     something runs from, so it works while Claude runs the MCP server. Raises PermissionError only when this very
-    version is installed and running (reinstalling it would mean replacing it)."""
+    version is installed and running (reinstalling it would mean replacing it). progress(step, fraction): see
+    STEPS (the install window runs this on a worker thread and shows the steps)."""
     src = app_dir()
-    place(src, APP_VERSION)
-    exe = activate(APP_VERSION, connect_claude, models_from=src)
+    _report(progress, "start")
+    place(src, APP_VERSION, progress)
+    exe = activate(APP_VERSION, connect_claude, models_from=src, progress=progress)
+    _report(progress, "final")
     log.info("installed %s to %s", APP_VERSION, exe.parent)
     return exe
 
