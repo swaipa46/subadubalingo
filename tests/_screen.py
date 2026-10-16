@@ -35,11 +35,18 @@ def other_work_area() -> tuple[int, int, int, int] | None:
     return free[0] if free else None
 
 
+def offscreen_area() -> tuple[int, int, int, int]:
+    """A work area right of every monitor: windows there are invisible but PrintWindow still draws them."""
+    u32 = ctypes.windll.user32
+    right = u32.GetSystemMetrics(76) + u32.GetSystemMetrics(78)   # SM_XVIRTUALSCREEN + SM_CXVIRTUALSCREEN
+    return right + 100, 0, right + 100 + 2000, 1200
+
+
 def place(root):
-    """Move a Tk window to the other monitor, keeping its size (shrunk to fit), before it is shown."""
-    area = other_work_area()
-    if not area:
-        return
+    """Move a Tk window to the monitor the user is not working on, keeping its size (shrunk to fit), before it is shown."""
+    # On the monitor without the mouse pointer (Tk does not paint windows outside every monitor); the dev venv's
+    # sitecustomize.py also makes test windows fully transparent and click-through, so they are never in view
+    area = other_work_area() or monitors()[0][1]
     root.update_idletasks()
     left, top, right, bottom = area
     wdt = min(root.winfo_width() if root.winfo_width() > 1 else root.winfo_reqwidth(), right - left - 40)

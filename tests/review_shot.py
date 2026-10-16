@@ -68,12 +68,9 @@ def pump(sec):
 
 
 def take(name):
-    root.lift()
-    root.attributes("-topmost", True)
     pump(0.8)
     hwnd = ctypes.windll.user32.GetParent(root.winfo_id())
     _screen.grab_window(hwnd).save(out / name)   # PrintWindow: also works while the screen is locked
-    root.attributes("-topmost", False)
     print("saved", out / name)
 
 
