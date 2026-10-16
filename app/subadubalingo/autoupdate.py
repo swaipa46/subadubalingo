@@ -23,7 +23,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
-from . import skin, theme, update
+from . import editor, skin, theme, update
 from .common import APP_VERSION, log
 from .i18n import t
 from .pickers import Tooltip
@@ -82,7 +82,7 @@ def start(app):
         return
 
     def wait_idle():
-        while app._running or app._starting:   # no download while a video is being made
+        while _busy(app):   # no download while a video (or a queue of them) is being made
             time.sleep(15)
 
     def work():
@@ -109,7 +109,9 @@ def _poll(app):
 
 
 def _busy(app) -> bool:
-    return bool(app._running or app._starting)
+    """A video is being made, or a queue of them is running (also between its rounds, see queue_view)."""
+    vq = getattr(app, "vq", None)
+    return bool(app._running or app._starting or (vq is not None and vq.running))
 
 
 def build(app):
@@ -229,6 +231,8 @@ def restart_now(app):
     """Switch to the staged version and start it; this window closes. Never while a video is being made."""
     st = _state(app)
     if not st.ready or _busy(app):
+        return
+    if not editor.may_close_app(app):   # unsaved subtitle edits, and the user chose to stay
         return
     app.root.configure(cursor="watch")
     app.root.update_idletasks()
