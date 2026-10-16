@@ -118,6 +118,7 @@ buttons.
 | `language` | Leading icon of the language picker |
 | `file-video`, `file-subtitles` | Rows in "Alle filer fra denne kørsel" on the done view (.mp4 / .srt) |
 | `retry` | Prøv igen (has `-on-primary`) |
+| `edit`, `split`, `merge`, `trash`, `grip`, `mail`, `queue`, `chapters`, `stop`, `voice-play`, `up`, `wave` | New in T8, see "New features (T8)" |
 | `speaker-0`, `speaker-1` | Scrub preview caption: idle / sound snippet playing (T7), drawn in `hint` |
 | `theme-light`, `theme-night`, `theme-system` | The three choices in the theme picker (Lys, Nat, Følg Windows) |
 
@@ -215,6 +216,242 @@ column.
 
 Translation keys for the tag and length text: `review.scrub.start`, `review.scrub.end`, `review.scrub.new`,
 `review.scrub.length`.
+
+## New features (T8)
+
+The mockups are in `design/mockups/{a-light,b-night}-arcade/`, and the source is `design/mockups/source/features.py`.
+Everything reuses the existing frames, buttons, cards, pickers and colours unless a section names something new. New
+16 px icons (1x + @2x, plus a `-selected` variant, in `<theme>/icons/`):
+
+- `edit`
+- `split`, `merge`, `trash`
+- `grip`
+- `mail` (+ `-on-primary`)
+- `queue` (+ `-on-primary`)
+- `chapters`
+- `stop`
+- `voice-play`
+- `up` (+ `up-on-callout`)
+- `wave`
+
+### 1. Subtitle editor (`editor-main`, `editor-entry`, `editor-save`)
+
+**How you get to it:**
+
+- A secondary button "Ret undertekster" (`edit`) in the done view's result card, after Vis i mappe.
+- In "Alle filer fra denne kørsel", the hovered or focused `.srt` row shows a small "Ret" button (30 px, `edit`).
+  Double-click or Enter on an `.srt` row opens the editor instead of an external program, and the hint text under
+  the list says so.
+
+**Layout (replaces the main area, header unchanged):**
+
+- **Title row:**
+  - On the left: "RET UNDERTEKSTER", Press Start 2P 16 px, `heading`.
+  - On the right:
+    - a language picker for the languages that were made: `DA SV NO`, the same picker as the header, Press Start
+      2P 11 px;
+    - Annullér;
+    - Gem (primary).
+- **Under the title:** the file name in Semibold, then a hint line.
+- **Left, flexible width:** the line list in a `card`.
+  - **Header row, `hint` 13 px:** `#`, `Tid`, `Tekst`.
+  - **Rows:** at least 38 px, growing with wrapped text. Each row has:
+    - the number in Press Start 2P 10 px;
+    - the time "0:04,90 - 0:06,20" in VT323 20 px, 150 px wide;
+    - the text.
+  - **Selected row:** `picker_selected_bg` / `picker_selected_text`. Its text becomes an `input-focus` field, edited
+    in place.
+  - **Lines too fast to read** (over 20 characters per second): a 10 px `warning` square and "23 tegn/s" in
+    `warning` 12 px at the row's end.
+  - **Footer, `hint` 13 px:** "8 af 212 linjer · 1 linje er svær at nå at læse (over 20 tegn/s)".
+- **Right column, 628 px wide:**
+  - **Video:** 620×349 with a 2 px `border` and the small pixel corners. The selected line is shown as a subtitle in
+    the video.
+  - **Under the video:** a play button, the time in VT323 22 px, and to the right "Linje 3 · 0:04,90 - 0:06,20
+    (1,3 s)" in `hint`.
+  - **Mini timeline:** the `timeline` frame, a 24 px ruler and a 150 px track.
+    - The waveform is drawn as in the cut review.
+    - Each line is a 38 px box at the bottom of the track: `card` fill, 2 px `heading` border on Lys and `border`
+      on Nat, number plus text clipped.
+    - The selected line has a `your_turn_card` fill, a 3 px `accent` border, and 8×26 drag handles on both edges.
+      Drag them like cut edges; T7's scrub preview is not used here, because the big video already follows.
+    - The playhead is 2 px in `progress_current` with an 12×8 cap.
+  - **Tools:** "Del linjen her" (`split`, splits at the text cursor), "Slå sammen med næste" (`merge`), and an
+    icon-only delete (`trash`). All are 40 px.
+  - **Keys, `hint` 13 px:**
+    - Enter: next line;
+    - Ctrl+Enter: split at the cursor;
+    - Space outside the text: play;
+    - Ctrl+S: save.
+
+**After Gem: a dialog, 700 px wide.**
+
+- "Gemt" and the file name.
+- A card "Skal programmet huske ordene næste gang?". Each changed word pair is a check box row: the old word
+  struck through in `hint`, an arrow, then the new word in Semibold. All are checked by default except splits and
+  merges of whole words.
+- A check box "Lav videoen igen med de nye undertekster", with a hint. It is shown only if a video with burned-in
+  subtitles or a dub was made from this file.
+- Buttons "Spring over" and "Føj N ord til ordlisten" (primary).
+
+### 2. Queue (`queue-setup`, `queue-work`, `queue-done`)
+
+**Setup.** Card 1 becomes "1. Videoer i køen (N)", a list with one row per video. Each row is 54 px tall, with a
+2 px dashed `step_pending_icon` divider and `picker_hover_bg` on hover. From left to right:
+
+- `grip` (drag to reorder) and the number in Press Start 2P 10 px;
+- the name in Semibold and the duration in `hint` 12 px;
+- three 34 px combos: the spoken language (110 px), then "→", then "Tale: …" (140 px) and "Tekst: …" (150 px);
+- an icon-only remove button (`cancel`).
+
+Under the list: "Tilføj videoer …" (`plus`, multi-select), and you can also drop files onto the card. With one video
+the old single-video card is shown. The list appears from the second video.
+
+**Card 2, "For alle videoerne":**
+
+- "Klip videoerne først …";
+- "Forbedr lyden …" (see 8);
+- "Godkend Claudes klipforslag uden at gennemse dem". Its hint says that this lets the queue run overnight.
+  Otherwise each video waits for you at "Du gennemser klippene", and the queue moves on to the next video meanwhile;
+- "Når køen er færdig:", a combo with Gør ingenting / Sluk pc'en / Gå i dvale.
+
+**The Start button** reads "START KØEN". The hint next to it gives the count and an estimate, and says that you can
+add videos while the queue runs.
+
+**Work view.**
+
+- **Left, at the top:** a "Køen" card with "2/4" in Press Start 2P 12 px on the right. Each row is 40 px:
+  - a status icon (`step-done`, `step-active-*`, `step-your-turn-*` or `step-pending`);
+  - the name;
+  - the status on the right in Semibold 13 px: "Færdig" in `ok`, "Kører · 57%" in `heading`, "Din tur: gennemse
+    klip" in `your_turn_title`, "Venter" in `hint`.
+  - The running row has `picker_hover_bg`.
+- **Below that card:** "Arbejder på" + name, the progress bar, then "Pause køen" and "Annullér denne video".
+- **Right:** when a video waits for you, the Claude card turns into the your-turn card for that video, with the
+  buttons "Gennemse klippene nu" (primary) and "Senere".
+
+**Done view.**
+
+- **Banner:** `art/queue-banner.png`, "ALL CLEAR!".
+- **Result card "Køen er færdig":** one 52 px row per video. Each row has:
+  - a status icon;
+  - the output file name in Semibold, with a `hint` line under it ("-14 s klippet væk · 1:11:50", or the error);
+  - icon-only Afspil and Vis i mappe, or "Prøv igen" for a failed video.
+- **Right column:**
+  - "I alt": "3/4 videoer klaret", "-53 S klippet væk", "2:31 timer brugt".
+  - "Hvad nu?": "Prøv <video> igen" (primary, shown only on errors), "Ny kø" (`queue`), and "Åbn mappen med alle
+    videoerne".
+
+### 3. Update banner (`update-banner`; `update.png` is unchanged)
+
+The banner is a 52 px band right under the header stripe, 28 px from both sides, drawn with the
+`frames/update-banner` 9-slice (`callout_bg`). The main content moves down 64 px while it shows.
+
+**Contents, from the left:**
+
+- `up-on-callout` (20 px);
+- "NY VERSION" in Press Start 2P 12 px;
+- "2.1.0 er klar" in Semibold;
+- "· Genstart for at opdatere. Dine indstillinger bevares.";
+- on the right: "Genstart nu" (primary on Lys, secondary on Nat, because Nat's band is yellow), "Senere", and a
+  close ×.
+
+**Behaviour:**
+
+- While a video is running, "Genstart nu" is disabled with the tooltip "Når videoen er færdig".
+- Senere hides the banner until the next start.
+
+### 4. Error report (`report-entry`, `report-dialog`)
+
+**Buttons:**
+
+- In the error done view, a secondary "Send fejlrapport …" (`mail`) under the error text, with a hint 13 px next to
+  it. The existing "Åbn logfil" button stays.
+- In Indstillinger, the same button in the footer after the version number.
+
+**Dialog, 720×720:**
+
+- The title "Send fejlrapport til Kasper".
+- A card "Det kommer med", listing:
+  - three fixed items with disabled check boxes: the error and the log from this run, the versions, and the settings
+    (without folders and names);
+  - an optional check box "Underteksterne fra denne kørsel (.srt)";
+  - the line "Videoen og lyden kommer aldrig med."
+- "Hvad skete der? (kan udelades)", a multi-line `input` field 110 px tall.
+- A `hint` explaining the zip on the desktop and the Outlook draft.
+- Buttons Annullér and "Lav mailen" (primary, `mail-on-primary`).
+
+### 5. Burned-in subtitles (`burnin-settings`)
+
+This is a new Indstillinger card, "Undertekster i videoen". Indstillinger is now 1000 px wide, and its cards can
+collapse (▸).
+
+- **Left, the controls:**
+  - "Størrelse": a picker `S M L` in Press Start 2P 11 px.
+  - "Placering": a picker "Nederst / Øverst" in Segoe UI.
+  - A check box "Mørk boks bag teksten", with a hint.
+  - A check box "Logo i et hjørne". Under it: a 34 px button with the file name (`folder`), and a corner picker. The
+    corner picker is a 2×2 grid of 18×12 cells in an `input` frame; the chosen corner is filled with `heading` on Lys
+    or `accent` on Nat, and the others are 2 px outlines.
+- **Right:** a live sample frame, 420×236, with the 2 px border. It updates at once, with a `hint` caption under it.
+- **Sizes:** relative to the video height, S = 4 %, M = 5 % and L = 6.5 %. The box is black at 72 % opacity. The
+  logo is 7 % of the width, 3 % in from the edges.
+
+### 6. Voice preview (`voice-preview-setup`, `voice-preview-settings`)
+
+**The play button:** a square 34×34 `button-secondary` with `voice-play`, sitting right of the "Tale" combo. While
+it plays, it shows `stop`.
+
+**The sample bubble while playing:**
+
+- It sits under the combo, framed with `button-secondary` (no hover).
+- Inside, left to right: 12 level bars (4 px wide, played part in `heading`, the rest in `step_pending_icon`), the
+  sample sentence in italics between » «, and the time "0:02 / 0:04" in VT323 18 px `hint` on the right.
+- It closes when the sample ends.
+
+**Tooltip:** "Hør stemmen · svensk, Sofie".
+
+**In Indstillinger, "Stemmer i dubben":**
+
+- The radio buttons for the voice mode stay as they are, with no play buttons, because a mode is not a voice.
+- Under a dashed divider, one row per dub language: the language, a voice combo (220 px) and the play button.
+
+### 7. Chapters and description (`chapters-done`)
+
+- **Placement:** on the done view, a card "Kapitler og beskrivelse" replaces the compact step list in the right
+  column. The step list appears only after an error.
+- **Card header:** "FRA CLAUDE" in Press Start 2P 10 px `hint` on the right.
+- **Description:** two or three sentences in `text`.
+- **Chapters:** 28 px rows, with the time in VT323 20 px `heading` (70 px wide) and then the title.
+- **Buttons:** "Kopiér kapitler" and "Kopiér beskrivelse" (`copy`, 40 px). After copying, a button reads
+  "Kopieret ✓" for 2 s.
+- **Under the buttons:** a `hint` naming the file.
+- **Files list:** it gains "<video> - kapitler.txt" with the `chapters` icon and the type "kapitler".
+
+### 8. Small ones
+
+**Forbedr lyden:**
+
+- A check box in setup card 2, after the language rows: "Forbedr lyden: ens lydstyrke og mindre støj", with the
+  hint "Gør tale lettere at høre og fjerner sus og brum. Påvirker kun den nye video."
+- Its default comes from Indstillinger → "Lyd" → "Forbedr lyden som standard".
+- In the queue, it is in "For alle videoerne".
+
+**Fyldord (`filler-review`)** is a new cut kind, `filler`:
+
+| Token | Lys | Nat |
+|---|---|---|
+| `cut_filler_border` | #4d7c0f | #a3e635 |
+| `cut_filler_fill` | #ecf5dc | #26350f |
+
+- **Contrast of the border:** on the timeline 4.99 (Lys) and 12.81 (Nat); on its own fill 4.44 (Lys) and 8.71 (Nat).
+- **Legend label:** "Fyldord" (sv "Utfyllnadsord", no "Fyllord", en "Filler words"), last in the legend.
+- **List labels:**
+  - `Fyldord: "øh"`;
+  - repeated words read `Gentagelse: "vi vi skal"`.
+- **Bulk action:** the title row gets a secondary "Behold alle fyldord (N)", which keeps them all in the video.
+- **Detail column:** shows the quote with the filler in context, and "Hør det" instead of "Se overgangen".
+- **On the timeline:** fillers are often narrow. When a cut is narrower than its label, show only the number.
 
 ## Larger art (`<theme>/art/`, `common/`)
 
