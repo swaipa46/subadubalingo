@@ -54,6 +54,13 @@ def pump(root, sec):
 
 
 def shot(win, name):
+    # Out of view the window only paints what changed; a 1 px resize makes it paint everything before the grab
+    if win is root:   # the dialogs size themselves; a fixed geometry would cut off what they add later
+        win.update_idletasks()
+        w, h = win.winfo_width(), win.winfo_height()
+        win.geometry(f"{w + 1}x{h}")
+        pump(win, 0.3)
+        win.geometry(f"{w}x{h}")
     pump(win, 0.6)
     hwnd = ctypes.windll.user32.GetParent(win.winfo_id())
     _screen.grab_window(hwnd).save(out / f"report-{name}{suffix}.png")
@@ -61,7 +68,7 @@ def shot(win, name):
 
 
 def to_other_monitor(dlg):
-    area = _screen.other_work_area()
+    area = _screen.other_work_area() or _screen.offscreen_area()
     if area:
         dlg.geometry(f"+{area[0] + 80}+{area[1] + 80}")
 

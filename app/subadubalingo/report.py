@@ -247,30 +247,27 @@ class ReportDialog(tk.Toplevel):
         self.resizable(False, False)
         self.app_state, self.job_id = app_state, job_id
         k = scale
-        wrap = int(500 * k)
-        outer = ttk.Frame(self, padding=int(14 * k))
+        wrap = int(520 * k)
+        outer = ttk.Frame(self, padding=(int(20 * k), int(16 * k)))
         outer.pack(fill="both")
-        ttk.Label(outer, text=t("report.intro"), wraplength=wrap, justify="left").pack(anchor="w", pady=(0, int(12 * k)))
+        # Laid out as the T8 mockup (report-dialog): heading, what is included, the comment, how the mail works
+        ttk.Label(outer, text=t("report.heading"), style="Section.TLabel").pack(anchor="w", pady=(0, int(12 * k)))
 
         inc = skin.Card(outer, text=t("report.included"), padding=12)
         inc.pack(fill="x")
-        for key in ("log", "settings", "versions", "job"):
+        for key in ("log", "versions", "settings", "job"):
             row = ttk.Frame(inc)
-            row.pack(anchor="w", fill="x", pady=int(2 * k))
-            tk.Label(row, image=IMG.get("icons/check-on"), borderwidth=0).pack(side="left", padx=(0, int(8 * k)))
-            ttk.Label(row, text=t(f"report.item_{key}"), wraplength=wrap - int(30 * k), justify="left").pack(side="left")
-        row = ttk.Frame(inc)
-        row.pack(anchor="w", fill="x", pady=(int(6 * k), 0))
-        tk.Label(row, image=IMG.get("icons/cancel"), borderwidth=0).pack(side="left", padx=(0, int(8 * k)))
-        ttk.Label(row, text=t("report.never"), wraplength=wrap - int(30 * k), justify="left").pack(side="left")
-        ttk.Label(inc, text=t("report.private"), style="Hint.TLabel", wraplength=wrap,
-                  justify="left").pack(anchor="w", pady=(int(10 * k), 0))
+            row.pack(anchor="w", fill="x", pady=int(3 * k))
+            tk.Label(row, image=IMG.get("icons/check-disabled"), borderwidth=0).pack(side="left", padx=(0, int(10 * k)))
+            ttk.Label(row, text=t(f"report.item_{key}"), wraplength=wrap - int(40 * k), justify="left").pack(side="left")
+        ttk.Label(inc, text=t("report.never"), style="Hint.TLabel", wraplength=wrap - int(20 * k),
+                  justify="left").pack(anchor="w", pady=(int(8 * k), 0))
 
-        com = skin.Card(outer, text=t("report.comment"), padding=12)
-        com.pack(fill="x", pady=(int(14 * k), 0))
-        ttk.Label(com, text=t("report.comment_hint"), style="Hint.TLabel", wraplength=wrap,
-                  justify="left").pack(anchor="w", pady=(0, int(8 * k)))
-        box = tk.Frame(com, background=P.input_border, padx=max(1, int(2 * k)), pady=max(1, int(2 * k)))
+        head = ttk.Frame(outer)
+        head.pack(anchor="w", fill="x", pady=(int(16 * k), int(6 * k)))
+        ttk.Label(head, text=t("report.comment"), font="SunValleyBodyStrongFont").pack(side="left")
+        ttk.Label(head, text=t("report.optional"), style="Hint.TLabel").pack(side="left", padx=(int(4 * k), 0))
+        box = tk.Frame(outer, background=P.input_border, padx=max(1, int(2 * k)), pady=max(1, int(2 * k)))
         box.pack(fill="x")
         self.comment = tk.Text(box, height=5, width=10, wrap="word", relief="flat", borderwidth=0,
                                padx=int(8 * k), pady=int(6 * k), font="SunValleyBodyFont",
@@ -279,18 +276,17 @@ class ReportDialog(tk.Toplevel):
                                highlightthickness=0)
         self.comment.pack(fill="x")
         self.to = support_address()
+        ttk.Label(outer, text=t("report.intro"), style="Hint.TLabel", wraplength=wrap,
+                  justify="left").pack(anchor="w", pady=(int(12 * k), 0))
 
         self.status = ttk.Label(outer, text="", wraplength=wrap, justify="left")
-        self.status.pack(anchor="w", fill="x", pady=(int(12 * k), 0))
-        foot = ttk.Frame(outer)
-        foot.pack(fill="x", pady=(int(10 * k), 0))
-        ttk.Label(foot, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").pack(side="left")
-        b = ttk.Frame(foot)
-        b.pack(side="right")
+        self.status.pack(anchor="w", fill="x", pady=(int(8 * k), 0))
+        b = ttk.Frame(outer)
+        b.pack(anchor="e", pady=(int(12 * k), 0))
         self.cancel_btn = ttk.Button(b, text=t("gui.cancel"), command=self.destroy)
-        self.cancel_btn.pack(side="left", padx=(0, 6))
-        self.make_btn = ttk.Button(b, text=t("report.make"), style="Accent.TButton", command=self._make,
-                                   default="active")
+        self.cancel_btn.pack(side="left", padx=(0, int(12 * k)))
+        self.make_btn = skin.IconButton(b, "mail", text=t("report.make"), style="Main.Accent.TButton",
+                                        command=self._make, default="active")
         self.make_btn.pack(side="left")
         self.bind("<Escape>", lambda e: self.destroy())
         place_over(self, parent.winfo_toplevel())
@@ -322,4 +318,4 @@ class ReportDialog(tk.Toplevel):
         self.status.configure(text=t("report.done", file=dest.name), foreground=P.success)
         # One report per click: the main button now closes, so a second click does not make a second zip
         self.cancel_btn.pack_forget()
-        self.make_btn.configure(text=t("report.close"), command=self.destroy)
+        self.make_btn.configure(text=t("report.close"), image="", command=self.destroy)
