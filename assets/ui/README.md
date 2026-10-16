@@ -458,6 +458,102 @@ it plays, it shows `stop`.
 - **Detail column:** shows the quote with the filler in context, and "Hør det" instead of "Se overgangen".
 - **On the timeline:** fillers are often narrow. When a cut is narrower than its label, show only the number.
 
+## Install window: animation, progress, done and error (T12)
+
+The mockups are in `design/mockups/<direction>/`:
+
+- `install-progress.png`: the window while it installs.
+- `install-progress-states.png`: every status line with its animation.
+- `install-done.png` and `install-done-no-claude.png`: the done screen, with and without the Claude note.
+- `install-failed.png`: the error state.
+- `install-anim-sheet.png`: every animation frame.
+
+The art is drawn by `design/mockups/source/install_anim.py`, and the mockups come from
+`design/mockups/source/install_mockups.py`.
+
+### Animations (`<theme>/art/`, transparent PNG)
+
+Each frame is 160×120 (1x) and 320×240 (@2x). One art pixel is 2 screen px at 1x. Show the frames at 1x or @2x;
+never scale them by a non-integer factor.
+
+| Loop | Files | Frames | Frame time | Used for |
+|---|---|---|---|---|
+| cut | `install-anim-0..7` | 8 | 110 ms | The mascot snips a film strip with scissors. The cut frame flies off and tumbles; "SNIP!" shows on frames 0–1. |
+| rewind | `install-anim-rewind-0..3` | 4 | 140 ms | A cassette whose reels turn backwards, with blinking ◀◀ arrows. |
+| phone | `install-anim-phone-0..3` | 4 | 160 ms | The mascot holds the handset while the pink phone rings ("RING!"), then "P2?". |
+| cheer | `install-anim-cheer-0..2` | 3 | 180 ms | The done screen: the mascot crouches, jumps with "1UP" and lands, with confetti. Loop it, or play it 3 times and stop on frame 2. |
+| fail | `install-anim-fail-0..1` | 2 | 400 ms | The error screen: X eyes and stars circling the head. |
+
+- **Themes:** A and B differ only in the outline colour: `#1a0840` in Light and `#0b0320` in Night.
+- **Loops:** every loop is seamless. Restart from frame 0 whenever the status line changes animation.
+- **Reduced motion:** when Windows has animations turned off (SPI_GETCLIENTAREAANIMATION), show frame 0 of the loop
+  still. For cheer, show frame 1.
+
+### While it installs (`install-progress`)
+
+The window is the same one as `install-2` and `update`, from top to bottom:
+
+1. The logo header, without a page number.
+2. "Installerer SubaDubaLingo 2.1.0", or "Opdaterer til 2.1.0" for an update.
+3. A `card` holding the animation on the left at 1x.
+4. On the right of the card, the status headline in Press Start 2P 14 px. Use `head` in A and `accent` in B. The
+   explanation goes under it in the body font.
+5. Under the card, the segmented progress bar (`progress-trough`, `progress-segment`, `progress-segment-current`) and
+   "Trin n af 8" with a percentage.
+6. A hint: "Det tager typisk 10–30 sekunder. Vinduet kan ikke lukkes, mens programmet bliver kopieret."
+
+While it is copying:
+
+- Show no buttons, and grey out or disable the title bar ✕ and Alt+F4.
+- Keep pumping the message loop, by doing the copy on a worker thread, so the window does not freeze.
+
+Each status line stays at least 2 s. If its step is finished before then, go on to the next step without showing
+the line, but always show "INSERT COIN" first. The progress bar follows the real work, not the 2 s minimum.
+
+### Status lines (pixel headline / plain explanation)
+
+These map the work steps to text and animations. The Danish lines are the agreed source. The other languages are
+puns in the same spirit, not translations. Press Start 2P covers …, Å, Ä, Ö, Æ and Ø.
+
+| Step | Loop | DA | SV | NO | EN |
+|---|---|---|---|---|---|
+| start | cut | INSERT COIN … / Klar, parat, rul! | INSERT COIN … / Klara, färdiga, rulla! | INSERT COIN … / Klar, ferdig, rull! | INSERT COIN … / Ready, steady, roll! |
+| copy program | rewind | Spoler båndet tilbage … / Kopierer filmrullerne ind på harddisken | Spolar tillbaka bandet … / Filmrullarna kopieras in på hårddisken | Spoler tilbake båndet … / Filmrullene kopieres inn på harddisken | Be kind, rewind … / Copying the film reels onto your hard drive |
+| unpack/check | cut | Splejser filmstumperne … / Saksen går, tapen sidder | Klipper och tejpar … / Saxen klipper, tejpen håller | Skjøter filmbitene … / Saksen klipper, tapen holder | Splicing the footage … / Snip, snip, tape, done |
+| move models | rewind | Flytter stemmebåndene … / Dansk, svensk, norsk og engelsk på plads i reolen | Bär in röstkassetterna … / Danska, svenska, norska och engelska på plats i hyllan | Bærer inn stemmebåndene … / Dansk, svensk, norsk og engelsk på plass i hylla | Shelving the voice tapes … / Danish, Swedish, Norwegian and English, all in their cases |
+| shortcuts | cut | Sætter VHS-klistermærker på kassetterne … / Du finder dem i Start og på skrivebordet | Sätter etiketter på kassetterna … / Du hittar dem i Start och på skrivbordet | Setter VHS-klistremerker på kassettene … / Du finner dem i Start og på skrivebordet | Sticking on the VHS labels … / You'll find them in Start and on the desktop |
+| connect Claude | phone | Ringer til Player 2 … / Claude tager telefonen | Ringer spelare 2 … / Claude svarar i luren | Ringer spiller 2 … / Claude tar telefonen | Calling Player 2 … / Claude picks up the phone |
+| remove old version | cut | Sletter de gamle optagelser … / Videosprog ryger i returkassen | Spelar över det gamla avsnittet … / Videosprog åker tillbaka till videobutiken | Tar opp over det gamle programmet … / Videosprog havner i returkassa | Taping over the old show … / Videosprog goes in the returns box |
+| final check | rewind | Tracking-justering … / Sneen forsvinder fra billedet | Justerar trackingen … / Snöet försvinner från bilden | Justerer trackingen … / Snøen forsvinner fra bildet | Adjusting the tracking … / The snow is clearing from the picture |
+| done | cheer | LEVEL UP! 2.1.0 / Kassetten er spolet tilbage og klar til afspilning | LEVEL UP! 2.1.0 / Kassetten är tillbakaspolad och redo att spelas | LEVEL UP! 2.1.0 / Kassetten er spolt tilbake og klar til avspilling | LEVEL UP! 2.1.0 / Rewound and ready to play |
+| error | fail | GAME OVER? Nej, CONTINUE! / Prøv igen (indsæt ny mønt) | GAME OVER? Nej, CONTINUE! / Försök igen (stoppa i ett mynt) | GAME OVER? Nei, CONTINUE! / Prøv igjen (sett inn en ny mynt) | GAME OVER? No, CONTINUE! / Try again (insert coin) |
+
+### Done (`install-done`, `install-done-no-claude`)
+
+This screen replaces the grey Windows message box and stays in the same window. From top to bottom:
+
+1. The header.
+2. A `card` with the cheer animation and "LEVEL UP! 2.1.0" in Press Start 2P 26 px:
+   - A: `#d1186f` with a 3 px `#22e4ff` shadow.
+   - B: `#ffd400` with a 3 px `#ff2e88` shadow.
+3. In the card, "Version 2.1.0 er installeret" (Semibold 17) and the explanation line as a hint.
+4. **Only when Claude was connected:** a callout band (`callout_bg` / `callout_text`) with the arrow icon. It reads
+   **"Genstart Claude"**, then "Luk Claude helt (Quit i menuen) og åbn den igen, så Claude bruger den nye version."
+5. The buttons at the bottom right: "Luk" (secondary) and a yellow "▶ Start SubaDubaLingo" (primary, the default
+   button).
+
+The title bar ✕ works again on this screen.
+
+### Error (`install-failed`)
+
+1. The header.
+2. A `card` with the fail animation and "GAME OVER? / Nej, CONTINUE!" in Press Start 2P 18 px, using the same
+   colours as LEVEL UP.
+3. In the card, the hint "Installationen blev ikke færdig. Der er ikke ændret noget i din gamle version." Only say
+   this when it is true, which means a rollback.
+4. Under the card, the real error in `err` with the `err` icon.
+5. The buttons: "Luk" and the primary "Prøv igen (indsæt ny mønt)".
+
 ## Larger art (`<theme>/art/`, `common/`)
 
 - `header-logo.png` (+ `@2x`): icon and wordmark in the theme's colours on a transparent background, 52 px tall at 1x.
