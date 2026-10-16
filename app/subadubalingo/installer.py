@@ -7,12 +7,16 @@ One folder per version, so an update never touches a folder something runs from 
         2.0.0\\SubaDubaLingo.exe   Claude may still run the old MCP server from here; it says "restart Claude"
         2.0.1\\SubaDubaLingo.exe   new
         current.txt                 "2.0.1"
+        SubaDubaLingo-mcp.exe       the MCP launcher (v2.1.1): runs current.txt's version with --mcp
 
 Before, an update renamed the one folder while Claude's MCP server ran from it; PyInstaller reopens the exe for each
 first import, so the old server read the new exe at old offsets (zlib error -3). Old version folders are removed
 once nothing runs from them (at every start); the current and the previous one stay. The installations under
 the app's earlier names (Programs\\Videosprog up to v1.9, Programs\\Video undertekster before v1.7) are removed
 the same way, and their shortcuts and Claude's entry are moved over.
+
+The launcher gives MCP clients other than Claude desktop (whose config the installer rewrites) a path that never
+changes: activate() copies it from the version folder at every install and update (tools/mcp_launcher.cs).
 
 Installing into AppData is fine here: the user starts the exe from Explorer, not from inside Claude (MSIX), so the
 copy lands in the real folder. Data lives in %USERPROFILE%\\.subadubalingo and survives updates.
@@ -26,6 +30,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -35,6 +40,7 @@ from . import i18n
 from .i18n import current, t
 
 EXE_NAME = f"{APP_NAME}.exe"
+LAUNCHER_NAME = f"{APP_NAME}-mcp.exe"   # in the zip next to the exe; in the base folder once installed
 INSTALL_FOLDER = APP_NAME
 OLD_FOLDERS = ("Videosprog", "Video undertekster")   # the app's earlier names (v1.7-1.9, before v1.7)
 OLD_SHORTCUTS = tuple(f"{n}.lnk" for n in OLD_FOLDERS)
@@ -69,6 +75,35 @@ def _read(path: Path) -> str | None:
         return path.read_text(encoding="utf-8").strip() or None
     except OSError:
         return None
+
+
+def launcher_path() -> Path:
+    """The MCP launcher's path, the same for every version (what the setups for other AI tools point at)."""
+    return install_dir() / LAUNCHER_NAME
+
+
+def update_launcher(version: str) -> bool:
+    """Copy the launcher from the version folder to the base folder, when it is new or changed. A client may run the
+    old one: Windows lets a running exe be renamed, not replaced, so it is moved aside (*.old-<time>, removed by
+    cleanup once nothing runs it). Returns whether the base folder has the version's launcher."""
+    src, dst = install_dir() / version / LAUNCHER_NAME, launcher_path()
+    if not src.is_file():
+        return False   # a build without it (before 2.1.1, or from source): leave what is there
+    data = src.read_bytes()
+    try:
+        if dst.is_file() and dst.read_bytes() == data:
+            return True
+    except OSError:
+        pass
+    tmp = dst.with_name(LAUNCHER_NAME + ".tmp")
+    tmp.write_bytes(data)
+    try:
+        tmp.replace(dst)
+    except PermissionError:
+        dst.rename(dst.with_name(f"{LAUNCHER_NAME}.old-{int(time.time())}"))
+        tmp.replace(dst)
+    log.info("MCP launcher updated from %s", version)
+    return True
 
 
 def installed_version() -> str | None:
@@ -258,6 +293,12 @@ def cleanup() -> list[str]:
             p = base / name
             shutil.rmtree(p, ignore_errors=True) if p.is_dir() else p.unlink(missing_ok=True)
         removed.append("flat")
+    for f in base.glob(LAUNCHER_NAME + ".old-*"):   # launchers moved aside while a client ran them
+        try:
+            f.unlink()
+            removed.append(f.name)
+        except OSError:
+            pass
     for old in [base.with_name(base.name + ".old")] + old_install_dirs():
         if old.exists() and not running_from(old, images):
             shutil.rmtree(old, ignore_errors=True)
@@ -294,8 +335,8 @@ def place(src: Path, version: str) -> Path:
 
 
 def activate(version: str, connect_claude: bool, models_from: Path | None = None) -> Path:
-    """Make an installed version folder the current one: current.txt, the shortcuts and Claude's MCP entry point at
-    its exe (a server Claude still runs from the old folder then says "restart Claude"), models next to the exe in
+    """Make an installed version folder the current one: current.txt, the MCP launcher, the shortcuts and Claude's MCP
+    entry point at its exe (a server Claude still runs from the old folder then says "restart Claude"), models next to the exe in
     models_from move to the data folder, and old folders nothing runs from are removed. Returns the exe."""
     base = install_dir()
     exe = base / version / EXE_NAME
@@ -311,6 +352,10 @@ def activate(version: str, connect_claude: bool, models_from: Path | None = None
             for f in models.iterdir():
                 if f.is_file() and not (target / f.name).exists():
                     shutil.copy2(f, target / f.name)
+    try:
+        update_launcher(version)
+    except Exception:
+        log.exception("could not update the MCP launcher")
     try:
         _update_shortcuts(exe)
     except Exception:

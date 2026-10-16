@@ -22,6 +22,11 @@ New-Item -ItemType Directory -Force "$dir\models" | Out-Null
 foreach ($g in 'Sådan bruger du', 'Så använder du', 'Slik bruker du', 'How to use') {
     Copy-Item "docs\$g SubaDubaLingo.txt" $dir
 }
+# The MCP launcher (tools/mcp_launcher.cs): the stable path other AI tools point at; installer.activate copies it to
+# the install folder. Built with the C# compiler of .NET Framework 4, which every Windows 10/11 has.
+$csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+& $csc /nologo /target:winexe /optimize+ "/win32icon:$brand\SubaDubaLingo.ico" "/out:$dir\$name-mcp.exe" tools\mcp_launcher.cs | Out-Null
+if ($LASTEXITCODE) { throw 'csc failed (MCP launcher)' }
 & .venv\Scripts\python.exe tools\make_skill.py "$dir\subadubalingo-skill.zip"
 if ($LASTEXITCODE) { throw 'make_skill failed' }
 $zip = "$Out\$name $version.zip"
