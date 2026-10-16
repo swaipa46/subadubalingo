@@ -1274,8 +1274,9 @@ class QueueController:
         n, done = len(items), sum(1 for i in items if i.state == "done")
         failed = [i for i in items if i.state != "done"]
         app._last_result = ("queue", None)
-        banner = "art/queue-banner" if IMG.path("art/queue-banner").exists() else "art/done-banner"
-        app.d_banner.configure(image=IMG.get(banner if done else "art/continue-banner"))
+        # ALL CLEAR! after a queue (STAGE CLEAR! stays for one video; design review round 4, item 1)
+        banner = "queue-banner" if IMG.path("art/queue-banner").exists() else "done-banner"
+        app.set_banner(banner if done else "continue-banner")
         self.hide_summary()
         for w in (app.d_icon, app.d_where, app.d_stats, app.d_msg, app.d_error, app.d_extra, app.d_acts,
                   app.d_again, app.d_same, app.d_steps, app.d_files, app.d_file, app.d_next_hint):

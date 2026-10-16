@@ -447,6 +447,38 @@ class IconButton(ttk.Button):
     config = configure
 
 
+BANNER_EDGE, BANNER_TILE = 20, 2   # 1x px: the banner art's starfield is plain scan lines from x 20 on, 2 px apart
+
+
+def wide_banner(name: str, width: int) -> tk.PhotoImage:
+    """A done-view banner (art/done-banner, continue-banner, queue-banner) as wide as width, with the art centred:
+    the plain scan-line columns next to the frame's left and right edges are repeated, so frame, shadow and
+    starfield stretch with it (design review round 4, item 10). Narrower than the art: the art itself."""
+    art = IMG.get(f"art/{name}")
+    k = 2 if IMG.two else 1
+    aw, ah = art.width(), art.height()
+    tile = BANNER_TILE * k
+    n = max(0, width - aw) // tile
+    if n == 0:
+        return art
+    key = f"art/{name}@w{aw + n * tile}"
+    if key not in IMG._cache:
+        for old in [x for x in IMG._cache if x.startswith(f"art/{name}@w")]:   # one width per banner is kept
+            del IMG._cache[old]
+        left, right = (n // 2) * tile, (n - n // 2) * tile
+        edge = BANNER_EDGE * k
+        cut = aw - 30 * k   # the right part: x 930 on at 1x, past the last star (an even distance from the edge)
+        img = tk.PhotoImage(master=IMG.root, width=aw + left + right, height=ah)
+        put = img.tk.call
+        put(img, "copy", art, "-from", 0, 0, edge, ah, "-to", 0, 0)
+        put(img, "copy", art, "-from", edge, 0, edge + tile, ah, "-to", edge, 0, edge + left, ah)
+        put(img, "copy", art, "-from", edge, 0, cut, ah, "-to", edge + left, 0)
+        put(img, "copy", art, "-from", edge, 0, edge + tile, ah, "-to", cut + left, 0, cut + left + right, ah)
+        put(img, "copy", art, "-from", cut, 0, aw, ah, "-to", cut + left + right, 0)
+        IMG._cache[key] = img
+    return IMG._cache[key]
+
+
 def _blank(root, like: tk.PhotoImage) -> tk.PhotoImage:
     """A transparent image the size of like (a picker item without a frame), kept referenced with the theme's images."""
     img = tk.PhotoImage(master=root, width=like.width(), height=like.height())

@@ -850,8 +850,11 @@ class App:
         right.columnconfigure(0, weight=1)
         card_pad = (int(18 * k), int(14 * k), int(22 * k), int(18 * k))
 
+        # The banner as wide as the cards under it, the art centred (design review round 4, item 10)
         self.d_banner = tk.Label(left, image=IMG.get("art/done-banner"), background=P.window, borderwidth=0)
         self.d_banner.grid(row=0, column=0, sticky="w", pady=(0, int(24 * k)))
+        self._banner_name = "done-banner"
+        left.bind("<Configure>", lambda e: self.set_banner(), add="+")
 
         # The result card: the title (with the step-error icon after an error), the file, where it is saved, the
         # run's numbers, a message (learned words, what failed, the error) and Afspil / Vis i mappe / Åbn logfil
@@ -1838,6 +1841,18 @@ class App:
             pass
         self.root.after(150, self._poll)
 
+    def set_banner(self, name: str | None = None):
+        """The done view's banner (done-banner, continue-banner or queue-banner), as wide as its column."""
+        if name:
+            self._banner_name = name
+        try:
+            width = self.d_banner.master.winfo_width()
+            img = skin.wide_banner(self._banner_name, width if width > 1 else 0)
+            if str(self.d_banner.cget("image")) != str(img):
+                self.d_banner.configure(image=img)
+        except tk.TclError:
+            pass
+
     def _show_result(self, kind: str, info, replay: bool = False):
         """The done view for a run's end: kind "done" (info: the result file), "error" (info: the error text),
         "skipped" (info: the message) or "cancelled". replay: drawn again after a theme or language switch, without
@@ -1849,7 +1864,7 @@ class App:
         self._last_result = (kind, info)
         k = self.scale
         done = kind == "done"
-        self.d_banner.configure(image=IMG.get("art/done-banner" if done else "art/continue-banner"))
+        self.set_banner("done-banner" if done else "continue-banner")
         steps = self._result_steps(kind, replay)
         failed = next(((i, name) for i, (name, state) in enumerate(steps) if state == "error"), None)
         for w in (self.d_icon, self.d_where, self.d_stats, self.d_msg, self.d_error, self.d_extra, self.d_acts,
