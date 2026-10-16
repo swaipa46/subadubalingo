@@ -71,5 +71,24 @@ for name, values in (("settings", {"last_video": str(video)}),
         dlg.geometry(f"+{area[0] + 40}+{area[1] + 20}")
     shot(dlg, name)
     dlg.destroy()
+# While the sample is made: the empty framed box with "Laver eksempel…" in it (design review round 4, item 7)
+import threading  # noqa: E402
+
+from subadubalingo import burnin_ui  # noqa: E402
+gate, real_frame = threading.Event(), burnin_ui.burnin.sample_frame
+burnin_ui.burnin.sample_frame = lambda *a, **kw: gate.wait(20) and real_frame(*a, **kw)
+app.settings.last_video = str(video)
+dlg = gui.SettingsDialog(root, app.settings, on_theme=app.set_theme, on_language=app.set_language)
+area = _screen.other_work_area()
+if area:
+    dlg.geometry(f"+{area[0] + 40}+{area[1] + 20}")
+pic = dlg.burnin.picture
+assert any(pic.type(i) == "text" and pic.itemcget(i, "text") == i18n.t("burnin.sample_busy")
+           for i in pic.find_all()), "no busy text in the sample box"
+shot(dlg, "settings-loading")
+gate.set()
+burnin_ui.burnin.sample_frame = real_frame
+pump(dlg, 1.0)
+dlg.destroy()
 root.destroy()
 shutil.rmtree(TMP, ignore_errors=True)

@@ -154,17 +154,17 @@ class BurninCard(skin.Card):
         self.corners = CornerPicker(logo_row, self.corner)
         self.corners.pack(side="left", padx=(16 * k, 0), anchor="center")
 
-        # The sample: a fixed 16:9 box with a 2 px border, so the dialog does not jump while the picture is made
+        # The sample: a fixed 16:9 box with the 2 px border and pixel corners of frames/input, so the dialog does
+        # not jump while the picture is made; empty (window fill, "Laver eksempel…" centred in hint) until it is
+        # (design review round 4, items 6 and 7)
+        self.k = k
         self.sample_w, self.sample_h = 420 * k, 236 * k
         right = ttk.Frame(self)
         right.grid(row=1, column=1, sticky="ne")
-        self.frame = tk.Frame(right, background=P.card_border, width=self.sample_w + 4 * k,
-                              height=self.sample_h + 4 * k)
-        self.frame.pack_propagate(False)
-        self.frame.pack(anchor="w")
-        self.picture = tk.Label(self.frame, background=P.timeline_bg, borderwidth=0, highlightthickness=0,
-                                foreground=P.hint, compound="center")
-        self.picture.pack(fill="both", expand=True, padx=2 * k, pady=2 * k)
+        self.picture = tk.Canvas(right, width=self.sample_w + 4 * k, height=self.sample_h + 4 * k,
+                                 background=P.card, highlightthickness=0, borderwidth=0)
+        self.picture.keep_colour = True   # skin_cards: it draws its own colours
+        self.picture.pack(anchor="w")
         self.caption = ttk.Label(right, text=t("burnin.caption"), style="Hint.TLabel")
         self.caption.pack(anchor="w", pady=(6 * k, 0))
         self.columnconfigure(1, weight=1)
@@ -226,7 +226,7 @@ class BurninCard(skin.Card):
             return
         self._busy, self._again = True, False
         if self.image is None:
-            self.picture.configure(text=t("burnin.sample_busy"))
+            self._draw(text=t("burnin.sample_busy"))
         look, text = self.look(), t("burnin.sample")
         threading.Thread(target=self._work, args=(look, text), daemon=True).start()
         self.after(60, self._poll)
@@ -259,14 +259,27 @@ class BurninCard(skin.Card):
         if ok and out:
             try:
                 self.image = tk.PhotoImage(master=self, file=str(out))
-                self.picture.configure(image=self.image, text="")
+                self._draw()
             except tk.TclError:
                 ok = False
         if not ok:
-            self.picture.configure(image="", text=t("burnin.sample_failed"))
             self.image = None
+            self._draw(text=t("burnin.sample_failed"))
         if self._again:
             self._render()
+
+    def _draw(self, text: str = ""):
+        """The sample picture, or an empty box with text in it, inside the pixel frame."""
+        c, k = self.picture, self.k
+        c.delete("all")
+        b = 2 * k
+        x1, y1 = self.sample_w + 2 * b, self.sample_h + 2 * b
+        c.create_rectangle(b, b, x1 - b, y1 - b, fill=P.window, outline="")
+        if self.image is not None and not text:
+            c.create_image(b, b, image=self.image, anchor="nw")
+        else:
+            c.create_text(x1 // 2, y1 // 2, text=text, fill=P.hint, font="SunValleyBodyFont")
+        skin.pixel_frame(c, 0, 0, x1, y1, P.input_border, k)
 
     def close(self):
         self.runner.cancel()

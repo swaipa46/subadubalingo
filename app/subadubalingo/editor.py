@@ -1163,10 +1163,8 @@ class SubtitleEditor(ttk.Frame):
             c.create_image(w // 2, h // 2, image=self._img)
         elif self.s.video:
             c.create_text(w // 2, h // 2, text="...", fill="#9c8cc9", font=(PIXEL_FONT, -10 * kd))
-        b = 2 * kd
-        c.create_rectangle(b / 2, b / 2, w - b / 2, h - b / 2, outline=P.card_border, width=b)
-        for x, y in ((0, 0), (w - b, 0), (0, h - b), (w - b, h - b)):   # the corners cut by one pixel step
-            c.create_rectangle(x, y, x + b, y + b, fill=P.window, outline="")
+        # frames/input's border (design review round 4, item 6)
+        skin.pixel_frame(c, 0, 0, w, h, P.input_border, kd, outside=P.window)
         cues, i = self.s.doc.cues, self.s.sel
         if 0 <= i < len(cues) and cues[i].text.strip():
             font = ("Segoe UI", -int(22 * k))

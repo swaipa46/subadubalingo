@@ -447,6 +447,22 @@ class IconButton(ttk.Button):
     config = configure
 
 
+def pixel_frame(canvas: tk.Canvas, x0: int, y0: int, x1: int, y1: int, colour: str, k: int, tag: str = "frame",
+                outside: str | None = None):
+    """A 2 px border with the small pixel corners of frames/input (the outer corner pixel left out, a step inside)
+    around (x0, y0)-(x1, y1) on a Canvas, drawn on top: the editor's video and the burn-in sample (design review
+    round 4, item 6)."""
+    b = 2 * k
+    for rect in ((x0 + b, y0, x1 - b, y0 + b), (x0 + b, y1 - b, x1 - b, y1),          # top, bottom
+                 (x0, y0 + b, x0 + b, y1 - b), (x1 - b, y0 + b, x1, y1 - b),          # left, right
+                 (x0 + b, y0 + b, x0 + 2 * b, y0 + 2 * b), (x1 - 2 * b, y0 + b, x1 - b, y0 + 2 * b),
+                 (x0 + b, y1 - 2 * b, x0 + 2 * b, y1 - b), (x1 - 2 * b, y1 - 2 * b, x1 - b, y1 - b)):
+        canvas.create_rectangle(*rect, fill=colour, outline="", tags=tag)
+    if outside:   # the outer corner pixels in the colour behind, when the Canvas has a picture there
+        for x, y in ((x0, y0), (x1 - b, y0), (x0, y1 - b), (x1 - b, y1 - b)):
+            canvas.create_rectangle(x, y, x + b, y + b, fill=outside, outline="", tags=tag)
+
+
 BANNER_EDGE, BANNER_TILE = 20, 2   # 1x px: the banner art's starfield is plain scan lines from x 20 on, 2 px apart
 
 
