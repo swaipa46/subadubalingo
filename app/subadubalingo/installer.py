@@ -26,19 +26,22 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
 import sys
+import threading
 import time
 import tkinter as tk
 from pathlib import Path
 from typing import Callable
-from tkinter import messagebox, ttk
+from tkinter import ttk
 
 from .common import APP_NAME, APP_VERSION, NO_WINDOW, app_dir, data_dir, log, set_app_icon, set_app_id
 from . import i18n
 from .i18n import current, t
+from .theme import IMG, P, PIXEL_FONT
 
 EXE_NAME = f"{APP_NAME}.exe"
 LAUNCHER_NAME = f"{APP_NAME}-mcp.exe"   # in the zip next to the exe; in the base folder once installed
@@ -498,7 +501,6 @@ def _save_ui_language(code: str):
 
 def _brand(parent, step: str | None = None):
     """The logo as in the app's header, and the page number on the right."""
-    from .theme import IMG
     top = ttk.Frame(parent)
     top.pack(fill="x", pady=(0, 16))
     try:
@@ -566,9 +568,6 @@ def _main_page(root, have: str | None, result: dict, step: str | None = None):
     connect = tk.BooleanVar(value=True)
     if have != APP_VERSION:
         ttk.Checkbutton(f, text=t("installer.connect_claude"), variable=connect).pack(anchor="w")
-    from .theme import P
-    msg = ttk.Label(f, text="", foreground=P.error, wraplength=460, justify="left")
-    msg.pack(anchor="w", pady=(8, 0))
     b = ttk.Frame(f)
     b.pack(anchor="e", pady=(16, 0))
 
@@ -578,29 +577,361 @@ def _main_page(root, have: str | None, result: dict, step: str | None = None):
             result["go"] = False
             root.destroy()
             return
-        if app_window_open():
-            # The new one would only bring the old window forward (one window at a time), and it may be working
-            msg.configure(text=t("installer.app_open", app=APP_NAME))
-            return
-        try:
-            exe = install(connect.get())
-        except PermissionError:
-            msg.configure(text=t("installer.in_use", app=APP_NAME))
-            return
-        except Exception as e:
-            log.exception("install failed")
-            msg.configure(text=t("installer.failed", error=e))
-            return
-        done = t("installer.done", version=APP_VERSION)
-        if connect.get():
-            done += "\n\n" + t("installer.restart_claude")
-        messagebox.showinfo(APP_NAME, done, parent=root)
-        subprocess.Popen([str(exe)], close_fds=True)
-        result["go"] = False
-        root.destroy()
+        _run_install(root, have, result, connect.get())
 
     def skip():
         root.destroy()
 
     ttk.Button(b, text=t("installer.run_without"), command=skip).pack(side="left", padx=(0, 8))
     ttk.Button(b, text=btn, style="Accent.TButton", command=do_install).pack(side="left")
+
+
+# The install window while it installs, and its done and error screens (design T12, assets/ui/README.md "Install
+# window"). install() runs on a worker thread and reports its steps through a queue that the window polls, so the
+# window never freezes; the title bar's close button does nothing until it is done.
+LINE_LOOP = {"start": "cut", "copy": "rewind", "check": "cut", "models": "rewind", "shortcuts": "cut",
+             "claude": "phone", "cleanup": "cut", "final": "rewind"}
+LOOPS = {"cut": ("install-anim-{}", 8, 110), "rewind": ("install-anim-rewind-{}", 4, 140),
+         "phone": ("install-anim-phone-{}", 4, 160), "cheer": ("install-anim-cheer-{}", 3, 180),
+         "fail": ("install-anim-fail-{}", 2, 400)}
+# Where each step starts and ends on the bar: the copy is most of the work
+BAR_SPAN = {"start": (0.0, 0.02), "copy": (0.02, 0.80), "check": (0.80, 0.83), "models": (0.83, 0.87),
+            "shortcuts": (0.87, 0.93), "claude": (0.93, 0.95), "cleanup": (0.95, 0.99), "final": (0.99, 1.0)}
+MIN_LINE_S = 2.0   # each status line stays at least this long; a step done sooner is skipped
+POLL_MS = 50
+PAGE_WIDTH = 640   # the content's width at 100 %, as in the mockups
+
+
+def reduced_motion() -> bool:
+    """Whether Windows has animations turned off (SPI_GETCLIENTAREAANIMATION): the sprites then stand still."""
+    try:
+        on = ctypes.c_int(1)
+        if ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(on), 0):
+            return not on.value
+    except Exception:
+        pass
+    return False
+
+
+def _scale(root) -> float:
+    return root.winfo_fpixels("1i") / 96
+
+
+def _closable(root, on: bool):
+    """The title bar's ✕ (and Alt+F4): greyed out and ignored while the copy runs; on the done and error screens it
+    closes the window."""
+    try:
+        u32 = ctypes.windll.user32
+        u32.GetSystemMenu.restype = ctypes.c_void_p
+        u32.GetSystemMenu.argtypes = [ctypes.c_void_p, ctypes.c_bool]
+        u32.EnableMenuItem.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_uint]
+        menu = u32.GetSystemMenu(ctypes.c_void_p(int(root.wm_frame(), 16)), False)
+        if menu:
+            u32.EnableMenuItem(menu, 0xF060, 0 if on else 0x3)   # SC_CLOSE: MF_ENABLED / MF_GRAYED | MF_DISABLED
+    except Exception:
+        log.exception("could not change the close button")
+
+
+class _Sprite(tk.Label):
+    """One of the install animations (art/install-anim-*), looping; frame 0 still with reduced motion (cheer: 1)."""
+
+    def __init__(self, parent):
+        super().__init__(parent, borderwidth=0, highlightthickness=0, padx=0, pady=0, background=P.card)
+        self.loop = None
+        self._job = None
+
+    def play(self, loop: str):
+        if loop == self.loop:
+            return
+        self.stop()
+        self.loop = loop
+        pattern, n, ms = LOOPS[loop]
+        frames = [IMG.get(f"art/{pattern.format(i)}") for i in range(n)]
+        if reduced_motion():
+            self.configure(image=frames[1 if loop == "cheer" else 0])
+            return
+
+        def tick(i=0):
+            self.configure(image=frames[i % n])
+            self._job = self.after(ms, tick, i + 1)
+        tick()
+
+    def stop(self):
+        if self._job:
+            self.after_cancel(self._job)
+            self._job = None
+
+    def destroy(self):
+        self.stop()
+        super().destroy()
+
+
+class _Bar(ttk.Frame):
+    """The segmented progress bar (gui.SegmentBar's drawing: progress-trough frame, 20 segments, the last filled one
+    highlighted), without importing the app's window module. set(0..1)."""
+    SEGMENTS = 20
+
+    def __init__(self, parent):
+        self.k = 2 if IMG.two else 1
+        bl, bt, br, bb = P.nine_slice("progress-trough", IMG.two)
+        pad = 4 * self.k
+        super().__init__(parent, style="Trough.TFrame",
+                         padding=(bl // 2 + pad, bt // 2 + pad, br // 2 + pad, bb // 2 + pad))
+        self.canvas = tk.Canvas(self, height=22 * self.k, highlightthickness=0, borderwidth=0,
+                                background=P.progress_trough)
+        self.canvas.pack(fill="x")
+        self.value = 0.0
+        self.canvas.bind("<Configure>", lambda e: self._draw())
+
+    def set(self, value: float):
+        self.value = max(0.0, min(1.0, value))
+        self._draw()
+
+    def _draw(self):
+        c = self.canvas
+        c.delete("all")
+        k, w, h = self.k, c.winfo_width(), int(c.cget("height"))
+        if w < 10:
+            return
+        gap = 3 * k
+        seg = (w - gap * (self.SEGMENTS - 1)) / self.SEGMENTS
+        filled = int(self.value * self.SEGMENTS + 0.5) if self.value < 1 else self.SEGMENTS
+        filled = max(filled, 1 if self.value > 0 else 0)
+        for i in range(filled):
+            x0 = i * (seg + gap)
+            colour = P.progress_fill_current if i == filled - 1 and filled < self.SEGMENTS else P.progress_fill
+            c.create_rectangle(x0, 0, x0 + seg, h, fill=colour, outline="")
+
+
+def _shadow_heading(parent, text: str, size: int, s: float) -> tk.Canvas:
+    """LEVEL UP! / GAME OVER? in the pixel font with its 3 px shadow (A: pink on cyan, B: yellow on pink)."""
+    fg, shadow = ("#d1186f", "#22e4ff") if P.name == "light" else ("#ffd400", "#ff2e88")
+    k = 2 if IMG.two else 1
+    off = 3 * k
+    c = tk.Canvas(parent, highlightthickness=0, borderwidth=0, background=P.card)
+    font = (PIXEL_FONT, -int(size * s))
+    c.create_text(off, off, text=text, font=font, fill=shadow, anchor="nw", justify="left")
+    c.create_text(0, 0, text=text, font=font, fill=fg, anchor="nw", justify="left")
+    x0, y0, x1, y1 = c.bbox("all")
+    c.configure(width=x1, height=y1)
+    return c
+
+
+def _page(root, title: str | None = None):
+    """A new page in the install window: the old one goes, the header comes, and the window keeps its centre."""
+    centre = root.winfo_x() + root.winfo_width() // 2 if root.winfo_ismapped() else None
+    for w in root.winfo_children():
+        w.destroy()
+    root.unbind("<Return>")
+    s = _scale(root)
+    f = ttk.Frame(root, padding=24)
+    f.pack(fill="both", expand=True)
+    _brand(f)
+    ttk.Frame(f, width=int(PAGE_WIDTH * s), height=1).pack(side="bottom")   # every page as wide as the mockups
+    if title:
+        ttk.Label(f, text=title, style="Section.TLabel").pack(anchor="w", pady=(0, 14))
+    f.centre = centre
+    return f
+
+
+def _show_page(root, f):
+    """Theme the page's card and let the window take its size, centred where it was."""
+    from .skin import skin_cards
+    skin_cards(f)
+    root.geometry("")   # a size set from outside (tests) would keep the old page's size
+    root.update_idletasks()
+    if f.centre is not None:
+        x = max(0, f.centre - root.winfo_reqwidth() // 2)
+        root.geometry(f"+{x}+{root.winfo_y()}")
+
+
+def _card(f, s: float):
+    from . import skin
+    card = skin.Card(f, padding=(int(36 * s), int(26 * s), int(36 * s), int(26 * s)))
+    card.pack(fill="x")
+    card.columnconfigure(1, weight=1)
+    sprite = _Sprite(card)
+    sprite.grid(row=0, column=0, rowspan=3, sticky="w", padx=(0, int(24 * s)))
+    return card, sprite
+
+
+def _run_install(root, have: str | None, result: dict, connect: bool):
+    """Install on a worker thread, with the animation, the status lines and the bar; then the done or error screen."""
+    if app_window_open():
+        # The new one would only bring the old window forward (one window at a time), and it may be working
+        _failed_page(root, have, result, connect, t("installer.app_open", app=APP_NAME), unchanged=True)
+        return
+    s = _scale(root)
+    title = (t("installer.progress.title_update", version=APP_VERSION) if have else
+             t("installer.progress.title_install", app=APP_NAME, version=APP_VERSION))
+    f = _page(root, title)
+    card, sprite = _card(f, s)
+    wrap = int((PAGE_WIDTH - 72 - 160 - 24) * s)
+    head = tk.Label(card, font=(PIXEL_FONT, -int(14 * s)), foreground=P.heading if P.name == "light" else P.accent,
+                    background=P.card, justify="left", anchor="w", wraplength=wrap, borderwidth=0, padx=0, pady=0)
+    head.grid(row=0, column=1, sticky="sew", pady=(0, int(8 * s)))
+    text = tk.Label(card, font="SunValleyBodyFont", foreground=P.text, background=P.card, justify="left",
+                    anchor="w", wraplength=wrap, borderwidth=0, padx=0, pady=0)
+    text.grid(row=1, column=1, sticky="new")
+    card.rowconfigure(0, weight=1)
+    card.rowconfigure(1, weight=1)
+    bar = _Bar(f)
+    bar.pack(fill="x", pady=(int(24 * s), int(6 * s)))
+    row = ttk.Frame(f)
+    row.pack(fill="x")
+    step_label = ttk.Label(row, style="Hint.TLabel")
+    step_label.pack(side="left")
+    pct = ttk.Label(row, style="Hint.TLabel")
+    pct.pack(side="right")
+    ttk.Label(f, text=t("installer.progress.hint"), style="Hint.TLabel", wraplength=int(PAGE_WIDTH * s),
+              justify="left").pack(anchor="w", pady=(int(18 * s), 0))
+    root.protocol("WM_DELETE_WINDOW", lambda: None)   # no closing mid-copy (Alt+F4 lands here too)
+    _closable(root, False)
+
+    q: queue.Queue = queue.Queue()
+    state = {"step": "start", "shown": None, "since": 0.0, "value": 0.0, "end": None, "touched": False}
+
+    def work():
+        try:
+            exe = install(connect, progress=lambda step, frac: q.put(("step", step, frac)))
+            if not Path(exe).is_file():   # the final check: the installed exe is there
+                raise FileNotFoundError(exe)
+            q.put(("done", exe))
+        except PermissionError:
+            log.exception("install: in use")
+            q.put(("error", t("installer.in_use", app=APP_NAME)))
+        except BaseException as e:
+            log.exception("install failed")
+            q.put(("error", t("installer.failed", error=e)))
+
+    def show(step):
+        state["shown"], state["since"] = step, time.monotonic()
+        head.configure(text=t(f"installer.line.{step}.head"))
+        text.configure(text=t(f"installer.line.{step}.text"))
+        sprite.play(LINE_LOOP[step])
+        step_label.configure(text=t("installer.progress.step", n=STEPS.index(step) + 1, total=len(STEPS)))
+
+    def poll():
+        try:
+            while True:
+                msg = q.get_nowait()
+                if msg[0] == "step" and msg[1] in BAR_SPAN:
+                    _, step, frac = msg
+                    state["step"] = step
+                    state["touched"] |= STEPS.index(step) >= STEPS.index("models")   # activate() has begun
+                    lo, hi = BAR_SPAN[step]
+                    state["value"] = max(state["value"], lo + (hi - lo) * (frac or 0.0))
+                elif msg[0] in ("done", "error"):
+                    state["end"] = msg
+        except queue.Empty:
+            pass
+        if state["end"] is None and not worker.is_alive() and q.empty():
+            state["end"] = ("error", t("installer.fail.stopped", folder=data_dir()))   # never hang on a dead worker
+        end = state["end"]
+        if end and end[0] == "error":
+            _failed_page(root, have, result, connect, end[1], unchanged=not state["touched"])
+            return
+        if end:
+            state["value"] = 1.0
+        bar.set(state["value"])
+        pct.configure(text=f"{int(state['value'] * 100)}%")
+        if time.monotonic() - state["since"] >= MIN_LINE_S:
+            if end:
+                _done_page(root, result, connect, end[1])
+                return
+            if state["step"] != state["shown"]:
+                show(state["step"])   # the step running now; steps finished in the meantime are skipped
+        root.after(POLL_MS, poll)
+
+    show("start")   # always INSERT COIN first
+    _show_page(root, f)
+    worker = threading.Thread(target=work, name="install", daemon=True)
+    worker.start()
+    root.after(POLL_MS, poll)
+
+
+def _close_with(root, result: dict):
+    def close():
+        result["go"] = False
+        root.destroy()
+    root.protocol("WM_DELETE_WINDOW", close)
+    _closable(root, True)
+    return close
+
+
+def _done_page(root, result: dict, connect: bool, exe: Path):
+    """LEVEL UP!: replaces Windows' grey message box. The Claude note only when Claude was connected."""
+    from .skin import IconButton
+    s = _scale(root)
+    f = _page(root)
+    card, sprite = _card(f, s)
+    sprite.play("cheer")
+    _shadow_heading(card, t("installer.done.head", version=APP_VERSION), 26, s).grid(
+        row=0, column=1, sticky="sw", pady=(0, int(10 * s)))
+    ttk.Label(card, text=t("installer.done.title", version=APP_VERSION),
+              font=("Segoe UI Semibold", -int(17 * s))).grid(row=1, column=1, sticky="w")
+    ttk.Label(card, text=t("installer.done.text"), style="Hint.TLabel", wraplength=int(400 * s),
+              justify="left").grid(row=2, column=1, sticky="nw", pady=(int(10 * s), 0))
+    card.rowconfigure(0, weight=1)
+    card.rowconfigure(2, weight=1)
+    if connect:
+        k = 2 if IMG.two else 1
+        band = ttk.Frame(f, style="Callout.TFrame", padding=(int(24 * s), int(14 * s), int(24 * s) + 3 * k,
+                                                             int(16 * s) + 3 * k))
+        band.pack(fill="x", pady=(int(20 * s), 0))
+        band.columnconfigure(1, weight=1)
+        tk.Label(band, image=IMG.get("icons/arrow-right-selected"), background=P.callout_bg,
+                 borderwidth=0).grid(row=0, column=0, sticky="nw", padx=(0, int(12 * s)), pady=(int(2 * s), 0))
+        tk.Label(band, text=t("installer.restart.title"), font="SunValleyBodyStrongFont", background=P.callout_bg,
+                 foreground=P.callout_text, borderwidth=0, padx=0, pady=0).grid(row=0, column=1, sticky="w")
+        tk.Label(band, text=t("installer.restart.text"), font="SunValleyBodyFont", background=P.callout_bg,
+                 foreground=P.callout_text, borderwidth=0, padx=0, pady=0, justify="left", anchor="w",
+                 wraplength=int((PAGE_WIDTH - 90) * s)).grid(row=1, column=1, sticky="w")
+    close = _close_with(root, result)
+
+    def start():
+        try:
+            subprocess.Popen([str(exe)], close_fds=True)
+        except OSError:
+            log.exception("could not start %s", exe)
+        close()
+
+    b = ttk.Frame(f)
+    b.pack(anchor="e", pady=(int(20 * s), 0))
+    ttk.Button(b, text=t("installer.close"), command=close).pack(side="left", padx=(0, 12))
+    go = IconButton(b, "play", text=t("installer.start", app=APP_NAME), style="Accent.TButton", command=start)
+    go.pack(side="left")
+    root.bind("<Return>", lambda e: start())
+    go.focus_set()
+    _show_page(root, f)
+
+
+def _failed_page(root, have: str | None, result: dict, connect: bool, error: str, unchanged: bool):
+    """GAME OVER? Nej, CONTINUE!: the real error and Prøv igen. "Nothing changed" only when it is true."""
+    s = _scale(root)
+    f = _page(root)
+    card, sprite = _card(f, s)
+    sprite.play("fail")
+    _shadow_heading(card, t("installer.fail.head"), 18, s).grid(row=0, column=1, sticky="sw",
+                                                                 pady=(0, int(10 * s)))
+    hint = t("installer.fail.unchanged") if unchanged and have else t("installer.fail.incomplete")
+    ttk.Label(card, text=hint, style="Hint.TLabel", wraplength=int(380 * s), justify="left").grid(
+        row=1, column=1, sticky="nw")
+    card.rowconfigure(0, weight=1)
+    card.rowconfigure(1, weight=1)
+    err = ttk.Frame(f)
+    err.pack(fill="x", pady=(int(18 * s), 0))
+    tk.Label(err, image=IMG.get("icons/step-error"), background=P.window, borderwidth=0).pack(
+        side="left", anchor="n", padx=(0, int(12 * s)), pady=(int(2 * s), 0))
+    ttk.Label(err, text=error, foreground=P.error, wraplength=int((PAGE_WIDTH - 40) * s), justify="left").pack(
+        side="left", anchor="w", fill="x")
+    close = _close_with(root, result)
+    b = ttk.Frame(f)
+    b.pack(anchor="e", pady=(int(28 * s), 0))
+    ttk.Button(b, text=t("installer.close"), command=close).pack(side="left", padx=(0, 12))
+    again = ttk.Button(b, text=t("installer.retry"), style="Accent.TButton",
+                       command=lambda: _run_install(root, have, result, connect))
+    again.pack(side="left")
+    root.bind("<Return>", lambda e: _run_install(root, have, result, connect))
+    again.focus_set()
+    _show_page(root, f)
