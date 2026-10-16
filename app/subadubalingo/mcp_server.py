@@ -1,5 +1,7 @@
-"""MCP server (stdio, JSON-RPC) so Claude can drive the app from a chat:
+"""MCP server (stdio, JSON-RPC) so an AI assistant can drive the app from a chat: Claude (desktop app, Claude Code),
+Gemini CLI, Codex CLI, VS Code / GitHub Copilot, Cursor, or any client that can start a local MCP server.
 
+    guide          the manual (guide.py): steps, formats and rules, word list, the user's language, what never to do
     start_video    start a video job (starts the app if it is not running)
     wait           wait for news on a job (every 10 %, Claude's turn, pause, error, done; at most ~45 s)
     status         the current state of a job
@@ -15,11 +17,20 @@ Tool names, parameters and texts are English (the domain language, docs/glossary
 the app's own language (i18n), read from the app's settings at every call, since this is a process of its own. The
 messages the app writes for the user are in that language too, and are labelled so. The job lives in the app, so if
 the chat stops, "status" picks it up again. Started as "SubaDubaLingo.exe --mcp" by Claude desktop (claude_desktop_config.json), no extra dependencies.
+Other clients start the stable launcher SubaDubaLingo-mcp.exe in the install folder (tools/mcp_launcher.cs), which
+runs the current version's exe with --mcp (mcpclients.py has the setup per client).
+
+The server is its own manual, because the Claude skill only exists in Claude and some clients ignore the server's
+instructions: the tool descriptions carry the workflow, the tool "guide" returns the whole manual, and the same text
+is a prompt ("subadubalingo_workflow") and resources ("subadubalingo://guide[/<section>]") for clients that use them.
+The client's name from initialize decides the Claude-only parts: the skill version check (skill.json, which makes the
+app show the skill guide) and "restart Claude" after an update.
 """
 from __future__ import annotations
 
 import ctypes
 import json
+import logging
 import os
 import re
 import subprocess
@@ -29,11 +40,12 @@ import time
 import traceback
 from pathlib import Path
 
-from . import cutting, i18n, jobs
+from . import cutting, guide, i18n, jobs
 from . import chapters as chapters_mod
 # Imported here, not inside the tools: a frozen exe reads modules from its own file on first import, and once an
 # update has replaced that file, a late import reads the new file at the old offsets (zlib error -3).
-from .claude import NAMES_EN, SKILL_NAME, SKILL_VERSION, chapter_rules, cut_rules, user_language
+from .claude import (NAMES_EN, SKILL_NAME, SKILL_VERSION, chapter_rules, cut_rules, known_words, user_language,
+                     word_rules)
 from .common import APP_NAME, APP_VERSION, LANG_BY_CODE, LANGUAGES, data_dir, downloads_dir, format_srt, log, parse_srt_text
 
 # Claude may name a language by code, in English, or in any of the app's languages ("svenska", "norske")
@@ -49,13 +61,26 @@ LANGS = "danish, swedish, norwegian or english"
 
 # --- Tool definitions ---------------------------------------------------------------
 
+FLOW = ("Workflow: guide (once) -> start_video -> wait (repeat; tell the user every 10 %) -> on 'claude_turn' (your "
+        "turn): get_text in chunks, correct/translate, save_text per language, suggest_cuts if cutting, save_chapters "
+        "if asked -> on 'review_cuts': ask the user, approve_cuts -> wait until done.")
+
 TOOLS = [
+    {"name": "guide",
+     "description": (f"Read this first: the manual for {APP_NAME} (the steps, the answer formats and rules for "
+                     "corrections, translation, cuts and chapters, the product word list, which language to talk to "
+                     "the user in, and what never to do). Call it once without arguments before the first start_video, "
+                     "or with 'section' for one part."),
+     "inputSchema": {"type": "object", "properties": {
+         "section": {"type": "string", "enum": list(guide.SECTIONS),
+                     "description": "Optional: only this part of the guide (default: all of it)"}}}},
     {"name": "start_video",
      "description": (f"Start a job in the Windows app '{APP_NAME}' (formerly 'Videosprog'): subtitles and/or a dub of a "
                      "local video, optionally cut first. The app does the slow work (listening through the video can "
                      "take up to an hour on a laptop) and starts by itself if it is not running. Then call 'wait' "
-                     "repeatedly and tell the user the progress. When the state becomes 'claude_turn', fetch the text "
-                     "with 'get_text', correct/translate it and hand it back with 'save_text'."),
+                     "repeatedly and tell the user the progress. When the state becomes 'claude_turn' (your turn, "
+                     "whichever assistant you are), fetch the text with 'get_text', correct/translate it and hand it "
+                     "back with 'save_text'. " + FLOW),
      "inputSchema": {"type": "object", "properties": {
          "video": {"type": "string", "description": "Full path to the video file, e.g. C:\\Users\\me\\Videos\\webinar.mp4"},
          "speech": {"type": "string", "description": f"Speech in the new video: 'original' (keep it) or a language to dub to: {LANGS}"},
@@ -69,23 +94,25 @@ TOOLS = [
                  "subtitles 'none'.")}},
          "required": ["video", "speech", "subtitles"]}},
     {"name": "wait",
-     "description": ("Wait for news on a job: returns at every 10 % of progress, when it is Claude's turn, on pause, "
-                     "error or when done, or after at most ~45 seconds. Call it again until the job is done. Tell the "
-                     "user briefly about each 10 %."),
+     "description": ("Wait for news on a job: returns at every 10 % of progress, when it is your turn ('claude_turn': "
+                     "call get_text), on pause, error or when done, or after at most ~45 seconds. Call it again until "
+                     "the job is done. Tell the user briefly about each 10 %."),
      "inputSchema": {"type": "object", "properties": {
          "job_id": {"type": "string", "description": "The job id from start_video (default: the latest job)"}}}},
     {"name": "status",
      "description": "The current state of a job (default the latest). Use it to pick up a job again, e.g. in a new chat.",
      "inputSchema": {"type": "object", "properties": {"job_id": {"type": "string"}}}},
     {"name": "get_text",
-     "description": ("When a job is in 'claude_turn': get the task (what to correct/translate, word list, rules) and the "
-                     "subtitles as SRT, a range of blocks at a time (about 100-150 blocks per call works well)."),
+     "description": ("When a job is in 'claude_turn' (your turn): get the task (what to correct/translate, whether to "
+                     "suggest cuts or chapters), the word list, the rules and the subtitles as SRT, a range of blocks "
+                     "at a time (about 100-150 blocks per call works well; the answer says where to go on). Then hand "
+                     "back each language with 'save_text': same numbers and time codes, never merge or split blocks."),
      "inputSchema": {"type": "object", "properties": {
          "job_id": {"type": "string"},
          "start": {"type": "integer", "description": "First block number (default 1)"},
          "count": {"type": "integer", "description": "Number of blocks (default 120)"},
-         "skill": {"type": "integer", "description": (f"The 'Skill version' number from the {SKILL_NAME} skill. Leave "
-                   "it out if you do not have the skill.")}}, "required": ["job_id"]}},
+         "skill": {"type": "integer", "description": (f"Claude only: the 'Skill version' number from the {SKILL_NAME} "
+                   "skill. Leave it out if you do not have the skill.")}}, "required": ["job_id"]}},
     {"name": "save_text",
      "description": ("Hand back blocks for one language as SRT with the SAME numbers and time codes as from get_text "
                      "(corrected text in the spoken language, or a translation). Checked at once; the answer says what "
@@ -102,7 +129,8 @@ TOOLS = [
      "description": ("When the job's task includes cutting: hand in your cut suggestions, one per line "
                      "'<first block>-<last block> <kind> <short reason>' (kinds: start, pause, end, inappropriate, "
                      "offtopic, unclear, filler), e.g. '1-14 start People join and test the sound' or '212 filler "
-                     "Uh, um' (filler: blocks with nothing but filler words, false starts or repetitions). Block numbers are those "
+                     "Uh, um' (filler: blocks with nothing but filler words, false starts or repetitions; never a block "
+                     "that also says something). The reason in the user's language. Block numbers are those "
                      "from get_text. Can be called several times (lines are added); set done=true when you have read "
                      "the whole text, also when there is nothing to cut."),
      "inputSchema": {"type": "object", "properties": {
@@ -139,9 +167,72 @@ TOOLS = [
                      "stop, or when a job hangs and the app says it is busy with another video; ask the user first."),
      "inputSchema": {"type": "object", "properties": {"job_id": {"type": "string"}}}},
     {"name": "find_videos",
-     "description": "List recent video files in Videos, Downloads and Desktop (or a given folder), newest first.",
+     "description": ("List recent video files in Videos, Downloads and Desktop (or a given folder), newest first. Use it "
+                     "when the user has not given the full path of the video for start_video."),
      "inputSchema": {"type": "object", "properties": {"folder": {"type": "string"}}}},
 ]
+
+# Prompts and resources: the guide again, for clients that offer them (a prompt is a slash command in Gemini CLI and
+# Claude Code, a resource can be attached to a chat). They are announced in initialize's capabilities; a client
+# without them never asks and uses the tool.
+PROMPT_NAME = "subadubalingo_workflow"
+PROMPTS = [
+    {"name": PROMPT_NAME, "title": f"{APP_NAME}: subtitles, dub and cuts",
+     "description": f"The {APP_NAME} manual as the start of a chat, optionally with the video and what to make of it.",
+     "arguments": [
+         {"name": "video", "description": "Full path to the video (optional)", "required": False},
+         {"name": "request", "description": "What to make, e.g. 'Swedish subtitles' or 'cut the waiting' (optional)",
+          "required": False}]},
+]
+GUIDE_URI = "subadubalingo://guide"
+
+
+def _resources() -> list[dict]:
+    out = [{"uri": GUIDE_URI, "name": "guide", "title": f"{APP_NAME} guide", "mimeType": "text/markdown",
+            "description": f"The whole manual for driving {APP_NAME}: steps, formats, rules, word list."}]
+    for s in guide.SECTIONS:
+        out.append({"uri": f"{GUIDE_URI}/{s}", "name": f"guide-{s}", "title": f"{APP_NAME} guide: {s}",
+                    "mimeType": "text/markdown", "description": f"The '{s}' part of the {APP_NAME} manual."})
+    return out
+
+MCP_SERVER_NAME = "subadubalingo"   # the name the setups use (installer.MCP_NAME, mcpclients.py)
+
+# --- The client -----------------------------------------------------------------------
+
+_client = {"name": "", "title": ""}   # from initialize's clientInfo: "claude-ai" (desktop), "claude-code", ...
+
+
+def _is_claude() -> bool:
+    """Whether the client is Claude (desktop app or Claude Code), which has the skill; a client that did not say
+    counts as Claude, as before 2.1.1."""
+    return not _client["name"] or "claude" in _client["name"].lower()
+
+
+def tool_guide(section: str | None = None) -> str:
+    return guide.guide_text(user_language(), known_words(), word_rules(), section)
+
+
+def _prompt(name: str, args: dict) -> dict:
+    if name != PROMPT_NAME:
+        raise ValueError(f"Unknown prompt {name!r}")
+    ask = []
+    if (args.get("request") or "").strip():
+        ask.append(f"What I want: {args['request'].strip()}")
+    if (args.get("video") or "").strip():
+        ask.append(f"The video: {args['video'].strip()}")
+    ask = "\n".join(ask) or "Ask me which video to use and what to make of it, then follow the guide."
+    text = tool_guide() + "\n---\n\n" + ask
+    return {"description": PROMPTS[0]["description"],
+            "messages": [{"role": "user", "content": {"type": "text", "text": text}}]}
+
+
+def _read_resource(uri: str) -> dict:
+    section = None
+    if uri.startswith(GUIDE_URI + "/"):
+        section = uri[len(GUIDE_URI) + 1:]
+    elif uri != GUIDE_URI:
+        raise ValueError(f"Unknown resource {uri!r}")
+    return {"contents": [{"uri": uri, "mimeType": "text/markdown", "text": tool_guide(section)}]}
 
 # --- Helpers -------------------------------------------------------------------------
 
@@ -383,7 +474,11 @@ def _fmt_missing(m: dict) -> str:
 
 
 def _skill_note(job_id: str, skill) -> str:
-    """Record which skill version Claude has (the app shows the update guide if it is old) and say so to Claude."""
+    """Record which skill version Claude has (the app shows the update guide if it is old) and say so to Claude.
+    Other assistants have no skill (the guide tool is their manual): nothing is recorded, so the app does not ask the
+    user to put a Claude skill into Claude."""
+    if not _is_claude():
+        return ""
     try:
         have = int(skill) if skill is not None else None
     except (TypeError, ValueError):
@@ -624,7 +719,7 @@ def tool_find_videos(folder: str | None = None) -> str:
     return "\n".join(f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(f.stat().st_mtime))}  {f}" for f in found)
 
 
-HANDLERS = {"start_video": tool_start_video, "wait": tool_wait, "status": tool_status,
+HANDLERS = {"guide": tool_guide, "start_video": tool_start_video, "wait": tool_wait, "status": tool_status,
             "get_text": tool_get_text, "save_text": tool_save_text, "find_videos": tool_find_videos,
             "suggest_cuts": tool_suggest_cuts, "approve_cuts": tool_approve_cuts, "cancel": tool_cancel,
             "save_chapters": tool_save_chapters}
@@ -668,15 +763,21 @@ def _outdated() -> str | None:
             new = ""
     else:
         return None
-    return (f"{APP_NAME} has been updated{new} while Claude was running, so Claude still uses the old version "
-            f"({APP_VERSION}) and cannot drive the app. Ask the user to quit Claude completely (right-click the Claude "
-            "icon by the clock -> Quit) and open it again, then ask for the same thing again in a new chat.")
+    if _client["name"] in ("", "claude-ai"):   # Claude desktop (and a client that did not say)
+        return (f"{APP_NAME} has been updated{new} while Claude was running, so Claude still uses the old version "
+                f"({APP_VERSION}) and cannot drive the app. Ask the user to quit Claude completely (right-click the "
+                "Claude icon by the clock -> Quit) and open it again, then ask for the same thing again in a new chat.")
+    app = _client["title"] or _client["name"]
+    return (f"{APP_NAME} has been updated{new} while {app} was running, so it still runs the old version's MCP server "
+            f"({APP_VERSION}) and cannot drive the app. Ask the user to restart {app} (or reconnect its MCP server "
+            f"'{MCP_SERVER_NAME}'), then ask for the same thing again.")
 
 def instructions() -> str:
-    return (f"{APP_NAME} cuts, subtitles and dubs videos locally on the user's pc. Use start_video (cut=true if "
+    return (f"{APP_NAME} cuts, subtitles and dubs videos locally on the user's pc. First call the tool 'guide' once "
+            "for the manual (steps, formats, rules, word list). Use start_video (cut=true if "
             "the video is to be cut first), follow the job with wait (tell the user about every 10 %), and on your "
-            "turn (claude_turn) fetch the text with get_text in chunks, correct/translate it with the "
-            f"{SKILL_NAME} skill, hand it back with save_text, cut suggestions with suggest_cuts, and chapters "
+            "turn (claude_turn) fetch the text with get_text in chunks, correct/translate it by the guide (in "
+            f"Claude: the {SKILL_NAME} skill), hand it back with save_text, cut suggestions with suggest_cuts, and chapters "
             "and a summary with save_chapters when the task asks for them. While the "
             "user reviews the cuts (review_cuts), you can change them with approve_cuts. If the user wants to "
             "stop, or a job hangs, use cancel (ask first). The app checks everything and does the rest. Answer "
@@ -700,8 +801,11 @@ def _handle(req: dict):
     try:
         _use_ui_language()
         if method == "initialize":
+            info = params.get("clientInfo") or {}
+            _client.update(name=str(info.get("name") or ""), title=str(info.get("title") or info.get("name") or ""))
+            log.info("MCP client %s %s", _client["name"] or "?", info.get("version") or "")
             result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
-                      "capabilities": {"tools": {}},
+                      "capabilities": {"tools": {}, "prompts": {}, "resources": {}},
                       "serverInfo": {"name": SKILL_NAME, "version": APP_VERSION},
                       "instructions": instructions()}
         elif method == "tools/list":
@@ -719,6 +823,16 @@ def _handle(req: dict):
             except Exception as e:
                 log.error("MCP tool %s failed: %s", name, traceback.format_exc())
                 result = {"content": [{"type": "text", "text": f"Error: {e}"}], "isError": True}
+        elif method == "prompts/list":
+            result = {"prompts": PROMPTS}
+        elif method == "prompts/get":
+            result = _prompt(params.get("name"), params.get("arguments") or {})
+        elif method == "resources/list":
+            result = {"resources": _resources()}
+        elif method == "resources/templates/list":
+            result = {"resourceTemplates": []}
+        elif method == "resources/read":
+            result = _read_resource(str(params.get("uri") or ""))
         elif method == "ping":
             result = {}
         elif rid is None:
@@ -731,11 +845,14 @@ def _handle(req: dict):
     except Exception as e:
         log.error("MCP request failed: %s", traceback.format_exc())
         if rid is not None:
-            _send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": str(e)}})
+            # An unknown prompt or resource is the caller's mistake (invalid params), anything else ours
+            code = -32602 if isinstance(e, ValueError) else -32603
+            _send({"jsonrpc": "2.0", "id": rid, "error": {"code": code, "message": str(e)}})
 
 
 def main():
     log.info("MCP server start (%s)", APP_VERSION)
+    busy: list[threading.Thread] = []
     for raw in sys.stdin.buffer:
         line = raw.decode("utf-8", "replace").strip()
         if not line:
@@ -745,5 +862,17 @@ def main():
         except json.JSONDecodeError:
             continue
         # Long calls (wait) run in their own thread, so pings and other calls are answered meanwhile.
-        threading.Thread(target=_handle, args=(req,), daemon=True).start()
+        th = threading.Thread(target=_handle, args=(req,), daemon=True)
+        th.start()
+        busy.append(th)
+        busy[:] = [b for b in busy if b.is_alive()]
+    # The client closed stdin: answer what is in flight (a client that sends its last requests and then closes, as
+    # a pipe does), but do not wait for a long 'wait' to run out
+    deadline = time.time() + 5
+    for th in busy:
+        th.join(max(0.0, deadline - time.time()))
     log.info("MCP server stop")
+    if any(th.is_alive() for th in busy):
+        # A daemon thread writing to stdout while Python shuts down aborts it ("could not acquire lock")
+        logging.shutdown()
+        os._exit(0)
