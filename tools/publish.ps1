@@ -18,6 +18,8 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 Set-Location $root
+[Environment]::CurrentDirectory = $root   # .NET calls (WriteAllText) resolve relative paths from here
+if (-not [IO.Path]::IsPathRooted($Out)) { $Out = Join-Path $root $Out }
 $name = 'SubaDubaLingo'
 $py = Join-Path $root '.venv\Scripts\python.exe'
 if (-not (Test-Path $py)) { $py = 'D:\SubaDubaLingo\.venv\Scripts\python.exe' }   # a worktree uses the main venv

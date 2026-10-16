@@ -125,16 +125,19 @@ shutil.copy2(exe, fake / "SubaDubaLingo.exe")
 shutil.copy2(exe.parent / "_internal" / "base_library.zip", fake / "_internal" / "base_library.zip")
 installer.app_dir = lambda: fake
 installer._update_shortcuts = lambda e: None
-for v in ("2.0.1", "2.0.2"):
+# Two later versions than the one under test (the builds' own version can be anything)
+_major, _minor, _patch = (int(x) for x in str(new_ver).split("."))
+later = [f"{_major}.{_minor}.{_patch + 1}", f"{_major}.{_minor}.{_patch + 2}"]
+for v in later:
     installer.APP_VERSION = v
     installer.install(False)
 text, err = srv.tool("status")
-check(err and "Quit" in text and "2.0.2" in text, f"running {new_ver} server says restart Claude")
+check(err and "Quit" in text and later[1] in text, f"running {new_ver} server says restart Claude")
 check((base / str(new_ver)).is_dir(), f"{new_ver} kept while its server runs")
 srv.stop()
 installer.cleanup()
 left = sorted(p.name for p in base.iterdir() if p.is_dir())
-check(left == ["2.0.1", "2.0.2"], f"after it stopped: current + previous left ({left})")
+check(left == later, f"after it stopped: current + previous left ({left})")
 shutil.copytree(new_dir, base / str(new_ver), ignore=lambda d_, n: ["models"] if Path(d_) == new_dir else [])
 (base / "current.txt").write_text(str(new_ver), encoding="utf-8")
 srv = Server(base / str(new_ver) / "SubaDubaLingo.exe")
