@@ -2492,8 +2492,10 @@ class SkillGuide(tk.Toplevel):
 
 
 class SettingsDialog(tk.Toplevel):
-    """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles (folded until clicked), the
-    look of burned-in subtitles (burnin_ui.py), then text and voices."""
+    """Indstillinger (the cog in the header): Programmets sprog and Udseende as tiles, the look of burned-in subtitles
+    (burnin_ui.py), text and voices, and Lyd, as cards of which one is open at a time."""
+
+    last_open = "text"   # the card opened last, for the rest of the session (design review round 4, decision 1)
 
     def __init__(self, parent, settings: Settings, on_theme=None, on_language=None, get_models=None,
                  on_report=None):
@@ -2525,8 +2527,6 @@ class SettingsDialog(tk.Toplevel):
         ttk.Label(look, text=t("pickers.look_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
         self.look = tk.StringVar(value=settings.theme)
         theme_tiles(look, self.look).pack(fill="x")
-        skin.collapsible(lang)
-        skin.collapsible(look)
         self.burnin = BurninCard(outer, settings)
         self.burnin.pack(fill="x", pady=(14, 0))
         f = skin.Card(outer, text=t("pickers.text_voices"), padding=12)
@@ -2557,7 +2557,12 @@ class SettingsDialog(tk.Toplevel):
         ttk.Button(links, text=t("gui.settings.connect"), command=self._connect_claude).pack(side="left", padx=(0, 6))
         ttk.Button(links, text=t("gui.open_log"), command=lambda: self._open(log_file())).pack(side="left")
         self.improve_audio = tk.BooleanVar(value=settings.improve_audio)
-        audio.settings_card(outer, self.improve_audio).pack(fill="x", pady=(14, 0))
+        sound = audio.settings_card(outer, self.improve_audio)
+        sound.pack(fill="x", pady=(14, 0))
+        # One card open at a time (design review round 4, decision 1): Tekst og stemmer at first, then the one
+        # opened last, for as long as the program runs
+        self._cards = {"language": lang, "look": look, "burnin": self.burnin, "text": f, "sound": sound}
+        skin.accordion(self._cards, SettingsDialog.last_open, self._card_opened)
         foot = ttk.Frame(self, padding=14)
         foot.pack(side="bottom", fill="x", before=host)
         ttk.Label(foot, text=f"{APP_NAME} {APP_VERSION}", style="Hint.TLabel").pack(side="left")
@@ -2581,6 +2586,11 @@ class SettingsDialog(tk.Toplevel):
         save_btn.focus_set()
         self.wait_visibility()
         self.grab_set()
+
+    def _card_opened(self, key: str | None):
+        if key:
+            SettingsDialog.last_open = key
+        self.after_idle(self._fit_body)
 
     def _fit_body(self):
         """The cards' scroll box as tall as the cards, but no taller than the app's monitor leaves room for (with

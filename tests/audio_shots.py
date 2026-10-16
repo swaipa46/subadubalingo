@@ -70,6 +70,7 @@ try:
     app.settings.keep_original_audio = False
     app._refresh()
     shot(root, "setup-off")
+    gui.SettingsDialog.last_open = "sound"   # one card open at a time: this one
     dlg = gui.SettingsDialog(root, app.settings, on_theme=app.set_theme, on_language=app.set_language)
     area = _screen.other_work_area()
     if area:

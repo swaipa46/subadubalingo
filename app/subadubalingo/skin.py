@@ -341,38 +341,84 @@ class Card(ttk.Frame):
     config = configure
 
 
-def collapsible(card: Card, opened: bool = False):
+FOLDED_PAD = 16   # a folded card: its title row with 16 px above and below, 56 px in all (design review round 4)
+
+
+def collapsible(card: Card, opened: bool = False, on_toggle=None):
     """Let a Card fold to its title row, with ▸ (closed) or ▾ (open) on the right; a click on the row toggles it
-    (Indstillinger, design T8). Call after the card's content is packed."""
+    (Indstillinger, design T8). Call after the card's content is packed or gridded. on_toggle(card, opened) is
+    called after a click (accordion() uses it to fold the others). card.show(on) folds or opens it."""
     k = 2 if IMG.two else 1
     arrow = ttk.Label(card, text="", style="CardTitle.TLabel", cursor="hand2")
-    left, top, right, _ = card._pad
-    arrow.place(relx=1.0, x=-right, y=top, anchor="ne", bordermode="outside")
-    hidden: list[tuple[tk.Widget, dict]] = []
+    hidden: list[tuple[tk.Widget, str, dict]] = []
     stub = ttk.Frame(card, height=1)   # a frame without packed children would shrink to nothing, padding and all
+    open_pad = card._pad
+
+    def place_arrow():
+        _, top, right, _ = card._pad
+        arrow.place(relx=1.0, x=-right, y=top, anchor="ne", bordermode="outside")
 
     def show(on: bool):
         if on:
             stub.pack_forget()
-            for w, info in hidden:
-                w.pack(**info)
+            stub.grid_forget()
+            card._pad = open_pad
+            card._layout()
+            for w, how, info in hidden:
+                w.pack(**info) if how == "pack" else w.grid()
             hidden.clear()
-        else:
+        elif getattr(card, "opened", True):
             for w in card.pack_slaves():
                 info = {("in_" if key == "in" else key): v for key, v in w.pack_info().items()}
-                hidden.append((w, info))
+                hidden.append((w, "pack", info))
                 w.pack_forget()
-            stub.pack(fill="x")
+            for w in card.grid_slaves():
+                hidden.append((w, "grid", {}))
+                w.grid_remove()   # remembers its grid options
+            # Title row only: 16 px above and below it (the frame's shadow comes on top, as on every card)
+            left, _, right, _ = open_pad
+            card._pad = (left, FOLDED_PAD * k, right, FOLDED_PAD * k + k)   # + the 1 px stub: 56 px with the shadow
+            card._layout()
+            if any(how == "grid" for _, how, _ in hidden):   # a master takes either pack or grid
+                stub.grid(row=0, column=0, sticky="ew")
+            else:
+                stub.pack(fill="x")
+            # the content's padding is the title's height (Card._layout) plus 12 px: drop the 12 px
+            pad = list(_pad4(card.cget("padding")))
+            pad[1] -= 12 * k
+            ttk.Frame.configure(card, padding=tuple(pad))
+        place_arrow()
         arrow.configure(text="▾" if on else "▸")
         card.opened = on
 
     def toggle(e=None):
         show(not card.opened)
+        if on_toggle:
+            on_toggle(card, card.opened)
+
     for w in (card.title, arrow):
         w.configure(cursor="hand2")
         w.bind("<Button-1>", toggle)
-    card.bind("<Button-1>", lambda e: toggle() if e.y < card.title.winfo_height() + 12 * k + top else None)
+    card.bind("<Button-1>", lambda e: toggle() if e.y < card.title.winfo_height() + 12 * k + card._pad[1] else None)
+    card.show = show
+    card.opened = True
     show(opened)
+
+
+def accordion(cards: dict[str, Card], opened: str | None, on_open=None):
+    """Foldable cards of which one at a time is open (Indstillinger; design review round 4, decision 1): opening a
+    card folds the one that was open. cards: by key; opened: the key open at first; on_open(key or None) after a
+    click."""
+    def toggled(card, on):
+        key = next(k for k, c in cards.items() if c is card)
+        if on:
+            for other in cards.values():
+                if other is not card and other.opened:
+                    other.show(False)
+        if on_open:
+            on_open(key if on else None)
+    for key, card in cards.items():
+        collapsible(card, key == opened, toggled)
 
 
 class IconButton(ttk.Button):

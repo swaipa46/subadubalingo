@@ -64,6 +64,7 @@ for name, values in (("settings", {"last_video": str(video)}),
                                             "burnin_box": False, "burnin_logo_on": False})):
     for k, v in values.items():
         setattr(app.settings, k, v)
+    gui.SettingsDialog.last_open = "burnin"   # one card open at a time: this one
     dlg = gui.SettingsDialog(root, app.settings, on_theme=app.set_theme, on_language=app.set_language)
     area = _screen.other_work_area()
     if area:
