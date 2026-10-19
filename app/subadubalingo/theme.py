@@ -1,5 +1,5 @@
 """The two looks the user picks between (Indstillinger -> Udseende, or the picker in the header): Lys (assets/ui/a-light)
-and Nat (assets/ui/b-night), or Følg Windows (the default). Everything comes from assets/ui (made by the design session,
+and Nat (assets/ui/b-night), or Følg Windows (the default). Everything comes from assets/ui (the design system,
 see its README.md): tokens.json for the colours by role, 9-slice frames for cards, buttons and the progress bar, pixel
 icons, and the header and done art. The pixel fonts (assets/fonts) are loaded privately for the process.
 

@@ -314,6 +314,9 @@ def _describe(job_id: str, st: dict) -> str:
         "error": f"Tell the user about the error. The log file can be opened from the app's '{_button('settings')}'.",
         "cancelled": "The job has stopped.",
         "by_user": "The user did this turn in an AI chat themselves; the app carries on without you. Nothing to do.",
+        "queued_later": ("Your part is done. The app works through a queue of videos and makes this video (speech, "
+                         "subtitles in the picture) later, by itself. Tell the user the text is in and the video comes "
+                         "when the queue gets to it. Nothing more to do."),
         "busy": ("The app is busy with another video. Try again when it is done. If that other video hangs, ask the "
                  "user whether to stop it with 'cancel'."),
     }.get(state)
@@ -392,7 +395,7 @@ def tool_wait(job_id: str | None = None) -> str:
     first = jobs.status(job_id)
     state0 = first.get("state")
     delivered = (jobs.root() / job_id / "complete.json").exists()
-    if state0 in ("done", "error", "cancelled", "busy") or (state0 == "claude_turn" and not delivered):
+    if state0 in jobs.ENDED or (state0 == "claude_turn" and not delivered):
         return _describe(job_id, first)  # nothing will change until the assistant (or the user) acts
     dec0 = _last_decile.get(job_id, -1)
     deadline = time.time() + 45

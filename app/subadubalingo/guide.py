@@ -170,6 +170,8 @@ STATES = """## Job states
 - `busy`: the app is working on another video; try again later, or ask whether to stop it with `cancel`.
 - `cancelled`: the job has stopped.
 - `by_user`: the user did your turn in an AI chat themselves; the app carries on without you.
+- `queued_later`: your part is done; the app makes the video later in its queue of videos, by itself. Tell the user
+  the text is in; nothing more to do.
 """
 
 NEVER = """## Never

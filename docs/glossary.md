@@ -9,7 +9,7 @@ right-hand column shows what the user sees.
 |---|---|---|---|
 | Video | The original recording the user picks. Never changed. | `video` | video |
 | Job | One run for one video: what to make, its state, its files. Shared between the app and the MCP server. | `jobs.py`, `jobs/<id>/` | – |
-| State | Where a job is: queued, running, claude_turn, review_cuts, paused, done, error, cancelled, busy, by_user (the user did the assistant's turn in an AI chat). | `jobs.STATES` | the steps on the left |
+| State | Where a job is: queued, running, claude_turn, review_cuts, paused, done, error, cancelled, busy, by_user (the user did the assistant's turn in an AI chat), queued_later (a taken-over round in a queue: the video is made later). | `jobs.STATES` | the steps on the left |
 | Spoken language | The language spoken in the video. | `lang`, `spoken_language` | "Sprog i videoen" |
 | Transcription | Speech recognition (Whisper) of the spoken language into cues. | `engine.transcribe` | "Lytter og skriver tekst" |
 | Cue | One subtitle block: start, end (ms), text. Numbered from 1. | `Cue` | blok |

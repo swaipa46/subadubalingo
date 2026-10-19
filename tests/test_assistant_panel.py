@@ -16,6 +16,7 @@ tmp = Path(tempfile.mkdtemp(prefix="sdl-test-panel-"))
 common._DATA_DIR = tmp / "data"
 common._DATA_DIR.mkdir()
 import tkinter as tk  # noqa: E402
+from tkinter import ttk  # noqa: E402
 
 from subadubalingo import claude, gui, i18n, jobs, mcp_server, skin, theme  # noqa: E402
 from subadubalingo.common import Cue, format_srt, write_srt  # noqa: E402
@@ -192,9 +193,12 @@ p.destroy()
 video, srt, cues = make_video("takeover", 3)
 results = []
 app = FakeApp()
-p = gui.ClaudePanel(root, app, video, L["da"], srt, True, [L["sv"]], on_finish=results.append)
+card = ttk.Labelframe(app.main)   # in a card, as in the app: the take-over view must get the card's styles
+card.pack()
+p = gui.ClaudePanel(card, app, video, L["da"], srt, True, [L["sv"]], on_finish=results.append)
 p.grid()
 root.update()
+check(hasattr(p, "phrase_btn"), "an offered app job shows the take-over phrase")
 job = p.offered_job
 st = jobs.status(job) if job else {}
 check(job and st.get("state") == "claude_turn" and jobs.origin(job) == "app"
@@ -217,6 +221,9 @@ pump(1.2)
 check(p.mode == "mcp" and getattr(app, "mcp_job", None) == job and p.offered_job is None and not app._pulsing
       and p.switch_btn.winfo_manager() and not p.part_rows and not p.partial,
       "get_text switches the panel to the MCP view; the app adopts the job; pasted parts are dropped")
+check(str(p.mcp_ch_lbl.cget("style")).startswith("Card.")
+      and all(str(lab.cget("style")).startswith("Card.") for _, lab in p.mcp_bars.values()),
+      "the take-over view's new widgets get the card's styles")
 fixed = [Cue(c.start, c.end, c.text.replace("memberkær", "Membercare")) for c in cues]
 for code in ("da", "sv"):
     r = mcp_server.tool_save_text(job, code, format_srt(fixed))
@@ -274,6 +281,24 @@ mcp_server.tool_get_text(job)
 pump(1.2)
 check(p.mode == "mcp" and not app._pulsing, "get_text brings it back to the MCP view")
 p.destroy()
+
+# Publishing the app job failed: no phrase to tell an assistant, since it would find nothing to take over
+real_publish = jobs.publish_app_job
+
+
+def broken(*a, **k):
+    raise OSError("disk full")
+
+
+jobs.publish_app_job = broken
+video, srt, cues = make_video("nopublish", 3)
+p = gui.ClaudePanel(root, FakeApp(), video, L["da"], srt, True, [], on_finish=lambda ok: None)
+p.grid()
+root.update()
+check(p.mode == "chat" and p.offered_job is None and p.part_rows and not hasattr(p, "phrase_btn"),
+      "no published job: the chat view without the take-over phrase")
+p.destroy()
+jobs.publish_app_job = real_publish
 
 root.destroy()
 print("all ok" if ok else "FAILED")

@@ -186,7 +186,7 @@
  "gui.parts.ok": "{n} blokker ok",
  "gui.parts.ok_words": "{n} blokker ok, {words} ord rettet",
  "gui.parts.copy_again": "Kopier igjen",
- "gui.parts.problem": "Svaret på {part} var ikke helt ferdig. Be AI-chatten skrive resten, og kopier det igjen.",
+ "gui.parts.problem": "Svaret på {part} var ikke helt riktig. Be AI-chatten skrive hele svaret på nytt, og kopier det.",
  "gui.parts.data": "Bruk den AI-chatten arbeidsplassen din tillater.",
  "gui.parts.mcp_nudge": "Har du koblet til en AI-assistent? Skriv til den:",
  "gui.parts.mcp_phrase": "Ta over i {app}",

@@ -80,8 +80,8 @@ tillåter (till exempel Copilot, ChatGPT, Gemini eller Claude):
    Programmet märker det själv, kontrollerar svaret och fortsätter. Du kan
    också klicka "Klistra in svar".
 Är texten lång är den delad i flera delar. Skicka dem i samma chatt, en i taget.
-Var svaret inte helt klart står det vad som saknas. Be chatten skriva resten
-och kopiera det igen.
+Var svaret inte helt rätt står det vad som är fel. Be chatten skriva hela
+svaret igen och kopiera det.
 
 Programmet kommer ihåg orden som AI-assistenten rättar, så att de blir rätt
 nästa gång, och skickar med dem i instruktionerna.

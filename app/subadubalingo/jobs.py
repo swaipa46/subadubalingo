@@ -37,8 +37,9 @@ STATES = {   # told to the assistant by the MCP server
     "cancelled": "cancelled",
     "busy": "the app is busy with another video",
     "by_user": "the user did this turn in an AI chat themselves; nothing for you to do",
+    "queued_later": "your part is done; the app makes the video later in its queue, by itself",
 }
-ENDED = ("done", "error", "cancelled", "busy", "by_user")
+ENDED = ("done", "error", "cancelled", "busy", "by_user", "queued_later")
 
 
 def root() -> Path:
@@ -182,11 +183,14 @@ def waiting_job() -> str | None:
     return best and best[1]
 
 
-def close_app_jobs(message: str):
-    """At the app's start: app jobs a previous run left open can never be finished, so they are cancelled."""
+def close_orphaned_jobs(message: str):
+    """At the app's start nothing can still be running, so every job a previous run left open (an app job offered
+    for a take-over, or an assistant's job when the app was closed mid-turn) is cancelled: otherwise status, wait and
+    get_text without a job id could pick a dead job. A request still in the inbox is kept: the app takes it next."""
+    waiting = {f.stem for f in (root() / "inbox").glob("*.json")}
     for d in root().iterdir():
         f = d / "status.json"
-        if d.is_dir() and d.name != "inbox" and f.exists() and origin(d.name) == "app":
+        if d.is_dir() and d.name != "inbox" and d.name not in waiting and f.exists():
             if (read_json(f, {}) or {}).get("state") not in ENDED:
                 set_status(d.name, state="cancelled", message=message)
 

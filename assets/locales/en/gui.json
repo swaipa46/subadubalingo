@@ -186,7 +186,7 @@
  "gui.parts.ok": "{n} blocks ok",
  "gui.parts.ok_words": "{n} blocks ok, {words} words corrected",
  "gui.parts.copy_again": "Copy again",
- "gui.parts.problem": "The answer to {part} was not quite finished. Ask the AI chat to write the rest, and copy it again.",
+ "gui.parts.problem": "The answer to {part} was not quite right. Ask the AI chat to write the whole answer again, and copy it.",
  "gui.parts.data": "Use the AI chat your workplace allows.",
  "gui.parts.mcp_nudge": "Connected an AI assistant? Write to it:",
  "gui.parts.mcp_phrase": "Take over in {app}",

@@ -2,7 +2,7 @@
 and "Kopiér kapitler" / "Kopiér beskrivelse" buttons, so the user can paste them into YouTube or an e-mail. The same
 text is in "<video> - kapitler.txt" (chapters.py), which the hint names.
 
-As the design session's mockup chapters-done.png and its spec (assets/ui/README.md, "New features (T8)", item 7):
+As the design system's mockup chapters-done.png and its spec (assets/ui/README.md, "New features (T8)", item 7):
 the card replaces the compact step list in the right column (the step list only shows after an error); "FRA AI"
 in Press Start 2P 10 px hint on the right of the header; the description in text; 28 px chapter rows with the time in
 VT323 20 px heading in a 70 px column; 40 px copy buttons that read "Kopieret ✓" for 2 s; a hint naming the file.

@@ -233,7 +233,7 @@ FENCE_RE = re.compile(r"^```[ \t]*([^\n`]*)$")
 # A heading of several words: a markdown heading, a bold line or a short line ending in a colon
 # ("## Corrected Danish text", "**Swedish translation:**", "3. Corrected words:")
 HEADING_RE = re.compile(r"^(?:#{1,6}\s+.+|\*\*.+\*\*:?|__.+__:?|[^:]{1,60}:)$")
-_WORD_RE = re.compile(r"[A-Za-zæøåÆØÅäöÄÖ]+")
+_WORD_RE = re.compile(r"[A-Za-zæøåÆØÅäöÄÖéÉ]+")
 
 
 def _label(line: str) -> str | None:
@@ -241,6 +241,41 @@ def _label(line: str) -> str | None:
     if not m or not line.strip():
         return None
     return _LABEL.get(m.group(1).lower())
+
+
+# Compounds that start with a section word ("Klipforslag", "Kapitelforslag", "Cut suggestions", "Chapters")
+_SECTION_PREFIXES = (("klip", "cuts"), ("cut", "cuts"), ("kapit", "chapters"), ("chapter", "chapters"))
+# A plain heading: what a markdown heading becomes when the rendered page is selected and copied with the mouse
+PLAIN_HEADING_RE = re.compile(r"^[A-Za-zæøåÆØÅäöÄÖéÉ][A-Za-zæøåÆØÅäöÄÖéÉ ()-]*$")
+
+
+def _section_word(words: list[str]) -> str | None:
+    for w in words:
+        if w in _SECTION_WORDS:
+            return _SECTION_WORDS[w]
+    for w in words:
+        for prefix, section in _SECTION_PREFIXES:
+            if w.startswith(prefix):
+                return section
+    return None
+
+
+def _plain_heading(line: str, following: str) -> str | None:
+    """A heading without markup ("Swedish translation", "Klipforslag"), from a copied rendered page: a short line of
+    letters only at the start of a paragraph, followed by a blank line or an SRT number, or naming a section."""
+    s = line.strip()
+    if not PLAIN_HEADING_RE.match(s):
+        return None
+    words = [w.lower() for w in _WORD_RE.findall(s)]
+    if not words or len(words) > 4:
+        return None
+    section = _section_word(words)
+    if section:
+        return section
+    if following.strip() and not following.strip().isdigit():
+        return None
+    langs = {_LANG[w] for w in words if w in _LANG and len(w) > 2}
+    return langs.pop() if len(langs) == 1 else None
 
 
 def _heading_label(line: str) -> str | None:
@@ -252,9 +287,9 @@ def _heading_label(line: str) -> str | None:
     words = [w.lower() for w in _WORD_RE.findall(s)]
     if not words or len(words) > 8:
         return None
-    for w in words:
-        if w in _SECTION_WORDS:
-            return _SECTION_WORDS[w]
+    section = _section_word(words)
+    if section:
+        return section
     code = re.search(r"\((da|sv|no|nb|en)\)", s, re.I)
     if code:
         return _LANG[code.group(1).lower()]
@@ -270,7 +305,8 @@ def _sections(text: str) -> dict[str, list[str]]:
     in_fence = False
     # A marker must start a paragraph, so a subtitle line that just says "Norsk" is not taken for one.
     para_start = True
-    for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+    rows = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    for n, raw in enumerate(rows):
         f = FENCE_RE.match(raw.strip())
         if f:
             if in_fence and not f.group(1).strip():
@@ -291,7 +327,8 @@ def _sections(text: str) -> dict[str, list[str]]:
         if strict:
             lab = _LABEL.get(strict.group(1).lower())
         elif para_start:
-            lab = _label(raw) or _heading_label(raw)
+            lab = _label(raw) or _heading_label(raw) or (
+                None if in_fence else _plain_heading(raw, rows[n + 1] if n + 1 < len(rows) else ""))
         para_start = not raw.strip()
         if lab:
             current = lab
@@ -336,12 +373,32 @@ def answer_outline(text: str, duration: int | None = None, raw: bool = False) ->
     return chapters_mod.from_answer(_sections(text), duration, raw)
 
 
+_LIST_MARK_RE = re.compile(r"^\s*(?:[-*•+]|\d+[.)])\s+")
+_WORD_PAIR_RE = re.compile(r"^(.+?)\s*(?:=>|->|→|=)\s*(.+?)$")
+
+
+def _clean_word(w: str) -> str:
+    """One side of a word pair without markdown emphasis or quotes ("**Membercare**", "`memberkær`")."""
+    return w.strip().strip("*_`\"'“”‘’").strip()
+
+
 def parse_words(lines: list[str]) -> list[tuple[str, str]]:
+    """The corrected words, one "wrong => right" per line. Chat models write them as markdown lists ("- **a** → **b**",
+    "1. a => b") with a remark after ("b (product name)"): the list marker, the emphasis and the remark are dropped,
+    and a line that is not a short word pair ("Note: the rest = unchanged") is skipped, since every pair ends up in
+    corrections.txt and so in every later prompt and transcription."""
     words: list[tuple[str, str]] = []
     for line in lines:
-        m = re.match(r"\s*[-*•]?\s*(.+?)\s*(?:=>|->|→|=)\s*(.+?)\s*$", line)
-        if m and m.group(1) and m.group(2):
-            words.append((m.group(1).strip('"\'`'), m.group(2).strip('"\'`')))
+        m = _WORD_PAIR_RE.match(_LIST_MARK_RE.sub("", line).strip())
+        if not m:
+            continue
+        wrong = _clean_word(m.group(1))
+        right = _clean_word(re.sub(r"\s*\([^)]*\)\s*$", "", m.group(2).strip()))
+        if not wrong or not right or ":" in wrong or ":" in right:
+            continue
+        if len(wrong.split()) > 4 or len(right.split()) > 4:
+            continue
+        words.append((wrong, right))
     return words
 
 

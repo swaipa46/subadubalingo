@@ -111,7 +111,7 @@ buttons.
 | `settings` | Indstillinger |
 | `pause` | Pause |
 | `cancel` | Annullér, Afbryd |
-| `copy` | Kopiér fil |
+| `copy` | Kopiér instruktioner til AI-chat, Kopiér (Tag over-sætningen), Kopiér kapitler / beskrivelse, Kopiér (MCP-opsætningen) |
 | `cut` | Klip videoen |
 | `plus`, `minus` | Zoom on the timeline, Lav en ny |
 | `arrow-right` | The "din tur" callout band |

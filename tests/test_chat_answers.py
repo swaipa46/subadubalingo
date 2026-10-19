@@ -85,6 +85,41 @@ check(claude._heading_label("### Translation from Danish to Swedish") is None, "
 check(claude._heading_label("**Swedish translation (sv):**") == "sv", "a code in parentheses decides")
 check(claude._heading_label("00:00:01,000 --> 00:00:03,000") is None, "a time line is no heading")
 
+# Word lists as chat models write them: list markers, emphasis and remarks are dropped, notes are no word pairs
+lines = ["- **memberkær** → **Membercare**", "1. teams møde => Teams-møde", "2) ka ef -> KF (product name)",
+         "* `udbetaling` = `Udbetaling`", "Note: rest = unchanged", "All other words were correct = nothing else changed",
+         "memberkær => Membercare"]
+check(claude.parse_words(lines) == [("memberkær", "Membercare"), ("teams møde", "Teams-møde"), ("ka ef", "KF"),
+                                    ("udbetaling", "Udbetaling"), ("memberkær", "Membercare")],
+      "parse_words drops list markers, emphasis and remarks, and skips notes and long phrases")
+text = (f"### Danish\n```\n{srt(da)}\n```\n### Swedish\n```\n{srt(sv)}\n```\n### Norwegian\n```\n{srt(no)}\n```\n"
+        "### Corrected words\n1. **memberkær** → **Membercare** (product name)\n")
+check(read(text)[0], "a numbered, bold word list under a heading gives the clean pair")
+
+# Selected on the rendered page and copied with the mouse: no fences, plain headings of several words
+rendered = (f"Here are the corrected subtitles.\n\nCorrected Danish text\n\n{srt(da)}\n\nSwedish translation\n\n"
+            f"{srt(sv)}\n\nNorwegian translation\n{srt(no)}\n\nCorrected words\nmemberkær → Membercare\n")
+good, msg = read(rendered)
+check(good, f"a copied rendered page (plain headings) is read per language | {msg}")
+text = (f"Danish\n\n{srt(da)}\n\nKlipforslag\n1-2 start Folk kommer ind\n\nKapitelforslag\n0:00 Intro\n0:30 Demo\n1:10 Spørgsmål\n\n"
+        "Resumé\nKort om det.\n")
+check(claude.answer_cuts(text) == ["1-2 start Folk kommer ind"] and len(claude.answer_outline(text).chapters) == 3
+      and claude.answer_outline(text).summary == "Kort om det.",
+      "Danish compound headings (Klipforslag, Kapitelforslag) are the cuts and the chapters")
+check(claude._heading_label("### Klipforslag") == "cuts" and claude._heading_label("**Kapitelforslag:**") == "chapters",
+      "compound section words also in markdown headings")
+check(claude._plain_heading("Det er nyt", "") is None and claude._plain_heading("Swedish translation", "Tak.") is None,
+      "a short plain line naming no section and not followed by a block is text")
+
+# A cut-off answer, then the whole answer again (what gui.parts.problem asks for) is accepted
+cut_off = f"```\n=== da ===\n{srt(da)}\n\n=== sv ===\n1\n00:00:01,000 --> 00:00:03,000\nVälkommen till Membercare.\n"
+have, _, msg = claude.check_answer(part, codes, cut_off)
+check(msg is not None and "da" in have and "sv" not in have, "a cut-off answer keeps the complete language only")
+whole = (f"```\n=== da ===\n{srt(da)}\n\n=== sv ===\n{srt(sv)}\n\n=== no ===\n{srt(no)}\n\n"
+         "=== words ===\nmemberkær => Membercare\n```")
+have, _, msg = claude.check_answer(part, codes, whole, have)
+check(msg is None and set(have) == set(codes), "the whole answer written again completes the part")
+
 # --- The prompt stands on its own ---------------------------------------------------------------------------------
 L = claude.LANG_BY_CODE
 for args in ((L["da"], True, [L["sv"], L["no"]], part, 1, 0, 1, True, L["sv"]),

@@ -1,7 +1,7 @@
 """The MCP side of taking over a job started in the app (docs/assistant-panel.md, "MCP take-over"), without a GUI:
 an app job published by the panel (jobs.publish_app_job) is found by status/wait/get_text without a job id, get_text
 marks it taken, save_text completes it; a job the user finished in an AI chat (by_user) is refused; app jobs an
-earlier run left open are cancelled at start; the guide and the instructions name the panel's phrase.
+earlier run left open (any origin) are cancelled at start; wait returns at once on an ended state; the guide and the instructions name the panel's phrase.
 The data folder is a temp folder. Run: python tests/test_take_over.py
 """
 import json
@@ -97,12 +97,37 @@ try:
 except ValueError as e:
     check("AI chat" in str(e), "save_text on a by_user job is refused")
 check("Nothing to do" in mcp_server.tool_status(j2), "status explains by_user")
+t0 = time.time()
+w = mcp_server.tool_wait(j2)
+check("Nothing to do" in w and time.time() - t0 < 2, "wait on a by_user job returns at once")
 
-# An app job left open by an earlier run is cancelled at start; others are left alone
+# Taken over in a queue: the text round ends, the video is made in a later round
+jq = jobs.publish_app_job("C:/v/q.mp4", jobs.cues_to_json(cues), task)
+jobs.set_status(jq, state="queued_later", percent=100)
+t0 = time.time()
+w = mcp_server.tool_wait(jq)
+check("later" in w and "ready and can be played" not in w and time.time() - t0 < 2,
+      "queued_later: wait returns at once and does not say the video is ready")
+check("queued_later" in guide.guide_text("Danish", [], []), "the guide explains queued_later")
+
+# At start every job an earlier run left open is cancelled, whatever its origin (the app was closed mid-turn);
+# ended jobs and a request still waiting in the inbox are left alone
 j3 = jobs.publish_app_job("C:/v/c.mp4", jobs.cues_to_json(cues), task)
-jobs.close_app_jobs("Stoppet i appen.")
-check(jobs.status(j3).get("state") == "cancelled" and jobs.status(j1).get("state") == "cancelled" and jobs.status(own).get("state") == "running"
-      and jobs.status(j2).get("state") == "by_user", "close_app_jobs cancels open app jobs only")
+mine = jobs.new_request("C:/v/mine.mp4", "da", None, "sv", False)
+for req in jobs.take_inbox():   # the app took both requests (own and mine)
+    jobs.accept(req)
+time.sleep(0.02)
+jobs.set_status(mine, state="claude_turn")   # an assistant's job, the app closed in its turn
+time.sleep(0.02)
+inbox = jobs.new_request("C:/v/next.mp4", "da", None, "sv", False)   # sent while the app was closed
+check(jobs.waiting_job() == mine, "before the cleanup the dead job looks like it is waiting")
+jobs.close_orphaned_jobs("Stoppet i appen.")
+check(jobs.status(j3).get("state") == "cancelled" and jobs.status(mine).get("state") == "cancelled"
+      and jobs.status(own).get("state") == "cancelled" and jobs.status(j2).get("state") == "by_user"
+      and jobs.status(jq).get("state") == "queued_later" and jobs.status(inbox).get("state") in (None, "queued"),
+      "close_orphaned_jobs cancels every open job, not ended ones or one still in the inbox")
+check(jobs.waiting_job() is None and "No job is waiting" in mcp_server.tool_get_text(),
+      "after the cleanup 'take over' finds no dead job")
 
 # The manual, the instructions and the tool list
 g = mcp_server.tool_guide()
@@ -120,8 +145,8 @@ tools = {t["name"]: t for t in mcp_server.TOOLS}
 check("required" not in tools["get_text"]["inputSchema"] and "take" in tools["get_text"]["description"].lower()
       and "take over" in tools["status"]["description"].lower(),
       "get_text needs no job id; get_text and status describe the take-over")
-check("by_user" in jobs.STATES and "by_user" in jobs.ENDED and "by_user" not in mcp_server.ACTIVE,
-      "by_user is an ended state")
+check(all(x in jobs.STATES and x in jobs.ENDED and x not in mcp_server.ACTIVE for x in ("by_user", "queued_later")),
+      "by_user and queued_later are ended states")
 
 print("all ok" if ok else "FAILED")
 sys.exit(0 if ok else 1)

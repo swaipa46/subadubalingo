@@ -42,16 +42,19 @@ Windows-program til ikke-tekniske brugere: undertekster (.srt og indbrændt) og 
 alt lokalt. Brugeren vælger kun video, talesprog, ny tale og nye undertekster; programmet genbruger eller laver selv
 det, der mangler, og brugeren flytter aldrig .srt-filer.
 
-Claude er altid i loopet ("halvt-halvt", brugeren har Claude Chat/Cowork, ikke Code): `subadubalingo/claude.py` laver en prompt
-pr. del (70-100 blokke), brugeren kopierer den til Claude og svaret tilbage. Ét svar indeholder den rettede tekst på
-talesproget (```srt-da), oversættelserne (```srt-sv osv.) og en ```ordliste med rettede ord. Programmet
-validerer blokke og tidskoder, gemmer filerne og føjer ordene til `rettelser.txt`, så de rettes allerede i næste
-transskription og sendes med i næste prompt. Claude-tjekket tekst huskes i `claude-tjekket.json`, så den ikke sendes igen.
+En AI-assistent er altid i loopet, på en af to måder (spec: [docs/assistant-panel.md](docs/assistant-panel.md)):
+et AI-værktøj med MCP (Claude desktop, Claude Code, Cursor ...) styrer appen selv via `mcp_server.py`, eller brugeren
+bruger en hvilken som helst AI-chat (ChatGPT, Gemini, Claude i browseren ...): kortet "AI-assistent" kopierer
+selvstændige instruktioner pr. del (`claude.prompt`, 70-100 blokke), og brugeren kopierer svaret tilbage
+(`claude.check_answer`). Ét svar indeholder den rettede tekst på talesproget, oversættelserne og de rettede ord.
+Programmet validerer blokke og tidskoder, gemmer filerne og føjer ordene til `corrections.txt`, så de rettes allerede
+i næste transskription og sendes med i næste prompt. Tjekket tekst huskes i `text_state.json`, så den ikke sendes
+igen.
 
 ## Opbygning
-- `app/subadubalingo/gui.py` - tkinter-GUI på dansk med Windows 11-tema (sv-ttk); to kolonner, Claude-panel til højre; arbejdet kører i en tråd, pause/fortsæt/annullér; kun ét vindue ad gangen.
+- `app/subadubalingo/gui.py` - tkinter-GUI på dansk med Windows 11-tema (sv-ttk); to kolonner, kortet "AI-assistent" (`ClaudePanel`) til højre; arbejdet kører i en tråd, pause/fortsæt/annullér; kun ét vindue ad gangen.
 - `app/subadubalingo/textstate.py` - fingeraftryk (størrelse + ændringstid) og tekstversion pr. .srt, så en ændret video eller en tekst fra en version med kendt fejl laves forfra.
-- `app/subadubalingo/engine.py` - transskription, indbrænding, dub, modeller, Claude-prompt og validering.
+- `app/subadubalingo/engine.py` - transskription, indbrænding, dub, modeller og validering (prompten til AI-assistenten ligger i `claude.py`).
 - `app/subadubalingo/common.py` - stier, sprog, filnavne, log, procesafvikling (pause = NtSuspendProcess), SRT.
 - `bin/` (ikke i git, hentes med `fetch-tools.ps1`):
   - whisper.cpp **Vulkan-build** fra SubtitleEdit/support-files (whispercpp-194). Kører også på CPU med `-ng`, og
@@ -127,8 +130,9 @@ de andre burde virke. Detaljer, opsætningerne og hvordan der testes: `docs/mcp-
   `parts/*.json`) efter at chat-visningen blev bygget, skifter det til MCP-visningen, og appen overtager jobbet som et
   MCP-job (`App.adopt_job`: `review_cuts` og `done` når også assistenten). Svar, brugeren allerede har sat ind fra en
   chat, droppes, så de to aldrig blandes; har brugeren sat alle dele ind, vinder chatten, og jobbet får tilstanden
-  `by_user`. Et kort, der lukkes uden overtagelse, sætter jobbet til `cancelled` (og appen lukker ved start de
-  app-jobs, en tidligere kørsel efterlod åbne). Manualen (`guide.py`, "Taking over a job started in the app") kender
+  `by_user`. Et kort, der lukkes uden overtagelse, sætter jobbet til `cancelled` (og appen lukker ved start alle
+  jobs, en tidligere kørsel efterlod åbne, også assistentens egne). I en kø får en overtaget runde tilstanden
+  `queued_later` i stedet for `done`, når videoen laves i en senere runde. Manualen (`guide.py`, "Taking over a job started in the app") kender
   sætningen på alle fire sprog. Test: `tests/test_take_over.py` (uden GUI) og `tests/test_assistant_panel.py`.
 
 ## Klip før undertekster og dub (v1.9)
@@ -229,7 +233,7 @@ Klip 5:00-6:00 af superbrugerwebinaret (60 s lyd):
   1920x1200 ved 150 %). Et job fra Claude venter i indbakken, mens en dialog er åben. Pause er slået fra under
   brugerens ture; Annullér spørger først. Claude-kortet er 1/4 bredde, mens det venter, og 2/5 på brugerens tur;
   færdig-visningen får hele bredden. I klipgennemgangen får tidslinjen den ekstra højde, og klip 1 er valgt.
-  Trin 2 i Claude-kortet bliver først grønt, når en svarfil dukker op. Anden start finder vinduet på
+  (Til og med 2.1.x blev trin 2 i Claude-kortet først grønt, når en svarfil dukkede op; fil-runden er væk i 2.2.0.) Anden start finder vinduet på
   klassen `TkTopLevel` (installationsvinduet har samme klasse og titel, men lever kun før appen starter).
 - Én stemme pr. person (v1.9.7, standard, `subadubalingo/speakers.py`): stemmeaftryk pr. sætning (sherpa-onnx, WeSpeaker ResNet34, 26 MB, hentes som de andre modeller; kun sætninger >= 3 s), average-linkage-klynger (cosinus 0,66), og to klynger med centroid >= 0,75 og under 8 Hz forskel i stemmeleje slås sammen (præsentatoren kom ellers ud som to personer). Køn efter stemmeleje; stemmerne deles ud efter taletid: sprogets egne stemmer først, derefter de samme flyttet ±2,5/4,5 halvtone (ffmpeg asetrate+atempo). Webinaret: Jesper nst, værten nst -2,5, Peter nst +2,5, Helle lisa, Marianne alma. Indstillinger: én stemme pr. person / mand-kvinde / samme stemme.
 - Mand/kvinde i dubben (v1.9.6, `engine.GENDER_VOICES`, `subadubalingo/pitch.py`): stemmelejet i den originale tale måles pr. sætning (autokorrelation, numpy). Under 160 Hz = mand, over 175 Hz = kvinde, ellers samme som sætningen før; enkeltstående skift glattes ud. Svensk nst (~80 Hz) og lisa (~186 Hz), engelsk ryan og lessac. Dansk og norsk har kun én stemme i Piper 1.2 (no_NO-nvcc kræver en nyere Piper). Webinaret: 230 sætninger mand, 21 kvinde (Marianne og Helle ramt rigtigt; mindst én tvivlsom ved 12:46). Kan slås fra i Indstillinger.

@@ -184,6 +184,10 @@ class VideoQueue:
         else:
             item.state, item.message = "skipped", str(info or "")
 
+    def later_round(self) -> bool:
+        """Whether the round running now is not the current video's last (PHASES: listen, claude, make)."""
+        return bool(self.current) and self.current[1] < len(PHASES) - 1
+
     def stop(self):
         """Drop the rest: the videos not started stay "waiting" (shown as not started)."""
         self.stopped = True
@@ -455,7 +459,7 @@ class QueueController:
     the done view's summary, dropping files and resuming after a restart. The App calls in at a few points (the
     `self.vq` lines in gui.py); everything else stays in the App as for one video.
 
-    Layout as in the design session's mockups queue-setup/-work/-done (assets/ui/README.md "Queue")."""
+    Layout as in the design system's mockups queue-setup/-work/-done (assets/ui/README.md "Queue")."""
 
     def __init__(self, app):
         self.app = app
@@ -1035,6 +1039,10 @@ class QueueController:
         if not self._ticking:
             self._ticking = True
             self._tick()
+
+    def later_round(self) -> bool:
+        """Whether the queue's current video has a round after the one running now (the video is made later)."""
+        return self.running and self.q.later_round()
 
     def job_ended(self, kind: str, info) -> bool:
         """A run ended (App._poll). Returns True when the queue takes it from here (the next round, or the summary)

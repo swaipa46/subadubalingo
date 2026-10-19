@@ -1,4 +1,4 @@
-"""The ttk side of a theme: the Sun Valley theme (light or dark) as the base, then the design session's colours, pixel
+"""The ttk side of a theme: the Sun Valley theme (light or dark) as the base, then the design system's colours, pixel
 frames and icons on top (assets/ui, see theme.py). Cards: every ttk LabelFrame is drawn with the card frame, and
 skin_cards() gives the widgets inside a card the card's background (ttk widgets cannot be transparent).
 """

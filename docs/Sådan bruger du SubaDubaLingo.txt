@@ -80,8 +80,8 @@ sprog, den nye video skal have. Brug den AI-chat, din arbejdsplads tillader
    Programmet opdager det selv, tjekker svaret og fortsætter. Du kan også
    klikke "Indsæt svar".
 Er teksten lang, er den delt i flere dele. Send dem i samme chat, én ad gangen.
-Var svaret ikke helt færdigt, står der, hvad der mangler. Bed chatten skrive
-resten, og kopiér det igen.
+Var svaret ikke helt rigtigt, står der, hvad der er galt. Bed chatten skrive
+hele svaret igen, og kopiér det.
 
 Programmet husker de ord, AI-assistenten retter, så de bliver rigtige næste
 gang, og sender dem med i instruktionerne.

@@ -40,6 +40,8 @@ while (step := q.next_step()) is not None:
     q.begin(item, phase)
     assert item.state == "running"
     order.append((Path(item.video).stem, qv.PHASES[phase]))
+    # A take-over of the Claude round is told "queued_later" (gui._poll): the video is made in a later round
+    assert q.later_round() == (qv.PHASES[phase] != "make"), (phase, q.later_round())
     if phase == 0 and item is b:
         q.skip(item, phase)          # nothing to listen to (subtitles already there)
     else:
@@ -48,6 +50,7 @@ while (step := q.next_step()) is not None:
 assert order == [("a", "listen"), ("b", "listen"), ("c", "listen"), ("a", "claude"), ("b", "claude"), ("c", "claude"),
                  ("a", "make"), ("b", "make"), ("c", "make")], order
 assert all(i.state == "done" and i.phase == 3 for i in q.items)
+assert not q.later_round()   # nothing running
 assert a.result == "C:/v/a-2.out" and a.files == ["C:/v/f0", "C:/v/f1", "C:/v/f2"] and a.words == [["fløv", "flow"]]
 
 # Errors, Claude rounds left unfinished and stops do not stop the others; their later rounds are not run

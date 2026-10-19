@@ -107,8 +107,12 @@ the take-over is ignored and the chat wins; the job then gets state `by_user`.
 
 **Ending.** A chat round that finishes sets the offered job to `by_user` ("the user did this turn in an AI chat";
 `get_text`/`save_text` then refuse with that message). A panel destroyed while still offering (Afbryd, the run
-stopped, the window closed) sets it to `cancelled` (`<Destroy>` binding). At start, `jobs.close_app_jobs` cancels
-app jobs a previous run (a crash) left open. `App._check_cancel` also honours the assistant's `cancel` for an
+stopped, the window closed) sets it to `cancelled` (`<Destroy>` binding). At start, `jobs.close_orphaned_jobs` cancels
+every job a previous run left open, whatever its origin (nothing can still run then; an assistant's job left in
+its turn when the app was closed would otherwise be found by `status`/`get_text` without an id); a request still in
+the inbox is kept. **In a queue** a taken-over round ends with state `queued_later` instead of `done` when the video
+has a later round (`QueueController.later_round`): the assistant is told its part is done and the app makes the
+video later, not that the video is ready. `wait` returns at once on every state in `jobs.ENDED`. `App._check_cancel` also honours the assistant's `cancel` for an
 offered job.
 
 ## MCP view (job from MCP, or taken over)
@@ -144,7 +148,7 @@ Claude-specific texts: `gui.settings.connect*`, `mcpclients.*`, installer texts 
 | `gui.parts.next_copy` (drops `{part}`) | Næste: klik "{copy}", sæt det ind i en AI-chat (Ctrl+V), og send. | Nästa: klicka på "{copy}", klistra in det i en AI-chatt (Ctrl+V) och skicka. | Neste: klikk "{copy}", lim det inn i en AI-chat (Ctrl+V), og send. | Next: click "{copy}", paste it into an AI chat (Ctrl+V) and send. |
 | `gui.parts.copied` | Kopieret. Sæt det ind i AI-chatten med Ctrl+V, og send. | Kopierat. Klistra in i AI-chatten med Ctrl+V och skicka. | Kopiert. Lim inn i AI-chatten med Ctrl+V og send. | Copied. Paste it into the AI chat with Ctrl+V and send. |
 | `gui.parts.waiting` | Venter på svaret på {part}. Når AI-chatten er færdig, så kopiér hele svaret (kopiknappen i chatten). Programmet opdager det selv. | Väntar på svaret på {part}. När AI-chatten är klar, kopiera hela svaret (kopieringsknappen i chatten). Programmet märker det själv. | Venter på svaret på {part}. Når AI-chatten er ferdig, kopier hele svaret (kopiknappen i chatten). Programmet oppdager det selv. | Waiting for the answer to {part}. When the AI chat is done, copy the whole answer (the copy button in the chat). The program notices by itself. |
-| `gui.parts.problem` (new) | Svaret på {part} var ikke helt færdigt. Bed AI-chatten skrive resten, og kopiér det igen. | Svaret på {part} var inte helt klart. Be AI-chatten skriva resten och kopiera det igen. | Svaret på {part} var ikke helt ferdig. Be AI-chatten skrive resten, og kopier det igjen. | The answer to {part} was not quite finished. Ask the AI chat to write the rest, and copy it again. |
+| `gui.parts.problem` (new) | Svaret på {part} var ikke helt rigtigt. Bed AI-chatten skrive hele svaret igen, og kopiér det. | Svaret på {part} var inte helt rätt. Be AI-chatten skriva hela svaret igen och kopiera det. | Svaret på {part} var ikke helt riktig. Be AI-chatten skrive hele svaret på nytt, og kopier det. | The answer to {part} was not quite right. Ask the AI chat to write the whole answer again, and copy it. |
 | `gui.parts.split` | Teksten er delt i {n} dele, så svaret ikke bliver for langt. Send dem i samme chat, én ad gangen. | Texten är delad i {n} delar så att svaret inte blir för långt. Skicka dem i samma chatt, en i taget. | Teksten er delt i {n} deler, så svaret ikke blir for langt. Send dem i samme chat, én om gangen. | The text is split into {n} parts so the answer is not too long. Send them in the same chat, one at a time. |
 | `gui.parts.data` (new) | Brug den AI-chat, din arbejdsplads tillader. | Använd den AI-chatt som din arbetsplats tillåter. | Bruk den AI-chatten arbeidsplassen din tillater. | Use the AI chat your workplace allows. |
 | `gui.parts.mcp_nudge` (new) | Har du forbundet en AI-assistent? Skriv til den: | Har du kopplat en AI-assistent? Skriv till den: | Har du koblet til en AI-assistent? Skriv til den: | Connected an AI assistant? Write to it: |
@@ -314,10 +318,12 @@ allowlist. "Customize -> Skills" stays in English: it is the label in Claude's o
   it; a `taken.json` older than `chat_since` does not switch; `get_text` switches to the MCP view, the app adopts
   the job and pasted parts are dropped; `save_text` and `complete.json` finish it. The chat finishing first gives
   `by_user` (and `get_text` refuses); a panel closed without a take-over cancels the job; an MCP job moved to the
-  chat comes back on `get_text`. `complete.json` finishes the round in either view.
+  chat comes back on `get_text`. `complete.json` finishes the round in either view. The take-over view gets the
+  card's styles; without a published job (publishing failed) the take-over phrase is not shown.
 - Without a GUI (`tests/test_take_over.py`): `waiting_job` prefers `claude_turn`; `status`/`wait`/`get_text` without
   an id, also over JSON-RPC with an old `skill` argument; `taken_since` from `taken.json` and from `parts/`;
-  `by_user` refused; `close_app_jobs`; the guide's phrases equal the locales'; instructions and tool descriptions.
+  `by_user` refused; `wait` returns at once on `by_user` and `queued_later`; `close_orphaned_jobs` (any origin,
+  not the inbox); the guide's phrases equal the locales'; instructions and tool descriptions.
 - MCP view's switch button opens the chat view.
 - `claude.prompt()` names no skill and no product (`tests/test_claude_answers.py`).
 - Locales (new `tests/test_locales.py`; today only some areas have a per-file key check): every area file has the

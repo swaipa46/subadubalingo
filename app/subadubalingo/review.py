@@ -29,7 +29,7 @@ from .i18n import t
 from .theme import IMG, P, PIXEL_FONT, TERMINAL_FONT
 
 
-# Colours for a kind the theme's tokens.json does not have yet (the design session adds them): per theme, (border, fill)
+# Colours for a kind the theme's tokens.json does not have yet (add them to assets/ui/*/tokens.json when the kind gets its design): per theme, (border, fill)
 KIND_FALLBACK = {"light": {"filler": ("#4d7c0f", "#ecf5dc")}, "night": {"filler": ("#a3e635", "#26350f")}}
 FILLER_CONTEXT_MS = 1500   # "Hør det" on a filler cut: this much before and after it, so it is heard in context
 

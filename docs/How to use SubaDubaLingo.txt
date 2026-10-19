@@ -80,8 +80,8 @@ workplace allows (Copilot, ChatGPT, Gemini or Claude, for example):
    The program notices by itself, checks the answer and carries on. You can
    also click "Paste answer".
 If the text is long, it is split into parts. Send them in the same chat, one
-at a time. If the answer was not quite finished, the program says what is
-missing. Ask the chat to write the rest, and copy it again.
+at a time. If the answer was not quite right, the program says what is
+wrong. Ask the chat to write the whole answer again, and copy it.
 
 The program remembers the words the AI assistant corrects, so they come out
 right next time, and sends them along in the instructions.

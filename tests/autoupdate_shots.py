@@ -34,7 +34,7 @@ out.mkdir(parents=True, exist_ok=True)
 suffix = "" if forced_lang == "da" else f"-{forced_lang}"
 theme.resolve = lambda choice: forced_theme
 if "--ui" in sys.argv:
-    # The design session's newer assets/ui (e.g. the uncommitted frames/update-banner in the main checkout), with
+    # A newer assets/ui from another checkout (e.g. the uncommitted frames/update-banner in the main checkout), with
     # this branch's fonts and texts: junctions in a temp assets folder
     import subprocess
     mixed = T / "assets"

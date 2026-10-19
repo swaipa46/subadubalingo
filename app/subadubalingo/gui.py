@@ -356,7 +356,7 @@ class App:
         self.vq = queue_view.QueueController(self)   # several videos in a queue (queue_view.py)
         try:
             jobs.cleanup()
-            jobs.close_app_jobs("Stoppet i appen.")   # offered by an earlier run that ended without closing them
+            jobs.close_orphaned_jobs("Stoppet i appen.")   # left open by an earlier run that ended without closing them
         except Exception:
             log.exception("job cleanup failed")
 
@@ -1849,7 +1849,9 @@ class App:
                     self._running = False
                     if kind == "done":
                         learned = "; ".join(f"{w} => {r}" for w, r in self.learned_words)
-                        self._jstatus(state="done", percent=100, result=str(ev[1]),
+                        # A round taken over in a queue: the video itself is made in a later round, maybe much later
+                        later = self.vq.later_round()
+                        self._jstatus(state="queued_later" if later else "done", percent=100, result=str(ev[1]),
                                       files=[str(f) for f in self.created],
                                       message=f"Programmet har lært disse rettelser: {learned}" if learned else "")
                     elif kind == "error":
@@ -2938,6 +2940,7 @@ class ClaudePanel(ttk.Frame):
             self.body.rowconfigure(r, weight=0)
         self.app.adopt_job(job)
         self._build_mcp_mode(publish=False)
+        skin.skin_cards(self.app.main)   # the MCP view's widgets are new: they need the card's styles too
 
     # --- Chat view: copy the instructions into any AI chat, copy the answer back ------------------------
 
@@ -3019,7 +3022,11 @@ class ClaudePanel(ttk.Frame):
         data = ttk.Label(b, text=t("gui.parts.data"), style="Hint.TLabel", justify="left")
         data.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         self.app._wrap(data, b, 10)
-        # An assistant with MCP can take the job over: it finds the published job (_offer) and get_text takes it
+        self._guide()
+        # An assistant with MCP can take the job over: it finds the published job (_offer) and get_text takes it.
+        # Without a published job (it could not be written) the phrase would do nothing, so it is not shown.
+        if not (self.offered_job or self.mcp_job):
+            return
         nudge = ttk.Frame(b)
         nudge.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         nudge.columnconfigure(0, weight=1)
@@ -3032,7 +3039,6 @@ class ClaudePanel(ttk.Frame):
         ttk.Label(line, text=f"\"{self.phrase}\"", font="SunValleyBodyStrongFont").pack(side="left")
         self.phrase_btn = skin.IconButton(line, "copy", text=t("gui.parts.copy_phrase"), command=self._copy_phrase)
         self.phrase_btn.pack(side="left", padx=(8, 0))
-        self._guide()
 
     def _part_state(self, i: int, nxt: int | None) -> str:
         if self.answers[i]:
