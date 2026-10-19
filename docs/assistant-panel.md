@@ -8,7 +8,10 @@ The right-hand card on the work view, where the assistant's turn happens. Replac
 - **MCP view** (`mode = "mcp"`): the job came from an MCP assistant, or an MCP assistant took over an app job.
   Today's progress view, unchanged in look.
 
-No new visual language: everything below is an existing widget, style, icon or colour token.
+No new visual language: everything below is an existing widget, style, icon or colour token. Design is done in
+this repo by the developing Claude, following the design system (`assets/ui/README.md`, `skin.py`, theme tokens);
+there is no separate design session and no task goes to the design repo. Kasper can open Claude Design for mockups
+if he wants them.
 
 ## Card and idle state
 
@@ -165,8 +168,105 @@ the existing sentence otherwise stays. Message box titles `"Claude"` in gui.py u
 
 Only the "Tekst og stemmer" card changes: the links row loses "Gem Claude-skill..." and becomes
 `Åbn modelmappe` · `Rediger rettelser` · `Åbn log` (same `ttk.Button`s, same 6 px gaps). `_save_skill` goes.
-"Brug med andre AI-værktøjer" (with "Forbind med Claude") is unchanged. `Settings.skill_installed` is dropped
-(ignored when an old settings.json still has it).
+"Brug med andre AI-værktøjer" (with "Forbind med Claude") is unchanged. `Settings.skill_installed` is dropped as a
+setting, but an old settings.json's value is first read as an upgrade signal (next section), then popped like the
+v1.0 `model` key so it is not written back.
+
+## Upgrade: "delete the old skill" notice (shown once)
+
+Every version up to 2.1.x shipped a Claude skill (`subadubalingo`, earlier `videosprog`) that users uploaded to
+Claude. Left in Claude, it tells Claude about task files and a protocol the app no longer has. Users who come from
+such a version are asked once, right after the update, to delete it. Fresh installs never see it.
+
+### Who sees it
+
+A pure function, testable on Linux, in a new small module `app/subadubalingo/upgrade_notice.py` (which also holds
+the dialog, so gui.py does not grow):
+
+```python
+SKILL_REMOVED_IN = "2.2.0"   # the first version without the skill (the APP_VERSION this ships in)
+
+def needs_old_skill_notice(saved: dict | None) -> bool:
+    """saved: settings.json as read at start, None when there was no file (a fresh install)."""
+    if not saved or saved.get("old_skill_notice_done"):
+        return False
+    if (saved.get("skill_installed") or 0) > 0:
+        return True
+    last = saved.get("last_version") or ""
+    return not last or _vtuple(last) < _vtuple(SKILL_REMOVED_IN)   # installer._vtuple
+```
+
+- No settings file: fresh install, never. A settings file without `last_version` was written by 2.1.x or older
+  (every one of them wrote `skill_installed`), so it counts as an upgrade even when `skill_installed` is 0 (0 meant
+  "unknown", not "absent": the skill could have been saved from Indstillinger).
+- `Settings.__init__` keeps the parsed file as `self._saved` (None when missing or unreadable); `Settings.save()`
+  skips keys starting with `_`. New settings: `last_version = ""` and `old_skill_notice_done = False`.
+- At every start, `App.__init__` decides first and then writes `last_version = APP_VERSION`. A fresh install also
+  sets `old_skill_notice_done = True` right away, so nothing later can mistake it for an upgrade.
+
+### When and where
+
+- In the slot the removed SkillGuide had: 900 ms after the main window is built, on the main window, not modal
+  (`transient`, `place_over`), one dialog at a time (`offer_crash_report` and `_call_attention` look at
+  `app._notice` instead of `app._skill_guide`).
+- Not in a session the app was started in by an MCP assistant (the launch flag, see "Removed" below): the user is
+  mid-chat there, and the server's instructions already tell the assistant to mention it. The notice then waits for
+  the next normal start; the flag stays unset until it has been shown.
+- It may show together with the "LEVEL UP Version 2.2.0" update band (autoupdate); they do not overlap (band in
+  the window, notice as its own dialog).
+- `old_skill_notice_done = True` is saved the moment the dialog is shown (not on close), so a crash or a kill cannot
+  make it show twice. Any way of closing it (button, ×, Escape, Enter) just closes it.
+
+### Look (existing dialog pattern, as the removed SkillGuide and the report dialog)
+
+`tk.Toplevel` themed by `place_over` -> `skin.dialog`, `ttk.Frame(padding=18)`, wrap width `520 * app.scale`:
+
+1. Heading `oldskill.heading`, `Section.TLabel`, `P.heading`; window title the same text.
+2. Intro `oldskill.intro` (`app=APP_NAME`), plain `ttk.Label`, `pady=(6, 12)`.
+3. Two numbered steps, plain `ttk.Label`s, `pady=2`, `"1.  "` / `"2.  "` prefix as before:
+   `oldskill.step_open`, then `oldskill.step_delete` with
+   `names = f" {t('gui.and')} ".join(f'"{n}"' for n in OLD_SKILL_NAMES)`, where `OLD_SKILL_NAMES =
+   ("subadubalingo", "videosprog")` lives in `upgrade_notice.py` (`claude.SKILL_NAME` / `OLD_SKILL_NAMES` go).
+4. `oldskill.no_claude` in `Hint.TLabel`, `pady=(10, 0)`.
+5. One button, `Accent.TButton`, `default="active"`, focus: `oldskill.ok`. Escape and Enter close.
+
+No icon, no art: it is a short housekeeping note, not an event.
+
+### Texts (new area file `assets/locales/<code>/oldskill.json`)
+
+These are Claude-specific on purpose (it is Claude's skill list), so `oldskill.*` is on the "may say Claude"
+allowlist. "Customize -> Skills" stays in English: it is the label in Claude's own UI.
+
+| Key | da | sv | no | en |
+|---|---|---|---|---|
+| `oldskill.heading` | Ryd op i Claude | Städa upp i Claude | Rydd opp i Claude | Tidy up in Claude |
+| `oldskill.intro` | {app} bruger ikke længere en Claude-skill. Har du lagt skill'en ind i Claude, så slet den, så Claude ikke bliver forvirret. Det tager et minut, og du skal kun gøre det én gang. | {app} använder inte längre någon Claude-skill. Har du lagt in skillen i Claude, ta bort den så att Claude inte blir förvirrad. Det tar en minut, och du behöver bara göra det en gång. | {app} bruker ikke lenger en Claude-skill. Har du lagt skillen inn i Claude, så slett den, så Claude ikke blir forvirret. Det tar et minutt, og du trenger bare gjøre det én gang. | {app} no longer uses a Claude skill. If you added the skill to Claude, delete it so Claude does not get confused. It takes a minute, and you only do it once. |
+| `oldskill.step_open` | Åbn Claude, og gå til Customize -> Skills. | Öppna Claude och gå till Customize -> Skills. | Åpne Claude, og gå til Customize -> Skills. | Open Claude and go to Customize -> Skills. |
+| `oldskill.step_delete` | Slet {names}, hvis de er der. | Ta bort {names}, om de finns där. | Slett {names}, hvis de er der. | Delete {names}, if they are there. |
+| `oldskill.no_claude` | Bruger du ikke Claude, eller har du aldrig lagt skill'en ind, så skal du ikke gøre noget. | Använder du inte Claude, eller har du aldrig lagt in skillen, behöver du inte göra något. | Bruker du ikke Claude, eller har du aldri lagt inn skillen, trenger du ikke gjøre noe. | If you do not use Claude, or never added the skill, there is nothing to do. |
+| `oldskill.ok` | Forstået | Uppfattat | Forstått | Got it |
+
+### MCP side of the cleanup (round 2, server)
+
+- `instructions()` and `guide.py` (the overview section the `guide` tool, prompt and resources serve) say, in
+  English for the assistant: a skill called "subadubalingo" or "videosprog" is obsolete; ignore it, never follow its
+  task-file or answer-file steps, and tell the user once, briefly, that they can delete it in Claude under
+  Customize -> Skills.
+- `get_text` keeps accepting the old `skill` argument (a stale skill still sends it) and ignores it silently:
+  no `skill.json`, no note in the reply. It is no longer in the tool's input schema.
+- guide.py's line "Never ask the user to install a Claude skill" stays.
+
+### Tests (`tests/test_upgrade_notice.py`, runs on Linux)
+
+- Fresh install (`saved=None`): never; and after the first start's save, the next start's settings also give False.
+- Upgrade: a 2.1.1 settings file (`skill_installed` 6, no `last_version`) -> True; `skill_installed` 0 and no
+  `last_version` -> True; `last_version` "2.1.1" -> True.
+- Once: after the notice is shown (`old_skill_notice_done` saved), the next start gives False; a settings file with
+  `last_version` >= `SKILL_REMOVED_IN` and no `skill_installed` -> False.
+- `Settings.save()` does not write `_saved` or `skill_installed`.
+- Started by an MCP assistant: not shown, flag still unset (decision helper takes the launch flag, or the App-side
+  check is a separate small function tested the same way).
+- The four `oldskill.json` files have the same keys; `step_delete` has `{names}`, `intro` has `{app}`.
 
 ## Tests (`tests/test_assistant_panel.py` unless noted)
 
@@ -178,5 +278,18 @@ Only the "Tekst og stemmer" card changes: the links row loses "Gem Claude-skill.
   does not. `complete.json` finishes the round in either view.
 - MCP view's switch button opens the chat view.
 - `claude.prompt()` names no skill and no product (`tests/test_claude_answers.py`).
-- Locales: no `gui.skill.*` / file-mode keys left; no da value outside the Claude-specific allowlist contains
-  "Claude"; the four languages have the same keys (existing locale test).
+- Locales (new `tests/test_locales.py`; today only some areas have a per-file key check): every area file has the
+  same keys in da/sv/no/en; no `gui.skill.*` / file-mode keys left; no da value contains "Claude" outside the
+  allowlist (`gui.settings.connect*`, `mcpclients.*`, `installer.*` texts about Claude desktop, `oldskill.*`).
+- The upgrade notice: see its own section.
+
+## Removed with the skill and the file round (for the implementer)
+
+- `SkillGuide`, `App.show_skill_guide`, `App.note_skill`, `_skill_warning` (and its use in `_show_result`),
+  the `skill_installed < SKILL_VERSION` start check; ClaudePanel's file mode (`_build_file_mode`, `_set_fstep`,
+  `_draw_fstep`, `_copy_file`, `_pick_answer`, `_scan_downloads`, `_try_answer_file`, `_show_problem`,
+  `_copy_followup`, the file part of `_tick`, `_to_parts` as a switch).
+- `--from-claude`: the decision lists it with the file round, but in code it is the flag `mcp_server._start_app`
+  passes when an assistant starts the app (it skips the install offer, the resume offer, the crash-report offer and
+  the start-up notices). Keep that behaviour under a neutral name, `--from-assistant`, and still accept
+  `--from-claude` (a running 2.1.x MCP server can start the new app during an update).
