@@ -13,6 +13,11 @@ this repo by the developing Claude, following the design system (`assets/ui/READ
 there is no separate design session and no task goes to the design repo. Kasper can open Claude Design for mockups
 if he wants them.
 
+**Status (2026-10-19):** round 1 is built: the skill and the file round are gone, the chat view is the default, the
+texts are neutral, the old-skill notice and the MCP side of the cleanup are in. Round 2 is open: the MCP take-over
+(publishing the app job, `taken.json`, `app.adopt_job`, the phrase in the server and `guide.py`) and its tests. The
+nudge line is in the panel already.
+
 ## Card and idle state
 
 - Card title: `" Claude "` (hard-coded) becomes `t("gui.claude.card_title")`.
@@ -190,19 +195,28 @@ def needs_old_skill_notice(saved: dict | None) -> bool:
     """saved: settings.json as read at start, None when there was no file (a fresh install)."""
     if not saved or saved.get("old_skill_notice_done"):
         return False
+    if saved.get("old_skill_notice_pending"):
+        return True
     if (saved.get("skill_installed") or 0) > 0:
         return True
-    last = saved.get("last_version") or ""
-    return not last or _vtuple(last) < _vtuple(SKILL_REMOVED_IN)   # installer._vtuple
+    last = saved.get("last_version")
+    if last:
+        return _vtuple(last) < _vtuple(SKILL_REMOVED_IN)
+    return "skill_installed" in saved
 ```
 
-- No settings file: fresh install, never. A settings file without `last_version` was written by 2.1.x or older
-  (every one of them wrote `skill_installed`), so it counts as an upgrade even when `skill_installed` is 0 (0 meant
-  "unknown", not "absent": the skill could have been saved from Indstillinger).
+- No settings file: fresh install, never. Every app of 2.1.x and older wrote all its settings, `skill_installed`
+  among them (0 meant "unknown", not "absent": the skill could have been saved from Indstillinger), and no
+  `last_version`, so such a file counts as an upgrade even when `skill_installed` is 0.
+- **Implemented differently from the first draft:** a file without `last_version` is *not* enough on its own. The
+  installer's first-start language page writes `settings.json` with only `ui_language` before the app's first start,
+  so a fresh install has a file too. Without `skill_installed` and `last_version` it is a fresh install.
 - `Settings.__init__` keeps the parsed file as `self._saved` (None when missing or unreadable); `Settings.save()`
-  skips keys starting with `_`. New settings: `last_version = ""` and `old_skill_notice_done = False`.
-- At every start, `App.__init__` decides first and then writes `last_version = APP_VERSION`. A fresh install also
-  sets `old_skill_notice_done = True` right away, so nothing later can mistake it for an upgrade.
+  skips keys starting with `_`. New settings: `last_version`, `old_skill_notice_done`, `old_skill_notice_pending`.
+- At every start, `App.__init__` calls `upgrade_notice.decide_at_start` first: it records `last_version =
+  APP_VERSION`, marks a fresh install (or anything not needing the notice) as done at once, and sets
+  `old_skill_notice_pending` when the notice is due, so a session an assistant started (which writes `last_version`
+  too) cannot lose it: the next normal start shows it.
 
 ### When and where
 
@@ -211,7 +225,7 @@ def needs_old_skill_notice(saved: dict | None) -> bool:
   `app._notice` instead of `app._skill_guide`).
 - Not in a session the app was started in by an MCP assistant (the launch flag, see "Removed" below): the user is
   mid-chat there, and the server's instructions already tell the assistant to mention it. The notice then waits for
-  the next normal start; the flag stays unset until it has been shown.
+  the next normal start (`old_skill_notice_pending`); the done flag stays unset until it has been shown.
 - It may show together with the "LEVEL UP Version 2.2.0" update band (autoupdate); they do not overlap (band in
   the window, notice as its own dialog).
 - `old_skill_notice_done = True` is saved the moment the dialog is shown (not on close), so a crash or a kill cannot

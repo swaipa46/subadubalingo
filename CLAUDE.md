@@ -11,11 +11,12 @@ how releases and design work). This file holds the rules that apply to every ses
 - **Releases:** never publish a release yourself. Bump `APP_VERSION`, push, let `release-build` make the zip, then ask
   Kasper to run `tools\release.ps1` on his PC (it installs, walks him through a checklist, signs and publishes). The
   signing key exists only on his PC.
-- **Design:** UI work follows the design system (`assets/ui/README.md`) and the design session's mockups. Coordinate
-  through `tasks.md` in the private repo swaipa46/subadubalingo-design (rules at its top). Align until the design
-  session reports no deviations.
+- **Design:** there is no separate design session (since 2026-10-19). Do the design here yourself, following the
+  design system (`assets/ui/README.md`, `skin.py`, the theme tokens) and the look of what exists; check it in the CI
+  screenshots in both themes. Kasper can open Claude Design if he wants mockups. Add no tasks to the design repo.
 - **Users are not technical:** short, friendly, no jargon in anything they see. Videos never leave the PC; only text
-  goes to the AI assistant.
+  goes to the AI assistant. Say "AI-assistent"/"AI-chat" where any assistant is meant; "Claude" only where it really
+  is Claude (connecting Claude desktop, the MCP client list).
 - **Never** send mail or messages on Kasper's behalf, never handle passwords or tokens (he puts secrets in place
   himself), never commit secrets (the repo is public).
 - **Tests:** add or update a `tests/test_*.py` for every behaviour change; CI must be green before asking for a release.

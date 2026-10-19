@@ -26,7 +26,7 @@ et privat repo (et token i appen er udelukket).
 
 ```json
 {"version": "2.1.0", "zip": "SubaDubaLingo-2.1.0.zip", "size": 134217728, "sha256": "...",
- "notes": "Kort på dansk til brugeren", "skill": 5, "signature": "<ed25519 over de andre felter>"}
+ "notes": "Kort på dansk til brugeren", "signature": "<ed25519 over de andre felter>"}
 ```
 
 - `signature` er Ed25519 over alle de andre felter, sorteret og kompakt (`update.manifest_bytes`).
@@ -37,8 +37,8 @@ et privat repo (et token i appen er udelukket).
     overtages.
 - `size` og `sha256` fanger en afbrudt eller ødelagt download og en zip, der er byttet ud på serveren. De er
   dækket af signaturen.
-- `notes` vises som tooltip på båndet. `skill` er til orientering, for den nye version viser selv SkillGuide, hvis
-  dens skill er nyere end den, brugeren har lagt ind.
+- `notes` vises som tooltip på båndet. Manifester til og med 2.1.x havde også `skill` (Claude-skill'ens version);
+  feltet er signeret med resten og ignoreres.
 
 ## 3. Installationsform: én mappe pr. version
 
@@ -86,9 +86,10 @@ Opdateringen rører aldrig en mappe, der er i brug (v1.9.10):
    - Knappen er grå, mens en video bliver lavet (tooltip "Når videoen er færdig").
    - Ellers skifter den som i afsnit 3, slipper programmets enkelt-instans-mutex og starter den nye exe med
      `--updated-from <gammel version>`, og så lukker den gamle.
-   - Den nye viser én gang "LEVEL UP Version 2.1.0 · Opdateret fra 2.0.0. Dine indstillinger er bevaret." og
-     SkillGuide, hvis dens skill er nyere.
-6. **Startet af Claude** (`--from-claude`): et job afbrydes aldrig. Genstart nu er grå under kørslen, og en download
+   - Den nye viser én gang "LEVEL UP Version 2.1.0 · Opdateret fra 2.0.0. Dine indstillinger er bevaret." Kommer
+     brugeren fra en version med Claude-skill'en (til og med 2.1.x), beder den også én gang om at slette skill'en i
+     Claude (`upgrade_notice.py`).
+6. **Startet af en AI-assistent** (`--from-assistant`, og `--from-claude` fra 2.1.x-servere): et job afbrydes aldrig. Genstart nu er grå under kørslen, og en download
    venter, til den er færdig.
 
 Til test kan miljøvariablen `SUBADUBALINGO_UPDATE_URL` pege på et andet manifest. Signaturen tjekkes stadig mod
@@ -102,14 +103,14 @@ tools\publish.ps1 -Notes "Kort på dansk til brugeren"
 
 1. Den kører `build.ps1` (til `dist-release\`), med versionen fra `common.APP_VERSION`.
 2. Den kopierer zip'en til `dist-release\release-<version>\SubaDubaLingo-<version>.zip`.
-3. Den skriver `latest.json` med version, zip-navn, størrelse, SHA-256, noter og skill-version.
+3. Den skriver `latest.json` med version, zip-navn, størrelse, SHA-256 og noter.
 4. Den signerer med `tools\release_key.py sign` og tjekker signaturen med appens egen `update.manifest_ok`.
 5. Den skriver den `gh release create v<version> ...`-kommando, der skal køres. Scriptet uploader ikke selv noget.
 
 Flag:
 
 - `-SkipBuild` genbruger en zip, der allerede er bygget.
-- `-Zip <sti>` bruger en zip fra release-build-workflowet (version og skill fra `build-info.json` ved siden af).
+- `-Zip <sti>` bruger en zip fra release-build-workflowet (versionen fra `build-info.json` ved siden af).
   `tools\release.ps1` gør det for dig, se [release.md](release.md).
 - `-DryRun` bygger og signerer ikke. Den skriver et usigneret manifest og kommandoerne, så man kan se, hvad der
   ville ske.

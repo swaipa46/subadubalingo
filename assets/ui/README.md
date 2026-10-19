@@ -55,10 +55,10 @@ cut the 9 parts with `PhotoImage.copy`/`subsample` once at start and draw them.
 
 | File | Slice l / t / r / b (1x px) | Use |
 |---|---|---|
-| `frames/card.png` | 16 / 16 / 20 / 20 | Every card: video, options, steps, the idle Claude card. |
-| `frames/card-your-turn-0.png` | 18 / 18 / 24 / 24 | Claude card on the user's turn; alternate with -1 every ~600 ms so it pulses. |
+| `frames/card.png` | 16 / 16 / 20 / 20 | Every card: video, options, steps, the idle assistant card ("AI-assistent"). |
+| `frames/card-your-turn-0.png` | 18 / 18 / 24 / 24 | Assistant card on the user's turn; alternate with -1 every ~600 ms so it pulses. |
 | `frames/card-your-turn-1.png` | 18 / 18 / 24 / 24 | Second pulse state (border and shadow colours swapped). |
-| `frames/dialog.png` | 20 / 20 / 28 / 28 | Outer frame of Indstillinger, the skill guide and the install/update window, inside the OS title bar. |
+| `frames/dialog.png` | 20 / 20 / 28 / 28 | Outer frame of Indstillinger, the one-time notices (e.g. the old-skill notice) and the install/update window, inside the OS title bar. |
 | `frames/banner.png` | 18 / 18 / 24 / 24 | Frame for any custom banner (art/done-banner.png already includes it). |
 | `frames/callout.png` | 14 / 14 / 14 / 14 | The "din tur" callout band under the progress bar (fill and border in callout_bg, no shadow). |
 | `frames/timeline.png` | 16 / 16 / 20 / 20 | Frame around the cut-review Canvas. |
@@ -312,7 +312,7 @@ the old single-video card is shown. The list appears from the second video.
 
 - "Klip videoerne først …";
 - "Forbedr lyden …" (see 8);
-- "Godkend Claudes klipforslag uden at gennemse dem". Its hint says that this lets the queue run overnight.
+- "Godkend AI-assistentens klipforslag uden at gennemse dem". Its hint says that this lets the queue run overnight.
   Otherwise each video waits for you at "Du gennemser klippene", and the queue moves on to the next video meanwhile;
 - "Når køen er færdig:", a combo with Gør ingenting / Sluk pc'en / Gå i dvale.
 
@@ -328,7 +328,7 @@ add videos while the queue runs.
     klip" in `your_turn_title`, "Venter" in `hint`.
   - The running row has `picker_hover_bg`.
 - **Below that card:** "Arbejder på" + name, the progress bar, then "Pause køen" and "Annullér denne video".
-- **Right:** when a video waits for you, the Claude card turns into the your-turn card for that video, with the
+- **Right:** when a video waits for you, the assistant card turns into the your-turn card for that video, with the
   buttons "Gennemse klippene nu" (primary) and "Senere".
 
 **Done view.**
@@ -425,7 +425,7 @@ it plays, it shows `stop`.
 
 - **Placement:** on the done view, a card "Kapitler og beskrivelse" replaces the compact step list in the right
   column. The step list appears only after an error.
-- **Card header:** "FRA CLAUDE" in Press Start 2P 10 px `hint` on the right.
+- **Card header:** "FRA AI" in Press Start 2P 10 px `hint` on the right.
 - **Description:** two or three sentences in `text`.
 - **Chapters:** 28 px rows, with the time in VT323 20 px `heading` (70 px wide) and then the title.
 - **Buttons:** "Kopiér kapitler" and "Kopiér beskrivelse" (`copy`, 40 px). After copying, a button reads

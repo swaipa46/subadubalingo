@@ -49,27 +49,27 @@ proces. Beskeden "SubaDubaLingo er opdateret, genstart Claude" virker som før.
 
 ## Serveren er sin egen manual
 
-Claude-skill'en findes kun i Claude, og nogle værktøjer ignorerer serverens `instructions`. Derfor:
+Nogle værktøjer ignorerer serverens `instructions`. Derfor:
 
 - **Værktøjsbeskrivelserne** bærer arbejdsgangen. `start_video` har hele forløbet på én linje: `guide` (én gang) ->
   `start_video` -> `wait` -> på `claude_turn`: `get_text`, `save_text`, `suggest_cuts`, `save_chapters` -> på
   `review_cuts`: spørg brugeren, `approve_cuts` -> `wait` til færdig.
 - **Værktøjet `guide`** (uden argumenter, eller `section`: `steps`, `text`, `cuts`, `chapters`, `words`, `never`)
   giver hele manualen: trinene, jobtilstandene, reglerne for rettelser, oversættelse, klip (også `filler`) og
-  kapitler/resumé, brugerens ordliste (fra `corrections.txt`, som skill'ens `words.md`), hvilket sprog der tales med
+  kapitler/resumé, brugerens ordliste (fra `corrections.txt`), hvilket sprog der tales med
   brugeren (appens sprog) og hvad der aldrig må gøres.
 - **Prompt og ressourcer** til værktøjer, der bruger dem: prompten `subadubalingo_workflow` (valgfri `video` og
   `request`; en slash-kommando i Gemini CLI og Claude Code) og ressourcerne `subadubalingo://guide` og
   `subadubalingo://guide/<section>`. De meldes i `initialize`; et værktøj uden dem spørger aldrig.
 - `initialize`'s `instructions` er der stadig og peger på `guide`.
 
-Manualen (`app/subadubalingo/guide.py`) og Claude-skill'en (`claude.SKILL_MD`) bygges af de samme tekststykker, så de
-ikke kan glide fra hinanden. Skill'en er byte for byte den samme som version 6, så `SKILL_VERSION` er ikke talt op
-(`tests/test_mcp_clients.py` holder den fast med en hash).
+Claude-skill'en fra version 2.1.x og ældre er fjernet (2.2.0). Manualen (afsnittet `guide.OLD_SKILL`) og
+`instructions` siger til en assistent, der stadig har en skill "subadubalingo" eller "videosprog", at den er forældet:
+ignorér den, og sig én gang til brugeren, at den kan slettes under Customize -> Skills. `get_text` tager stadig imod
+det gamle argument `skill` og ignorerer det (ukendte argumenter droppes, `mcp_server._known_args`).
 
-Klientens navn fra `initialize` (`clientInfo.name`) bestemmer det, der kun gælder Claude: kun Claude får
-skill-tjekket (`skill.json`, som får appen til at vise "Læg Claude-skill'en ind"), og efter en opdatering får andre
-værktøjer "genstart <værktøj>" i stedet for Claude desktops "højreklik på ikonet ved uret".
+Klientens navn fra `initialize` (`clientInfo.name`) bestemmer det eneste, der kun gælder Claude: efter en opdatering
+får andre værktøjer "genstart <værktøj>" i stedet for Claude desktops "højreklik på ikonet ved uret".
 
 ## Opsætning pr. værktøj
 

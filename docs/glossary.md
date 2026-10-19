@@ -1,7 +1,8 @@
 # Glossary: the domain language of SubaDubaLingo
 
-The code, the MCP tools, the protocol with Claude (headers, sections, cut kinds), the skill and the prompts use
-these English words. The user interface, the output files next to the video and the user guide are Danish: the
+The code, the MCP tools, the answer format of the assistant (section markers, cut kinds) and the prompts use these
+English words. "The assistant" is whatever AI does the language work: one driving the app through MCP (Claude,
+Gemini CLI, Codex, Copilot, Cursor, ...) or any AI chat the user copies the instructions into. The user interface, the output files next to the video and the user guide are Danish: the
 right-hand column shows what the user sees.
 
 | Term | Meaning | In code | The user sees |
@@ -13,17 +14,17 @@ right-hand column shows what the user sees.
 | Transcription | Speech recognition (Whisper) of the spoken language into cues. | `engine.transcribe` | "Lytter og skriver tekst" |
 | Cue | One subtitle block: start, end (ms), text. Numbered from 1. | `Cue` | blok |
 | Transcript | All cues in the spoken language, corrected or not. | `source.json`, `*.srt` | "danske undertekster" |
-| Correction | A rule `wrong = right` for a word the recognition mishears; applied after transcription and sent to Claude. | `corrections.txt` | "rettelser" |
+| Correction | A rule `wrong = right` for a word the recognition mishears; applied after transcription and sent to the assistant. | `corrections.txt` | "rettelser" |
 | Word list | The right-hand sides of the corrections: product and screen names, spelled the same in every language. | `known_words()` | "ordliste" |
-| Proofreading | Claude correcting misheard words in the transcript. | `check`, `proofread` | "Claude retter" |
-| Translation | Claude translating the cues, keeping numbers and time codes. | `targets` | "oversætter" |
-| Claude's turn | The step where Claude proofreads, translates and suggests cuts, through the MCP tools or the task/answer files. | `claude_turn` | "Din tur" |
-| Task file / answer file | `<video> - til Claude.txt` (`SUBADUBALINGO-TASK`) and `<video> - fra Claude.txt` (`SUBADUBALINGO-ANSWER`, sections `=== <code> ===`, `=== cuts ===`, `=== chapters ===`, `=== summary ===`, `=== words ===`, `=== end ===`). | `claude.work_file_text`, `check_file_answer` | the files in Downloads |
-| Skill | The instructions Claude gets as an uploaded skill `subadubalingo`, with a version number the app checks. | `claude.SKILL_MD`, `SKILL_VERSION` | "Claude-skill'en" |
-| Cut suggestion | A line `<first>-<last block> <kind> <reason>` from Claude, or a silent pause the app found. | `suggest_cuts`, `parse_cut_lines` | – |
+| Proofreading | The assistant correcting misheard words in the transcript. | `check`, `proofread` | "AI-assistenten retter" |
+| Translation | The assistant translating the cues, keeping numbers and time codes. | `targets` | "oversætter" |
+| The assistant's turn | The step where the assistant proofreads, translates and suggests cuts: through the MCP tools, or in an AI chat (the chat view: copy the instructions per part, copy the answer back). | `claude_turn`, `ClaudePanel` | "Din tur", the "AI-assistent" card |
+| Instructions / answer | The self-contained prompt per part (`claude.prompt`) and the chat's answer: one code block with `=== <code> ===` per language, `=== cuts ===`, `=== chapters ===`, `=== summary ===`, `=== words ===` (the parser also reads markdown headings, bold labels and a code block per language). | `claude.prompt`, `claude.check_answer` | "Kopiér instruktioner til AI-chat", "Indsæt svar" |
+| Old skill | Up to 2.1.x a Claude skill `subadubalingo` (earlier `videosprog`) with a task-file protocol. Removed in 2.2.0; a one-time notice asks upgraders to delete it. | `upgrade_notice.py`, `guide.OLD_SKILL` | "Ryd op i Claude" |
+| Cut suggestion | A line `<first>-<last block> <kind> <reason>` from the assistant, or a silent pause the app found. | `suggest_cuts`, `parse_cut_lines` | – |
 | Cut | A time range to remove, with a kind: start, pause, end, inappropriate, offtopic, unclear, manual, filler. | `Cut`, `KINDS` | "klip" (Danish labels) |
-| Filler | A cut kind (skill 6): blocks with nothing but filler words, false starts, repetitions or hesitation. | `"filler"` | "Fyldord" |
-| Chapters / summary | Claude's chapters (`0:00 Title`) and a short description of the video (skill 6), saved as `<video> - kapitler.txt` and shown on the done view. | `chapters.py`, `save_chapters` | "Kapitler og beskrivelse" |
+| Filler | A cut kind: blocks with nothing but filler words, false starts, repetitions or hesitation. | `"filler"` | "Fyldord" |
+| Chapters / summary | The assistant's chapters (`0:00 Title`) and a short description of the video, saved as `<video> - kapitler.txt` and shown on the done view. | `chapters.py`, `save_chapters` | "Kapitler og beskrivelse" |
 | Cut review | The timeline where the user adjusts, keeps or adds cuts before anything is cut. | `review.py`, `review_cuts`, `approve_cuts` | "Gennemse klippene" |
 | Cut video | The video with the cuts removed; subtitles and dub are made for it. | `cutting.cut_video` | "... - klippet.mp4" |
 | Dub | New speech in another language, a synthetic voice per sentence, timed to the original. | `engine.dub` | "svensk dub" |

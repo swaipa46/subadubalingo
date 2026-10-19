@@ -6,7 +6,8 @@ further development. Read this once fully; `CLAUDE.md` holds the standing rules.
 ## What it is
 
 A Windows desktop app that makes subtitles and dubs of videos and cuts recordings, locally on the PC, with an AI
-assistant (Claude) correcting, translating and suggesting cuts. Users: a business unit at EG (Kasper's employer) that
+assistant correcting, translating and suggesting cuts (any AI chat the user may use, or an AI tool that drives the app
+through MCP, Claude first among them). Users: a business unit at EG (Kasper's employer) that
 records Teams meetings and webinars; the first user is Anne. Users are not technical and use Danish, Swedish, Norwegian
 or English. Public repo swaipa46/subadubalingo; website https://subadubalingo.swaipa.dk/ (on McHoense).
 
@@ -23,16 +24,21 @@ data and Claude's config from those names.
    `bin/piper`, voice per speaker via sherpa-onnx speaker embeddings) -> mix and burn subtitles (ffmpeg).
 3. Done view: result card with stats, the run's files (subtitle editor for .srt), what next.
 
-The assistant's turn has two modes:
-- **MCP** (preferred): the app is a local stdio MCP server (`--mcp`, `mcp_server.py`). Claude (or any MCP client)
+The assistant's turn has two modes (spec: `docs/assistant-panel.md`):
+- **MCP**: the app is a local stdio MCP server (`--mcp`, `mcp_server.py`). Claude (or any MCP client)
   calls start_video, wait, get_text, save_text, suggest_cuts, approve_cuts, cancel, find_videos, guide. The server
   is its own manual (`guide.py`: the `guide` tool, prompt `subadubalingo_workflow`, resources
-  `subadubalingo://guide[/section]`).
-- **File** (fallback, Claude only): the app writes "<video> - til Claude.txt" (named in the UI language), the user
-  pastes it into a Claude chat with the SubaDubaLingo skill (`claude.SKILL_MD`, version 6, zip made by
-  `tools/make_skill.py`), Claude returns "<video> - fra Claude.txt", the app finds it in Downloads by the job id in its
-  first line. Protocol: `SUBADUBALINGO-TASK/ANSWER` with sections `=== words/cuts/chapters/summary/end ===`; older
-  Danish protocol (VIDEOSPROG-OPGAVE) still parses.
+  `subadubalingo://guide[/section]`). The app shows progress in the right-hand card (MCP view), with a way out to the
+  chat view.
+- **Any AI chat** (the default for a job started in the app): the right-hand card ("AI-assistent", `ClaudePanel`'s
+  chat view) copies self-contained instructions per part (`claude.prompt`: rules, word list and answer format, no
+  product or skill named) and watches the clipboard for the answer (also "Indsæt svar"). The answer is one code block
+  with `=== <code> ===` per language, `=== cuts/chapters/summary/words ===`; `claude.check_answer` also reads markdown
+  headings, bold labels and a code block per language (ChatGPT, Gemini). The panel finishes by itself when every
+  part is in. It also nudges MCP users ("Tag over i SubaDubaLingo"); the take-over is round 2 (not wired yet).
+- Up to 2.1.x there was also a Claude skill with a task/answer file round; it was removed in 2.2.0 (owner's decision
+  2026-10-19). `upgrade_notice.py` asks upgraders once to delete the old skill in Claude; the MCP guide tells an
+  assistant to ignore it.
 
 ## Code map (`app/subadubalingo/`)
 
@@ -44,6 +50,7 @@ The assistant's turn has two modes:
 | `queue_view.py` | Queue of videos |
 | `engine.py`, `cutting.py`, `audio.py`, `burnin.py`, `voice_preview.py`, `speakers.py`, `pitch.py` | Media work |
 | `claude.py`, `guide.py`, `mcp_server.py`, `jobs.py`, `textstate.py` | The assistant side |
+| `upgrade_notice.py` | The one-time "delete the old Claude skill" notice after an update from 2.1.x |
 | `installer.py`, `update.py`, `autoupdate.py`, `ed25519.py` | Install, self-update, signature check |
 | `report.py` | Error reports to the relay (see below) |
 | `common.py`, `i18n.py`, `theme.py`, `skin.py`, `pickers.py` | Shared: Language, file names, data dir; UI language; design system |
@@ -118,20 +125,24 @@ Data: `~/.subadubalingo` (settings.json, corrections.txt word list, models/, rep
 - Root on the box: `repo` has no sudo terminal; Kasper runs root steps himself (prepare a script, he types the
   password). The router does not hairpin: test public URLs with `curl --resolve <host>:443:192.168.1.82`.
 
-## Design collaboration
+## Design
 
-The design session is a Claude in Cowork on Kasper's PC. Queue: `tasks.md` in swaipa46/subadubalingo-design (rules at
-the top; you add tasks, it delivers mockups, assets to `assets/ui`, reviews in `review/round-N.md`). The loop that worked:
-build -> screenshots of the built app in both themes (CI artifact "screenshots") -> a review task -> fix -> until
-"no deviations". Rounds 1-4 and the feature mockups T1-T12 are done; round 3 concluded "aligned".
+Since 2026-10-19 there is no separate design session: the developing Claude does the design here, following the design
+system (`assets/ui/README.md`, `skin.py`, the theme tokens) and the look of what exists. Check it with the CI
+screenshots (artifact "screenshots", both themes). Kasper can open Claude Design if he wants mockups. Do not add tasks
+to swaipa46/subadubalingo-design. (History: a Claude in Cowork on Kasper's PC made mockups and reviews through
+`tasks.md` there; rounds 1-4 and the feature mockups T1-T12 are done, round 3 concluded "aligned".)
 
 ## Open items
 
 - Relay go-live (token, DRY_RUN=0) and a test report from the app -> an issue.
 - SmartScreen / code signing decision (Kasper).
 - Gemini CLI untested; Codex CLI, VS Code Copilot, Cursor untested ("should work").
-- The work view and job texts still say "Claude" when another MCP client drives the app (idea: setting "Din
-  AI-assistent", Claude default).
+- 2.2.0: bump `APP_VERSION` to 2.2.0 (`upgrade_notice.SKILL_REMOVED_IN` assumes it; change both if the number
+  differs), then the usual release.
+- Round 2 of the assistant panel: the MCP take-over of a job started in the app ("Tag over i SubaDubaLingo":
+  publish the app job, `taken.json`, `app.adopt_job`; see `docs/assistant-panel.md`). The nudge line is in the panel
+  already but does nothing yet on the server side.
 - Optional design polish from review round 3 (CUT · DUB · SUB on the first-start page, done banner width, tile checks,
   empty space under a short cut list).
 - Tests write to the real `~/.subadubalingo/log.txt` (should use a temp data dir).

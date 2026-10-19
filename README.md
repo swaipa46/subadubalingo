@@ -2,6 +2,15 @@
 
 # SubaDubaLingo (tidligere Videosprog og Video undertekster)
 
+> **2.2.0 (kommende): ingen Claude-skill og ingen fil-runde.** AI-assistentens tur sker på to måder: et AI-værktøj
+> med MCP styrer appen selv (`mcp_server.py`, manualen er `guide.py`), eller brugeren bruger en hvilken som helst
+> AI-chat: kortet "AI-assistent" kopierer selvstændige instruktioner pr. del, og svaret kopieres tilbage
+> (`claude.prompt`; parseren læser også markdown-overskrifter, fede etiketter og en kodeblok pr. sprog). Skill'en
+> (`SKILL_MD`, `tools/make_skill.py`, SkillGuide, "Gem Claude-skill...") og fil-runden ("... - til/fra Claude.txt",
+> Overførsler-mappen) er fjernet. Brugere fra 2.1.x eller ældre bliver én gang bedt om at slette den gamle skill i
+> Claude (`upgrade_notice.py`); nye installationer ser det aldrig. Teksterne siger "AI-assistent"/"AI-chat", hvor
+> enhver assistent er ment. Spec: [docs/assistant-panel.md](docs/assistant-panel.md).
+>
 > **2.0.0 (15.10.2026): nyt navn og ét domænesprog.** Appen hedder SubaDubaLingo (*sub*titles, *dub*, *lingo*).
 > - **Engelsk domænesprog:** kode, MCP-værktøjer, protokollen til Claude (overskrifter, sektioner, klip-typer), skill
 >   og prompts. Ordliste: [docs/glossary.md](docs/glossary.md).
@@ -34,9 +43,7 @@ Claude er altid i loopet ("halvt-halvt", brugeren har Claude Chat/Cowork, ikke C
 pr. del (70-100 blokke), brugeren kopierer den til Claude og svaret tilbage. Ét svar indeholder den rettede tekst på
 talesproget (```srt-da), oversættelserne (```srt-sv osv.) og en ```ordliste med rettede ord. Programmet
 validerer blokke og tidskoder, gemmer filerne og føjer ordene til `rettelser.txt`, så de rettes allerede i næste
-transskription og sendes med i næste prompt. Skill'en `videosprog` (SKILL.md + ordliste.md) ligger som
-zip i release-mappen (`tools/make_skill.py`); Indstillinger -> "Gem Claude-skill..." laver en ny med brugerens
-lærte ord. Claude-tjekket tekst huskes i `claude-tjekket.json`, så den ikke sendes igen.
+transskription og sendes med i næste prompt. Claude-tjekket tekst huskes i `claude-tjekket.json`, så den ikke sendes igen.
 
 ## Opbygning
 - `app/subadubalingo/gui.py` - tkinter-GUI på dansk med Windows 11-tema (sv-ttk); to kolonner, Claude-panel til højre; arbejdet kører i en tråd, pause/fortsæt/annullér; kun ét vindue ad gangen.
@@ -105,7 +112,7 @@ stemmer). Status: Claude (desktop og Claude Code) er testet; Gemini CLI blev sto
 de andre burde virke. Detaljer, opsætningerne og hvordan der testes: `docs/mcp-clients.md`.
 - **Serveren er sin egen manual:** værktøjsbeskrivelserne bærer arbejdsgangen, og værktøjet `guide` (også prompten
   `subadubalingo_workflow` og ressourcen `subadubalingo://guide`) giver hele manualen med brugerens ordliste og sprog.
-  Manualen (`guide.py`) og Claude-skill'en bygges af de samme tekststykker; skill'en er uændret version 6.
+  Manualen er `guide.py`.
 - **Launcheren** `%LOCALAPPDATA%\Programs\SubaDubaLingo\SubaDubaLingo-mcp.exe` (`tools/mcp_launcher.cs`) er en sti,
   der aldrig ændrer sig: den starter `current.txt`'s version med `--mcp` og rører ikke stdout. Installationen og
   selvopdateringen lægger den der. Claude desktop peger stadig på versionens exe, som installationen skriver om.
@@ -150,11 +157,12 @@ beholdes). Dubbens egen stemme røres ikke.
   testopkaldet 4 mod 5 fejl. Kun med kunstig hvid/lyserød støj lagt på testopkaldet hjalp det (1-2 ord af 32).
   Ingen målbar gevinst på rigtige optagelser, så Whisper er ikke ændret.
 
-## Claude-skill'ens version (v1.9.3)
-`claude.SKILL_VERSION` er den skill-version, appen leveres med (tælles kun op, når SKILL_MD ændres). `settings.skill_installed` er den version, brugeren har bekræftet at have lagt i Claude.
-- **Første gang** (`skill_installed` = 0, v1.9.8): guiden hedder "Læg Claude-skill'en ind" i stedet for "Opdatér". Trinnet "Slet den gamle \"videosprog\", hvis den er der" er med, fordi 0 betyder ukendt, ikke fraværende (lagt ind via Indstillinger, "Senere" eller før versionen blev husket).
-- **Ved opdatering:** er `skill_installed` lavere, viser appen ved første start (ikke når Claude starter den) guiden `SkillGuide`: Gem skill-filen (til Overførsler, med brugerens lærte ord), Customize -> Skills, slet den gamle, upload. Den forsvinder med "Jeg har gjort det".
-- **Failsafe:** skill'en skriver `skill=N` i svarfilens første linje og sender `skill: N` med i `hent_tekst`. Mangler nummeret, eller er det for lavt, viser appen guiden efter kørslen, og MCP-serveren beder Claude sige det til brugeren. Et gyldigt nummer opdaterer `skill_installed` af sig selv.
+## Claude-skill'en (v1.9.3-2.1.x, fjernet i 2.2.0)
+Til og med 2.1.x fulgte en Claude-skill med (`subadubalingo`, før `videosprog`), som brugeren lagde ind i Claude, og
+appen holdt øje med dens version (`skill_installed`, `SkillGuide`). Fra 2.2.0 er den væk. `upgrade_notice.py` beder én
+gang brugere, der kommer fra en version med skill'en, om at slette den i Claude (aldrig nye installationer; aldrig i
+en session, en assistent har startet), og MCP-serverens manual og `instructions` siger til assistenten, at en gammel
+skill er forældet og skal ignoreres. `get_text` tager stadig imod det gamle `skill`-argument.
 
 ## Byg
 ```
