@@ -5,7 +5,9 @@ Gemini CLI, Codex CLI, VS Code / GitHub Copilot, Cursor, or any client that can 
     start_video    start a video job (starts the app if it is not running)
     wait           wait for news on a job (every 10 %, the assistant's turn, pause, error, done; at most ~45 s)
     status         the current state of a job
-    get_text       the subtitles the assistant must correct/translate, a range of blocks at a time
+    get_text       the subtitles the assistant must correct/translate, a range of blocks at a time (marks the job
+                   taken, so the app shows the assistant's progress; this is how a job the user started in the
+                   app is taken over, "Tag over i SubaDubaLingo")
     save_text      hand back corrected/translated blocks; checked at once, the app carries on when all are in
     suggest_cuts   the assistant's cut suggestions (by block number), when the video is to be cut first
     save_chapters  the assistant's chapters and short summary of the video
@@ -64,7 +66,9 @@ LANGS = "danish, swedish, norwegian or english"
 
 FLOW = ("Workflow: guide (once) -> start_video -> wait (repeat; tell the user every 10 %) -> on 'claude_turn' (your "
         "turn): get_text in chunks, correct/translate, save_text per language, suggest_cuts if cutting, save_chapters "
-        "if asked -> on 'review_cuts': ask the user, approve_cuts -> wait until done.")
+        "if asked -> on 'review_cuts': ask the user, approve_cuts -> wait until done. If the user says 'take over' "
+        "('Tag over i SubaDubaLingo') or the app shows a job waiting for you: status first (no job_id), then the "
+        "same from get_text on.")
 
 TOOLS = [
     {"name": "guide",
@@ -99,19 +103,25 @@ TOOLS = [
                      "call get_text), on pause, error or when done, or after at most ~45 seconds. Call it again until "
                      "the job is done. Tell the user briefly about each 10 %."),
      "inputSchema": {"type": "object", "properties": {
-         "job_id": {"type": "string", "description": "The job id from start_video (default: the latest job)"}}}},
+         "job_id": {"type": "string", "description": ("The job id from start_video (default: the job waiting for "
+                                                      "you, else the one the app is working on, else the latest)")}}}},
     {"name": "status",
-     "description": "The current state of a job (default the latest). Use it to pick up a job again, e.g. in a new chat.",
+     "description": ("The current state of a job (default: the job waiting for you, else the one the app is working "
+                     "on, else the latest). Use it to pick up a job again, e.g. in a new chat, and first when the user "
+                     "says 'take over' ('Tag over i SubaDubaLingo'): a job the user started in the app also waits for "
+                     "you in 'claude_turn', and you take it over by calling get_text."),
      "inputSchema": {"type": "object", "properties": {"job_id": {"type": "string"}}}},
     {"name": "get_text",
      "description": ("When a job is in 'claude_turn' (your turn): get the task (what to correct/translate, whether to "
                      "suggest cuts or chapters), the word list, the rules and the subtitles as SRT, a range of blocks "
                      "at a time (about 100-150 blocks per call works well; the answer says where to go on). Then hand "
-                     "back each language with 'save_text': same numbers and time codes, never merge or split blocks."),
+                     "back each language with 'save_text': same numbers and time codes, never merge or split blocks. "
+                     "Calling it takes the job over: the app stops waiting for the user's AI chat and shows your "
+                     "progress (how a job the user started in the app becomes yours)."),
      "inputSchema": {"type": "object", "properties": {
-         "job_id": {"type": "string"},
+         "job_id": {"type": "string", "description": "The job id (default: the job waiting for you)"},
          "start": {"type": "integer", "description": "First block number (default 1)"},
-         "count": {"type": "integer", "description": "Number of blocks (default 120)"}}, "required": ["job_id"]}},
+         "count": {"type": "integer", "description": "Number of blocks (default 120)"}}}},
     {"name": "save_text",
      "description": ("Hand back blocks for one language as SRT with the SAME numbers and time codes as from get_text "
                      "(corrected text in the spoken language, or a translation). Checked at once; the answer says what "
@@ -287,6 +297,11 @@ def _describe(job_id: str, st: dict) -> str:
         lines.append(f"Message from the app (in {user_language()}): {st['message']}")
     if state == "review_cuts":
         lines += _cut_list(job_id)
+    if state == "claude_turn" and jobs.origin(job_id) == "app":
+        lines.append("The user started this job in the app, which offers to do this turn in an AI chat. When the user "
+                     f"asks you to take over ('{i18n.t('gui.parts.mcp_phrase', app=APP_NAME)}'), call get_text with "
+                     "this job id: the app then shows your progress. From then on it is your job: save_text, wait and "
+                     "the rest as for a job you started.")
     hint = {
         "queued": "Call 'wait' again.",
         "running": "Call 'wait' again.",
@@ -298,6 +313,7 @@ def _describe(job_id: str, st: dict) -> str:
         "done": "Tell the user the video is ready and can be played from the app.",
         "error": f"Tell the user about the error. The log file can be opened from the app's '{_button('settings')}'.",
         "cancelled": "The job has stopped.",
+        "by_user": "The user did this turn in an AI chat themselves; the app carries on without you. Nothing to do.",
         "busy": ("The app is busy with another video. Try again when it is done. If that other video hangs, ask the "
                  "user whether to stop it with 'cancel'."),
     }.get(state)
@@ -363,8 +379,14 @@ def tool_start_video(video: str, speech: str, subtitles: str, spoken_language: s
     return head + _describe(job_id, st)
 
 
+def _default_job() -> str | None:
+    """The job a call without job_id is about: the one waiting for the assistant (also an app job to take over),
+    else the one keeping the app busy, else the latest."""
+    return jobs.waiting_job() or _active_job() or jobs.latest_job()
+
+
 def tool_wait(job_id: str | None = None) -> str:
-    job_id = job_id or jobs.latest_job()
+    job_id = job_id or _default_job()
     if not job_id:
         return "There is no job. Start one with 'start_video'."
     first = jobs.status(job_id)
@@ -429,13 +451,16 @@ def tool_cancel(job_id: str | None = None) -> str:
 
 
 def tool_status(job_id: str | None = None) -> str:
-    job_id = job_id or jobs.latest_job()
+    job_id = job_id or _default_job()
     if not job_id:
         return "There is no job yet."
     return _describe(job_id, jobs.status(job_id))
 
 
 def _task(job_id: str) -> dict:
+    st = jobs.status(job_id)
+    if st.get("state") in ("by_user", "cancelled"):
+        raise ValueError(_describe(job_id, st))
     t = jobs.read_json(jobs.root() / job_id / "task.json")
     if not t:
         raise ValueError("The job is not ready for you yet. Call 'wait'.")
@@ -466,8 +491,14 @@ def _fmt_missing(m: dict) -> str:
     return "; ".join(f"{code}: " + ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in r) for code, r in m.items())
 
 
-def tool_get_text(job_id: str, start: int = 1, count: int = 120) -> str:
+def tool_get_text(job_id: str | None = None, start: int = 1, count: int = 120) -> str:
+    job_id = job_id or jobs.waiting_job()
+    if not job_id:
+        return "No job is waiting for you. Call 'status' to see what the app is doing."
     task = _task(job_id)
+    # Taken: the app switches its card to this assistant's progress (an app job is taken over, a job the user moved
+    # to an AI chat comes back)
+    jobs.mark_taken(job_id, _client["title"] or _client["name"])
     src = jobs.cues_from_json(jobs.read_json(jobs.root() / job_id / "source.json", []))
     start = max(1, int(start or 1))
     count = max(1, min(int(count or 120), 400))
@@ -762,7 +793,10 @@ def instructions() -> str:
             "back with save_text, cut suggestions with suggest_cuts, and chapters "
             "and a summary with save_chapters when the task asks for them. While the "
             "user reviews the cuts (review_cuts), you can change them with approve_cuts. If the user wants to "
-            "stop, or a job hangs, use cancel (ask first). The app checks everything and does the rest. Answer "
+            "stop, or a job hangs, use cancel (ask first). If the user asks you to take over ('Tag over i "
+            f"{APP_NAME}', 'Take over in {APP_NAME}') or says the app shows a job waiting for you, call status "
+            "without a job_id first: a job the user started in the app waits in claude_turn, and get_text takes it "
+            "over. The app checks everything and does the rest. Answer "
             f"the user briefly, in {user_language()} (the language of the user's app; if they write to you in "
             "another language, use that). A skill called 'subadubalingo' or 'videosprog' is from an old version "
             "and obsolete: ignore it (no task or answer files), and tell the user once, briefly, that they can "

@@ -1,6 +1,7 @@
 """The assistant panel (gui.ClaudePanel, version 2.2.0, docs/assistant-panel.md) without the rest of the app: the chat
 view is the default for a job started in the app (copy the instructions into any AI chat, copy the answer back), the
-part states, finishing by itself, the take-over phrase is never an answer, and the MCP view's way into the chat view.
+part states, finishing by itself, the take-over phrase is never an answer, the MCP view's way into the chat view, and
+the take-over of an app job by an MCP assistant (published for the server, get_text switches the panel).
 The data folder and the video's folder are temp folders. Run: python tests/test_assistant_panel.py
 """
 import sys
@@ -16,7 +17,7 @@ common._DATA_DIR = tmp / "data"
 common._DATA_DIR.mkdir()
 import tkinter as tk  # noqa: E402
 
-from subadubalingo import claude, gui, i18n, jobs, skin, theme  # noqa: E402
+from subadubalingo import claude, gui, i18n, jobs, mcp_server, skin, theme  # noqa: E402
 from subadubalingo.common import Cue, format_srt, write_srt  # noqa: E402
 from subadubalingo.i18n import t  # noqa: E402
 
@@ -53,6 +54,10 @@ class FakeApp:
 
     def add_file(self, path):
         self.created.append(path)
+
+    def adopt_job(self, job_id):
+        self.mcp_job = job_id
+        self._pulsing = False
 
 
 def pump(sec):
@@ -181,6 +186,93 @@ jobs.write_json(jobs.root() / job / "complete.json",
                 {"codes": {"da": jobs.cues_to_json(fixed), "sv": jobs.cues_to_json(fixed)}, "words": [], "cuts": []})
 pump(1.2)
 check(results == [True], "complete.json finishes the round in the chat view too")
+p.destroy()
+
+# --- Take-over: an MCP assistant takes an app job ------------------------------------------------------------------
+video, srt, cues = make_video("takeover", 3)
+results = []
+app = FakeApp()
+p = gui.ClaudePanel(root, app, video, L["da"], srt, True, [L["sv"]], on_finish=results.append)
+p.grid()
+root.update()
+job = p.offered_job
+st = jobs.status(job) if job else {}
+check(job and st.get("state") == "claude_turn" and jobs.origin(job) == "app"
+      and (jobs.root() / job / "task.json").exists() and (jobs.root() / job / "source.json").exists(),
+      "an app job is published for the MCP server: claude_turn, origin app, task and source")
+check(jobs.waiting_job() == job and job in mcp_server.tool_status(), "status without a job id finds it")
+# The user pastes a partial answer first
+p._copy(0)
+set_clip(answer(cues, 1, ["da"]))
+p._watch_clipboard()
+check(p.problem[0] and "da" in p.partial[0], "the user pasted a partial answer before the take-over")
+# A taken.json from before the chat view does not count
+jobs.write_json(jobs.root() / job / "taken.json", {"time": p.chat_since - 5})
+pump(1.2)
+check(p.mode == "chat", "an older taken.json does not switch")
+# The assistant fetches the text: the panel shows its progress and the app adopts the job
+text = mcp_server.tool_get_text()
+check(f"Task for job {job}" in text and "-->" in text, "get_text without a job id gives the waiting job's text")
+pump(1.2)
+check(p.mode == "mcp" and getattr(app, "mcp_job", None) == job and p.offered_job is None and not app._pulsing
+      and p.switch_btn.winfo_manager() and not p.part_rows and not p.partial,
+      "get_text switches the panel to the MCP view; the app adopts the job; pasted parts are dropped")
+fixed = [Cue(c.start, c.end, c.text.replace("memberkær", "Membercare")) for c in cues]
+for code in ("da", "sv"):
+    r = mcp_server.tool_save_text(job, code, format_srt(fixed))
+check("Saved 3 blocks" in r, "save_text is accepted for the taken job")
+mcp_server.tool_save_chapters(job, "", "Et webinar.")
+check((jobs.root() / job / "complete.json").exists(), "everything in: complete.json")
+pump(1.2)
+check(results == [True], "complete.json finishes the taken-over round")
+p.destroy()
+check(jobs.status(job).get("state") == "claude_turn", "closing the panel leaves a taken job to the app's run")
+
+# The chat wins when the user finishes first: the assistant hears by_user
+video, srt, cues = make_video("chatwins", 3)
+results = []
+p = gui.ClaudePanel(root, FakeApp(), video, L["da"], srt, True, [], on_finish=results.append)
+p.grid()
+root.update()
+job = p.offered_job
+p._copy(0)
+p._paste(0, answer(cues, 1, ["da"]))
+pump(1.6)
+check(results == [True] and jobs.status(job).get("state") == "by_user", "done in the chat: the offered job is by_user")
+try:
+    mcp_server.tool_get_text(job)
+    check(False, "get_text on a job done in the chat is refused")
+except ValueError as e:
+    check("AI chat" in str(e), "get_text on a job done in the chat is refused")
+p.destroy()
+
+# Stopped without a take-over: cancelled
+video, srt, cues = make_video("stopped", 3)
+p = gui.ClaudePanel(root, FakeApp(), video, L["da"], srt, True, [], on_finish=lambda ok: None)
+p.grid()
+root.update()
+job = p.offered_job
+p.destroy()
+check(jobs.status(job).get("state") == "cancelled" and jobs.waiting_job() != job,
+      "a panel closed without a take-over cancels the offered job")
+
+# An MCP job the user moved to the chat comes back when the assistant goes on
+video, srt, cues = make_video("back", 3)
+job = "testjob2"
+jobs.job_dir(job)
+jobs.set_status(job, state="claude_turn")
+app = FakeApp()
+p = gui.ClaudePanel(root, app, video, L["da"], srt, True, [], on_finish=lambda ok: None, mcp_job=job)
+p.grid()
+root.update()
+check(p.offered_job is None, "an MCP job is not offered again")
+p.switch_btn.invoke()
+root.update()
+check(p.mode == "chat", "moved to the chat")
+time.sleep(0.05)
+mcp_server.tool_get_text(job)
+pump(1.2)
+check(p.mode == "mcp" and not app._pulsing, "get_text brings it back to the MCP view")
 p.destroy()
 
 root.destroy()

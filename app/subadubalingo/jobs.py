@@ -1,7 +1,9 @@
-"""Jobs shared between the app and the MCP server (Claude), through files under data_dir()/jobs (%USERPROFILE%\\.subadubalingo\\jobs).
+"""Jobs shared between the app and the MCP server (an AI assistant), through files under data_dir()/jobs
+(%USERPROFILE%\\.subadubalingo\\jobs).
 
-    jobs/inbox/<id>.json           a request from Claude: video, languages (the app picks it up when it is free)
-    jobs/<id>/job.json             the request, once the app has taken it
+    jobs/inbox/<id>.json           a request from the assistant: video, languages (the app picks it up when it is free)
+    jobs/<id>/job.json             the request, once the app has taken it; for a job the user started in the app
+                                   {"origin": "app", "video": ...}, written when it reaches the assistant's turn
     jobs/<id>/status.json          written by the app only: state, percent, step, result ...
     jobs/<id>/source.json          the text in the spoken language (blocks), when it is the assistant's turn
     jobs/<id>/task.json            what Claude must do: codes, block count, words
@@ -10,6 +12,8 @@
     jobs/<id>/complete.json        all languages (and cut suggestions) complete: the app carries on with these
     jobs/<id>/cuts.json            written by the app while the user reviews the cuts: the current list
     jobs/<id>/cut_decision.json    written by the MCP server: cuts to keep/add, and whether to cut now
+    jobs/<id>/taken.json           written by the MCP server at every get_text: an assistant has the text, so the app
+                                   shows its progress (an app job is taken over; docs/assistant-panel.md)
 
 Only one side writes each file, and every write is atomic (temp file + rename).
 """
@@ -32,7 +36,9 @@ STATES = {   # told to the assistant by the MCP server
     "error": "stopped with an error",
     "cancelled": "cancelled",
     "busy": "the app is busy with another video",
+    "by_user": "the user did this turn in an AI chat themselves; nothing for you to do",
 }
+ENDED = ("done", "error", "cancelled", "busy", "by_user")
 
 
 def root() -> Path:
@@ -71,8 +77,12 @@ def read_json(path: Path, default=None):
     return default
 
 
+def new_id() -> str:
+    return time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
+
+
 def new_request(video: str, lang: str, speech: str | None, subs: str | None, redo: bool, cut: bool = False) -> str:
-    job_id = time.strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4]
+    job_id = new_id()
     write_json(root() / "inbox" / f"{job_id}.json", {
         "id": job_id, "video": video, "lang": lang, "speech": speech, "subs": subs, "redo": redo, "cut": cut,
         "source": "claude", "created": time.time()})
@@ -119,6 +129,66 @@ def latest_job() -> str | None:
     if not dirs:
         return None
     return max(dirs, key=lambda d: (d / "status.json").stat().st_mtime).name
+
+
+def publish_turn(job_id: str, source_rows: list, task: dict):
+    """The assistant's turn of a job, for the MCP server: the text and what to do with it. Written before the status
+    says claude_turn, so an assistant never finds the turn without its text."""
+    d = job_dir(job_id)
+    write_json(d / "source.json", source_rows)
+    write_json(d / "task.json", task)
+
+
+def publish_app_job(video: str, source_rows: list, task: dict) -> str:
+    """A job the user started in the app has reached the assistant's turn: expose it like a job from the MCP server,
+    so a connected assistant can take it over ("Tag over i SubaDubaLingo")."""
+    job_id = new_id()
+    write_json(job_dir(job_id) / "job.json", {"id": job_id, "origin": "app", "video": video, "created": time.time()})
+    publish_turn(job_id, source_rows, task)
+    set_status(job_id, state="claude_turn", video=video, origin="app", step="", eta="", message="")
+    return job_id
+
+
+def origin(job_id: str) -> str:
+    """'app' for a job the user started in the app, else 'assistant'."""
+    return (read_json(root() / job_id / "job.json", {}) or {}).get("origin") or "assistant"
+
+
+def mark_taken(job_id: str, client: str = ""):
+    write_json(root() / job_id / "taken.json", {"time": time.time(), "client": client})
+
+
+def taken_since(job_id: str, since: float) -> bool:
+    """Whether an assistant has fetched the text (taken.json) or handed some in (parts/) after `since`."""
+    d = root() / job_id
+    if ((read_json(d / "taken.json", {}) or {}).get("time") or 0) > since:
+        return True
+    try:
+        return any(f.stat().st_mtime > since for f in (d / "parts").glob("*.json"))
+    except OSError:
+        return False
+
+
+def waiting_job() -> str | None:
+    """The newest job in the assistant's turn that has not been handed in yet (an app job waiting to be taken over,
+    or the assistant's own)."""
+    best = None
+    for d in root().iterdir():
+        f = d / "status.json"
+        if d.is_dir() and d.name != "inbox" and f.exists() and not (d / "complete.json").exists():
+            if (read_json(f, {}) or {}).get("state") == "claude_turn":
+                if best is None or f.stat().st_mtime > best[0]:
+                    best = (f.stat().st_mtime, d.name)
+    return best and best[1]
+
+
+def close_app_jobs(message: str):
+    """At the app's start: app jobs a previous run left open can never be finished, so they are cancelled."""
+    for d in root().iterdir():
+        f = d / "status.json"
+        if d.is_dir() and d.name != "inbox" and f.exists() and origin(d.name) == "app":
+            if (read_json(f, {}) or {}).get("state") not in ENDED:
+                set_status(d.name, state="cancelled", message=message)
 
 
 def cleanup(days: int = 14):

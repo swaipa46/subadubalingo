@@ -14,7 +14,7 @@ from pathlib import Path
 
 APP_NAME = "SubaDubaLingo"
 APP_TAGLINE = "Undertekster og dubbing af videoer"
-APP_VERSION = "2.1.1"
+APP_VERSION = "2.2.0"
 
 # --- Paths -------------------------------------------------------------------
 

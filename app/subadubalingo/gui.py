@@ -342,7 +342,7 @@ class App:
         self.claude_at = self.review_at = -1
         self.manual_steps: list[int] = []
         self._progress_names: list[str] = []   # the worker's progress steps (engine.Progress), in order
-        self.mcp_job: str | None = None      # the job Claude started through the MCP server, if any
+        self.mcp_job: str | None = None      # the job an assistant started through the MCP server (or took over)
         self._inbox_tick = 0
         self._last_result = None            # (kind, info) of the done view, to draw it again after a theme switch
         self._theme_pending = None          # a theme picked during a run, applied at its end
@@ -356,6 +356,7 @@ class App:
         self.vq = queue_view.QueueController(self)   # several videos in a queue (queue_view.py)
         try:
             jobs.cleanup()
+            jobs.close_app_jobs("Stoppet i appen.")   # offered by an earlier run that ended without closing them
         except Exception:
             log.exception("job cleanup failed")
 
@@ -1433,21 +1434,40 @@ class App:
                 log.exception("could not write job status")
 
     def _check_cancel(self):
-        """Claude's 'annuller': the user asked in the chat, so no question here."""
-        if not self.mcp_job:
+        """The assistant's cancel: the user asked in the chat, so no question here. Also for an app job the panel
+        offers for taking over (not taken yet)."""
+        job = self.mcp_job or getattr(self._tdialog, "offered_job", None)
+        if not job:
             return
-        f = jobs.root() / self.mcp_job / "cancel.json"
+        f = jobs.root() / job / "cancel.json"
         if not f.exists():
             return
         f.unlink(missing_ok=True)
         if self.runner and self._running and not self.runner.cancelled.is_set():
-            log.info("job %s cancelled from Claude", self.mcp_job)
+            log.info("job %s cancelled by the assistant", job)
             self.pause_btn.configure(state="disabled")
             self.cancel_btn.configure(state="disabled")
             self.status.configure(text=t("gui.work.claude_stops"))
             self.runner.cancel()
         else:
             self._jstatus(state="cancelled", message="Stoppet fra AI-assistenten.")
+
+    def adopt_job(self, job_id: str):
+        """An MCP assistant has taken the assistant's turn (docs/assistant-panel.md, "MCP take-over"): the job is
+        reported to it from now on like one it started (review_cuts, done ...), and the window stops asking the user
+        to act. The panel rebuilds itself as the MCP view."""
+        self.mcp_job = job_id
+        if self.job is not None:
+            self.job["mcp"] = job_id
+            if 0 <= self.claude_at < len(self.step_rows):
+                names, _ = self._step_names(self.job)
+                self.step_rows[self.claude_at]["text"].configure(text=names[self.claude_at])
+        self._pulsing = False
+        self.callout.grid_remove()
+        self.claude_box.configure(style="TLabelframe")
+        self.status.configure(text=t("gui.work.claude_in_chat"))
+        log.info("job %s taken over by an assistant", job_id)
+        skin.skin_cards(self.main)
 
     def _check_inbox(self):
         """Take a job Claude has sent, if the app is free; otherwise tell Claude it is busy."""
@@ -2712,6 +2732,12 @@ class ClaudePanel(ttk.Frame):
     MCP view (the job came from an MCP assistant): the assistant works through the MCP tools while the panel shows
     the progress; "Gør det selv i en AI-chat i stedet" switches to the chat view when it stalls.
 
+    Take-over: the chat view publishes an app job as a job in claude_turn (jobs.publish_app_job), so a connected
+    assistant finds it ("Tag over i SubaDubaLingo"). When an assistant fetches the text (taken.json) or hands some in
+    (parts/) after the chat view was built, the panel turns into the MCP view and the app adopts the job; answers
+    already pasted from a chat are dropped (the assistant does the whole text). The same brings a job the user moved
+    to a chat back to the MCP view.
+
     One answer holds the corrected text in the spoken language (when `check`), the translations to `targets`,
     and the words the assistant corrected. `on_finish(True/False)` tells the waiting run the outcome."""
 
@@ -2738,6 +2764,8 @@ class ClaudePanel(ttk.Frame):
         self._prompts: set[str] = set()
         self._seen_clip = ""
         self._finishing = False
+        self.offered_job: str | None = None   # an app job published for a take-over, until taken or ended
+        self.chat_since = time.time()
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
 
@@ -2771,22 +2799,48 @@ class ClaudePanel(ttk.Frame):
         if mcp_job:
             self._build_mcp_mode()
         else:
+            self._offer()
             self._build_chat()
+        self.bind("<Destroy>", self._destroyed, add="+")
         self._spin_parts()
         self.after(700, self._tick)
 
     # --- The assistant does it through the MCP tools (job from the MCP server) --------------------------
 
-    def _build_mcp_mode(self):
+    def _task(self) -> dict:
+        """What the assistant must do (jobs/<id>/task.json, read by the MCP server)."""
+        return {"src": self.src.code, "check": self.check, "targets": [t.code for t in self.targets],
+                "codes": self.codes, "blocks": len(self.cues), "words": claude.known_words(),
+                "cut": self.cut, "duration": self.duration, "chapters": self.chapter_lang.code,
+                "rules": [list(r) for r in claude.word_rules()[:80]]}
+
+    def _offer(self):
+        """Publish this app job for a take-over by a connected assistant. Quietly skipped when it cannot be written:
+        the chat view works without it."""
+        try:
+            self.offered_job = jobs.publish_app_job(str(self.video), jobs.cues_to_json(self.cues), self._task())
+        except Exception:
+            log.exception("could not publish the app job for a take-over")
+            self.offered_job = None
+
+    def _end_offer(self, state: str):
+        """The app job was not taken over and is no longer waiting (done in a chat, or stopped)."""
+        job, self.offered_job = self.offered_job, None
+        if job:
+            try:
+                jobs.set_status(job, state=state)
+            except Exception:
+                log.exception("could not close the offered job")
+
+    def _destroyed(self, e):
+        if e.widget is self:
+            self._end_offer("cancelled")
+
+    def _build_mcp_mode(self, publish: bool = True):
         self.mode = "mcp"
         self.head.configure(text=t("gui.claude.working"))
-        d = jobs.job_dir(self.mcp_job)
-        jobs.write_json(d / "source.json", jobs.cues_to_json(self.cues))
-        jobs.write_json(d / "task.json", {
-            "src": self.src.code, "check": self.check, "targets": [t.code for t in self.targets],
-            "codes": self.codes, "blocks": len(self.cues), "words": claude.known_words(),
-            "cut": self.cut, "duration": self.duration, "chapters": self.chapter_lang.code,
-            "rules": [list(r) for r in claude.word_rules()[:80]]})
+        if publish:
+            jobs.publish_turn(self.mcp_job, jobs.cues_to_json(self.cues), self._task())
         b = self.body
         msg = ttk.Label(b, justify="left", text=t("gui.claude.mcp_intro"))
         msg.grid(row=0, column=0, sticky="ew")
@@ -2813,7 +2867,8 @@ class ClaudePanel(ttk.Frame):
         self.switch_btn.grid(row=0, column=0, sticky="w")
 
     def _mcp_to_chat(self):
-        """The user does the round in an AI chat after all (the assistant stalled or hit a limit)."""
+        """The user does the round in an AI chat after all (the assistant stalled or hit a limit). If the assistant
+        comes back (get_text, save_text), _tick switches back to the MCP view."""
         self.mode = "chat"
         self.head.configure(text=t("gui.claude.your_turn"))
         for w in self.body.winfo_children():
@@ -2857,15 +2912,38 @@ class ClaudePanel(ttk.Frame):
             if self.mode == "mcp":
                 self._mcp_tick()
             else:
-                self._watch_clipboard()
-                if self.mcp_job and self.on_finish:
-                    self._mcp_complete()
+                job = self.mcp_job or self.offered_job
+                # Every part already pasted (finishing in a moment): the chat wins, the assistant is told by_user
+                if job and not self._finishing and jobs.taken_since(job, self.chat_since):
+                    self._take_over(job)
+                    self._mcp_tick()
+                else:
+                    self._watch_clipboard()
+                    if self.mcp_job and self.on_finish:
+                        self._mcp_complete()
         self.after(900, self._tick)
+
+    def _take_over(self, job: str):
+        """An assistant has the text: show its progress instead of the chat view. Answers pasted so far are dropped,
+        so the two never mix in one round (the assistant hands in every block through the tools)."""
+        log.info("assistant took over job %s from the chat view", job)
+        self.offered_job = None
+        self.mcp_job = job
+        self.answers, self.partial, self.cut_parts, self.part_outlines = [], [], {}, {}
+        self.words, self.watching, self._finishing = [], None, False
+        self.part_rows = []
+        for w in self.body.winfo_children():
+            w.destroy()
+        for r in range(5):
+            self.body.rowconfigure(r, weight=0)
+        self.app.adopt_job(job)
+        self._build_mcp_mode(publish=False)
 
     # --- Chat view: copy the instructions into any AI chat, copy the answer back ------------------------
 
     def _build_chat(self):
         self.mode = "chat"
+        self.chat_since = time.time()
         self.parts = claude.split_parts(self.cues, len(self.codes))
         n_parts = len(self.parts)
         self.answers: list[dict | None] = [None] * n_parts
@@ -2941,7 +3019,7 @@ class ClaudePanel(ttk.Frame):
         data = ttk.Label(b, text=t("gui.parts.data"), style="Hint.TLabel", justify="left")
         data.grid(row=3, column=0, sticky="ew", pady=(8, 0))
         self.app._wrap(data, b, 10)
-        # An assistant with MCP can take the job over (round 2 wires the phrase up in the MCP server)
+        # An assistant with MCP can take the job over: it finds the published job (_offer) and get_text takes it
         nudge = ttk.Frame(b)
         nudge.grid(row=4, column=0, sticky="ew", pady=(12, 0))
         nudge.columnconfigure(0, weight=1)
@@ -3091,8 +3169,9 @@ class ClaudePanel(ttk.Frame):
         self._guide()
 
     def _save_parts(self):
-        if not all(self.answers) or not self.on_finish:
-            return
+        if self.mode != "chat" or not self.answers or not all(self.answers) or not self.on_finish:
+            return   # taken over meanwhile, or the round has ended
+        self._end_offer("by_user")
         self.app.cut_lines = [l for i in sorted(self.cut_parts) for l in self.cut_parts[i]]
         self.outline = chapters.merge_parts([self.part_outlines[i] for i in sorted(self.part_outlines)],
                                             self.duration or None)

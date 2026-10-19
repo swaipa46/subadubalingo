@@ -91,6 +91,29 @@ TOOLS_REST = """, correct and translate by the rules above, and hand each langua
 If the user wants to stop, or a job hangs and blocks the app, use `cancel` (ask first).
 """
 
+# The phrase the app's card shows for a job the user started there (gui.parts.mcp_phrase, in each UI language;
+# tests/test_take_over.py checks they match the locales)
+TAKE_OVER_PHRASES = ("Tag over i SubaDubaLingo", "Ta över i SubaDubaLingo", "Ta over i SubaDubaLingo",
+                     "Take over in SubaDubaLingo")
+
+_PHRASES = ", ".join('"%s"' % p for p in TAKE_OVER_PHRASES)
+
+TAKE_OVER = f"""## Taking over a job started in the app
+The user can also start a video in the app itself. When it reaches your turn, the app offers the user to copy the
+instructions into any AI chat, and also shows: "Har du forbundet en AI-assistent? Skriv til den: Tag over i
+SubaDubaLingo". So when the user writes {_PHRASES}, or just "take over",
+"tag over", "overtag", or says the app shows a job waiting for you:
+1. Call `status` without a job id. It finds the job waiting for you (`claude_turn`; the answer says the user started
+   it in the app). If it says there is no such job, tell the user to start the video in the app and wait until the
+   app says it is the AI assistant's turn.
+2. Call `get_text` (with that job id, or none): this takes the job over. The app stops waiting for an AI chat and
+   shows your progress instead; answers the user had already pasted from a chat are dropped, so you do the whole
+   text.
+3. Go on exactly as in step 3 above (`save_text`, `suggest_cuts`, `save_chapters`), then `wait` until done, also
+   through `review_cuts`. The job is yours now, as if you had started it.
+If `status` says `by_user`, the user finished the turn in an AI chat first: there is nothing for you to do.
+"""
+
 
 def tools_steps(chunk: str) -> str:
     """The steps with the tools; chunk is what follows "get_text in chunks"."""
@@ -146,6 +169,7 @@ STATES = """## Job states
 - `error`: tell the user the app's message; the log can be opened from the app's settings.
 - `busy`: the app is working on another video; try again later, or ask whether to stop it with `cancel`.
 - `cancelled`: the job has stopped.
+- `by_user`: the user did your turn in an AI chat themselves; the app carries on without you.
 """
 
 NEVER = """## Never
@@ -168,7 +192,7 @@ def guide_text(language: str, words: list[str], rules: list[tuple[str, str]], se
     """The guide, whole or one section (SECTIONS). language: the user's language in English (the app's UI language);
     words, rules: the word list (claude.known_words, claude.word_rules)."""
     parts = {
-        "steps": STEPS_HEAD + tools_steps("(about 120 blocks)") + "\n" + STATES,
+        "steps": STEPS_HEAD + tools_steps("(about 120 blocks)") + "\n" + TAKE_OVER + "\n" + STATES,
         "text": TASK_HEAD + TASK_TEXT,
         "cuts": "## Cuts\n" + TASK_CUTS,
         "chapters": "## Chapters and a summary\n" + TASK_CHAPTERS,
