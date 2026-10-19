@@ -4,6 +4,9 @@
 #
 #   tools\publish.ps1 -Notes "Short note for the user (Danish)"          build, sign, print the command
 #   tools\publish.ps1 -Notes "..." -SkipBuild                      reuse the zip build.ps1 made in -Out
+#   tools\publish.ps1 -Notes "..." -Zip "<dir>\SubaDubaLingo 2.1.2.zip"   a zip built elsewhere (the release-build
+#                                                                  workflow; tools\release.ps1 passes it): no build,
+#                                                                  version and skill from build-info.json next to it
 #   tools\publish.ps1 -Notes "..." -DryRun                         no build, no signing: the manifest (unsigned) and
 #                                                                  the command, to see what would happen
 #
@@ -13,6 +16,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Notes,
     [string]$Out = 'dist-release',
     [switch]$SkipBuild,
+    [string]$Zip,
     [switch]$DryRun
 )
 $ErrorActionPreference = 'Stop'
@@ -27,6 +31,17 @@ $version = (Select-String -Path app\subadubalingo\common.py -Pattern 'APP_VERSIO
 $skill = (Select-String -Path app\subadubalingo\claude.py -Pattern '^SKILL_VERSION = (\d+)').Matches[0].Groups[1].Value
 $repo = (Select-String -Path app\subadubalingo\update.py -Pattern '^REPO = "(.+)"').Matches[0].Groups[1].Value
 $built = Join-Path $Out "$name $version.zip"
+if ($Zip) {
+    # Built by CI from a commit this checkout may not have: the version and skill come with the zip
+    $built = (Resolve-Path $Zip).Path
+    $info = Join-Path (Split-Path $built -Parent) 'build-info.json'
+    if (Test-Path $info) {
+        $bi = Get-Content $info -Raw -Encoding UTF8 | ConvertFrom-Json
+        $version, $skill = $bi.version, [string]$bi.skill
+    }
+    if ((Split-Path $built -Leaf) -ne "$name $version.zip") { throw "$built is not $name $version.zip" }
+    $SkipBuild = $true
+}
 $release = Join-Path $Out "release-$version"
 $asset = Join-Path $release "$name-$version.zip"
 # The same zip under a fixed name, for the website's download button (releases/latest/download/SubaDubaLingo.zip)
@@ -34,7 +49,7 @@ $stable = Join-Path $release "$name.zip"
 $manifest = Join-Path $release 'latest.json'
 Write-Host "$name $version (skill $skill) -> $repo"
 
-if ($DryRun) {
+if ($DryRun -and -not $SkipBuild) {
     Write-Host "[dry run] would run: .\build.ps1 -Out $Out"
 } elseif (-not $SkipBuild) {
     & .\build.ps1 -Out $Out

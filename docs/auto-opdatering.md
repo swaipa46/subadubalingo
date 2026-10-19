@@ -109,6 +109,8 @@ tools\publish.ps1 -Notes "Kort på dansk til brugeren"
 Flag:
 
 - `-SkipBuild` genbruger en zip, der allerede er bygget.
+- `-Zip <sti>` bruger en zip fra release-build-workflowet (version og skill fra `build-info.json` ved siden af).
+  `tools\release.ps1` gør det for dig, se [release.md](release.md).
 - `-DryRun` bygger og signerer ikke. Den skriver et usigneret manifest og kommandoerne, så man kan se, hvad der
   ville ske.
 
