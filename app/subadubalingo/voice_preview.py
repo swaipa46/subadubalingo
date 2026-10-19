@@ -288,7 +288,7 @@ class SampleBubble(ttk.Frame):
         """The bars and the time with done (0..1) of the sample played."""
         k, c = self.k, self.bars
         c.delete("all")
-        h = int(c.cget("height"))
+        h = c.winfo_pixels(c.cget("height"))
         played = int(round(done * self.BARS))
         for i, lv in enumerate(self._levels):
             bh = max(4 * k, int(round((0.2 + 0.8 * lv) * h / (2 * k))) * 2 * k)   # even heights on the pixel grid

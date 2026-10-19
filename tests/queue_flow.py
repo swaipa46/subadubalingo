@@ -309,7 +309,7 @@ elif SCENARIO == "summary":
     pump(root, 1.0)
     canvas = app.vq.summary.winfo_children()[0]
     bar = app.vq.summary.winfo_children()[1]
-    assert bar.winfo_manager() and int(canvas.cget("height")) < canvas.winfo_children()[0].winfo_reqheight()
+    assert bar.winfo_manager() and canvas.winfo_pixels(canvas.cget("height")) < canvas.winfo_children()[0].winfo_reqheight()
     assert str(app.d_again.cget("text")) == i18n.t("queue.retry", n=4)
     shot(root, f"done-mixed-{THEME}")
 

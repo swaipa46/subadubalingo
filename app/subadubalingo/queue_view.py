@@ -1296,7 +1296,8 @@ class QueueController:
         outer = self.summary = tk.Frame(app.d_main, background=P.card, borderwidth=0)
         outer.grid(row=8, column=0, sticky="ew", pady=(int(10 * k), 0))
         outer.columnconfigure(0, weight=1)
-        canvas = tk.Canvas(outer, background=P.card, highlightthickness=0, borderwidth=0)
+        # An explicit height in pixels: without one cget gives Tk's default, a distance string ("7c")
+        canvas = tk.Canvas(outer, height=int(110 * k), background=P.card, highlightthickness=0, borderwidth=0)
         canvas.grid(row=0, column=0, sticky="ew")
         bar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=bar.set)
@@ -1365,7 +1366,7 @@ class QueueController:
                 room = max(int(110 * k), app.root.winfo_height() - canvas.winfo_rooty() + app.root.winfo_rooty()
                            - int(60 * k))
                 height = min(need, room)
-                if int(canvas.cget("height")) != height:
+                if canvas.winfo_pixels(canvas.cget("height")) != height:
                     canvas.configure(height=height)
                 canvas.configure(scrollregion=(0, 0, width, need))
                 bar.grid(row=0, column=1, sticky="ns") if need > height else bar.grid_remove()
@@ -1373,7 +1374,7 @@ class QueueController:
                 pass
 
         def wheel(e):
-            if box.winfo_reqheight() > int(canvas.cget("height")):
+            if box.winfo_reqheight() > canvas.winfo_pixels(canvas.cget("height")):
                 canvas.yview_scroll(-1 if e.delta > 0 else 1, "units")
         canvas.bind("<Configure>", fit, add="+")
         box.bind("<Configure>", fit, add="+")

@@ -452,7 +452,7 @@ class App:
 
         def draw(e=None):
             stripe.delete("all")
-            w, h = stripe.winfo_width(), int(stripe.cget("height"))
+            w, h = stripe.winfo_width(), stripe.winfo_pixels(stripe.cget("height"))
             for i, colour in enumerate(P.header_stripe):
                 stripe.create_rectangle(w * i / 4, 0, w * (i + 1) / 4 + 1, h, fill=colour, outline="")
         stripe.bind("<Configure>", draw)
@@ -2437,7 +2437,7 @@ class SegmentBar(ttk.Frame):
     def _draw(self):
         c = self.canvas
         c.delete("all")
-        k, w, h = self.k, c.winfo_width(), int(c.cget("height"))
+        k, w, h = self.k, c.winfo_width(), c.winfo_pixels(c.cget("height"))
         if w < 10:
             return
         gap = 3 * k

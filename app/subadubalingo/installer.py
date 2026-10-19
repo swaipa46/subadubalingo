@@ -749,7 +749,7 @@ class _Bar(ttk.Frame):
     def _draw(self):
         c = self.canvas
         c.delete("all")
-        k, w, h = self.k, c.winfo_width(), int(c.cget("height"))
+        k, w, h = self.k, c.winfo_width(), c.winfo_pixels(c.cget("height"))
         if w < 10:
             return
         gap = 3 * k

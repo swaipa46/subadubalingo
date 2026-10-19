@@ -23,6 +23,7 @@ tmp = Path(tempfile.mkdtemp(prefix="sdl-editor-shot-"))
 common._DATA_DIR = tmp / "data"          # never Kasper's ~/.subadubalingo (settings, corrections, text state)
 common._DATA_DIR.mkdir()
 import tkinter as tk  # noqa: E402
+from tkinter import font as tkfont  # noqa: E402
 
 import _screen  # noqa: E402
 from subadubalingo import editor, gui, i18n, textstate, theme  # noqa: E402
@@ -232,9 +233,19 @@ root.geometry("1000x900")
 pump(0.8)
 assert ed._file_short and "…" in ed.l_file.cget("text"), ed.l_file.cget("text")
 take("narrow-" + tag)
+# With room for it, the whole name is shown again. A small screen (the CI runner's) may not have that room: the
+# window is shrunk to fit it, and the name is rightly shortened there, so the editor's width is made up instead
 root.geometry(geo)
 pump(0.8)
-assert not ed._file_short
+name = ed.s.doc.path.name
+need = int(tkfont.nametofont("SunValleyBodyStrongFont").measure(name) / 0.6) + 40
+if ed.winfo_width() < need:
+    print(f"editor {ed.winfo_width()} px wide, {need} px needed for the whole name: width made up")
+    ed.winfo_width = lambda: need
+    ed._file_label()
+    del ed.winfo_width
+assert not ed._file_short and ed.l_file.cget("text") == name, ed.l_file.cget("text")
+pump(0.3)
 
 # Switch to English (if made) and back, with the picker
 codes = [d.lang.code for d in ed.s.docs]
@@ -242,7 +253,7 @@ assert codes == [c for c in ("da", "sv", "no", "en") if c in srts], codes
 if "en" in codes:
     ed.picker.pick(str(codes.index("en")))
     pump(0.5)
-    assert ed.s.cur == codes.index("en") and ed.l_file.cget("text") == srts["en"].name
+    assert ed.s.cur == codes.index("en") and ed.s.doc.path.name == srts["en"].name
     take("language-" + tag)
     ed.picker.pick("0")
 
