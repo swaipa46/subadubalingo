@@ -13,10 +13,9 @@ this repo by the developing Claude, following the design system (`assets/ui/READ
 there is no separate design session and no task goes to the design repo. Kasper can open Claude Design for mockups
 if he wants them.
 
-**Status (2026-10-19):** round 1 is built: the skill and the file round are gone, the chat view is the default, the
-texts are neutral, the old-skill notice and the MCP side of the cleanup are in. Round 2 is open: the MCP take-over
-(publishing the app job, `taken.json`, `app.adopt_job`, the phrase in the server and `guide.py`) and its tests. The
-nudge line is in the panel already.
+**Status (2026-10-19):** built in 2.2.0. Round 1: the skill and the file round are gone, the chat view is the
+default, the texts are neutral, the old-skill notice and the MCP side of the cleanup are in. Round 2: the MCP
+take-over of an app job (below, "MCP take-over"). Not yet checked on Windows.
 
 ## Card and idle state
 
@@ -73,21 +72,44 @@ Footer: only `gui.claude.stop` (Afbryd). The switch button and "Gem og fortsæt"
 "Use the ... skill" line, keep the rules, known words and output format inline. Test: the prompt names no skill and
 no product ("Claude", "SubaDubaLingo-skill").
 
-### MCP take-over (round 2 contract)
+### MCP take-over (built in round 2)
 
-When the chat view opens, the panel publishes the app job so an MCP assistant can find it:
-`jobs.job_dir(<new id>)` gets `job.json` (`{"origin": "app", "video": ...}`), `status.json` with state
-`claude_turn`, and the same `source.json` / `task.json` that `_build_mcp_mode` writes today (move that into a shared
-`_publish_task()`). Writes are skipped quietly if the folder cannot be written.
+**Publishing.** When a panel opens for an app job (no `mcp_job`), `ClaudePanel._offer` calls
+`jobs.publish_app_job(video, source, task)`: a new job folder with `job.json` (`{"origin": "app", "video": ...}`),
+`source.json` and `task.json` (`jobs.publish_turn`, shared with `_build_mcp_mode`; `ClaudePanel._task` builds the
+task), then `status.json` with state `claude_turn` (written last, so the server never sees the turn without its
+text). The id is `panel.offered_job`. A failed write is logged and skipped: the chat view works without it. The
+copy/paste flow is not touched by this.
 
-The server (round 2) treats "Tag over i SubaDubaLingo" / "Take over ..." as: find the active `claude_turn` job,
-write `jobs/<id>/taken.json`, and continue with `get_text` as for its own jobs. `guide.py` documents the phrase.
+**The server.** `wait`, `status` and `get_text` without a `job_id` use `_default_job()`: the newest job in
+`claude_turn` without `complete.json` (`jobs.waiting_job`), else the active one, else the latest. `_describe` adds,
+for a `claude_turn` job of origin `app`, that the user started it in the app and that `get_text` takes it over (with
+the phrase in the user's language). `get_text` (job id optional now) writes `jobs/<id>/taken.json` (`{"time",
+"client"}`) at every call. The phrase itself is not parsed by the server (it never sees the chat): `instructions()`,
+the tool descriptions (`status`, `get_text`, `FLOW`) and the guide section "Taking over a job started in the app"
+(`guide.TAKE_OVER`, all four phrases in `guide.TAKE_OVER_PHRASES`) tell the assistant: on "take over" or the phrase,
+call `status` first, then `get_text`.
 
-The panel's `_tick` checks for `taken.json` newer than `self.chat_since` (the time the chat view was built). When
-found: discard chat answers, call `app.adopt_job(id)` (sets `app.mcp_job`, so later states such as `review_cuts` and
-`done` reach the assistant), hide the callout band, stop the pulse, put the card back to its normal style, set the
-status to `gui.work.claude_in_chat`, and rebuild the body as the MCP view (without rewriting source/task). On close
-or finish of an app job that was never taken, its job folder gets state `cancelled` / `done` like an MCP job.
+**The panel.** In the chat view, `_tick` asks `jobs.taken_since(job, self.chat_since)` for `mcp_job or
+offered_job`: true when `taken.json` has a newer time, or a `parts/*.json` is newer (an assistant that hands in
+without fetching). Then `_take_over(job)`: drop everything pasted from a chat (answers, partials, cuts, chapters,
+words), clear the body, call `app.adopt_job(job)` and rebuild the body as the MCP view without rewriting
+source/task. `App.adopt_job` sets `app.mcp_job` and `job["mcp"]` (so `review_cuts`, `done` and `cancel` reach the
+assistant), renames the turn step to `gui.step.claude_chat`, stops the pulse, hides the callout band, puts the card
+back to its normal style and sets the status to `gui.work.claude_in_chat`. The round then finishes through
+`complete.json` as for an MCP job. The same check brings an MCP job the user moved to a chat back to the MCP view
+when the assistant goes on.
+
+**When both happen (decided).** Once taken over, copy/paste is gone (the view is rebuilt) and parts pasted before
+are dropped, never merged: the assistant hands in every block through the tools, so a round never mixes a chat's
+text with the assistant's. One exception: when every part is already pasted (the panel is finishing, `_finishing`),
+the take-over is ignored and the chat wins; the job then gets state `by_user`.
+
+**Ending.** A chat round that finishes sets the offered job to `by_user` ("the user did this turn in an AI chat";
+`get_text`/`save_text` then refuse with that message). A panel destroyed while still offering (Afbryd, the run
+stopped, the window closed) sets it to `cancelled` (`<Destroy>` binding). At start, `jobs.close_app_jobs` cancels
+app jobs a previous run (a crash) left open. `App._check_cancel` also honours the assistant's `cancel` for an
+offered job.
 
 ## MCP view (job from MCP, or taken over)
 
@@ -288,8 +310,14 @@ allowlist. "Customize -> Skills" stays in English: it is the label in Claude's o
 - Part states: copy -> copied/waiting (copy button text and styles), valid paste -> done, partial paste -> problem
   keeps the partial; all parts -> finishes by itself without a click.
 - Copying the MCP phrase is not taken as an answer.
-- Take-over: a `taken.json` newer than `chat_since` switches to the MCP view and sets `app.mcp_job`; an older one
-  does not. `complete.json` finishes the round in either view.
+- Take-over: the app job is published (claude_turn, origin app, task and source); `status` without an id finds
+  it; a `taken.json` older than `chat_since` does not switch; `get_text` switches to the MCP view, the app adopts
+  the job and pasted parts are dropped; `save_text` and `complete.json` finish it. The chat finishing first gives
+  `by_user` (and `get_text` refuses); a panel closed without a take-over cancels the job; an MCP job moved to the
+  chat comes back on `get_text`. `complete.json` finishes the round in either view.
+- Without a GUI (`tests/test_take_over.py`): `waiting_job` prefers `claude_turn`; `status`/`wait`/`get_text` without
+  an id, also over JSON-RPC with an old `skill` argument; `taken_since` from `taken.json` and from `parts/`;
+  `by_user` refused; `close_app_jobs`; the guide's phrases equal the locales'; instructions and tool descriptions.
 - MCP view's switch button opens the chat view.
 - `claude.prompt()` names no skill and no product (`tests/test_claude_answers.py`).
 - Locales (new `tests/test_locales.py`; today only some areas have a per-file key check): every area file has the

@@ -143,6 +143,8 @@ programmet under tiden. Stannar Claude på vägen, skriv "fortsätt".
 Ska videon klippas, skriv det, till exempel "Klipp bort väntetiden och pauserna och
 gör svenska undertexter". När du ser klippen i programmet kan du ändra dem
 där eller säga det till Claude, till exempel "behåll det vid 14:20".
+Har du startat videon i programmet och det är AI-assistentens tur, skriv
+"Ta över i SubaDubaLingo" till Claude. Då gör Claude resten.
 Vill du stoppa en video, skriv "stoppa videon" till Claude.
 Har du uppdaterat programmet medan Claude var öppen säger Claude det. Stäng
 då Claude helt (Quit, som i steg 1) och öppna Claude igen.

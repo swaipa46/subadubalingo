@@ -9,7 +9,10 @@
 > (`SKILL_MD`, `tools/make_skill.py`, SkillGuide, "Gem Claude-skill...") og fil-runden ("... - til/fra Claude.txt",
 > Overførsler-mappen) er fjernet. Brugere fra 2.1.x eller ældre bliver én gang bedt om at slette den gamle skill i
 > Claude (`upgrade_notice.py`); nye installationer ser det aldrig. Teksterne siger "AI-assistent"/"AI-chat", hvor
-> enhver assistent er ment. Spec: [docs/assistant-panel.md](docs/assistant-panel.md).
+> enhver assistent er ment. **Tag over:** et job, brugeren har startet i appen, lægges også ud til MCP-serveren, når
+> det bliver AI-assistentens tur; skriver brugeren "Tag over i SubaDubaLingo" til en forbundet AI-assistent, finder
+> den jobbet med `status`, og `get_text` overtager det (kortet skifter til AI'ens fremskridt). Spec:
+> [docs/assistant-panel.md](docs/assistant-panel.md).
 >
 > **2.0.0 (15.10.2026): nyt navn og ét domænesprog.** Appen hedder SubaDubaLingo (*sub*titles, *dub*, *lingo*).
 > - **Engelsk domænesprog:** kode, MCP-værktøjer, protokollen til Claude (overskrifter, sektioner, klip-typer), skill
@@ -117,6 +120,16 @@ de andre burde virke. Detaljer, opsætningerne og hvordan der testes: `docs/mcp-
   der aldrig ændrer sig: den starter `current.txt`'s version med `--mcp` og rører ikke stdout. Installationen og
   selvopdateringen lægger den der. Claude desktop peger stadig på versionens exe, som installationen skriver om.
 - Test: `tests/test_mcp_clients.py` (uden værktøj og uden GUI), skærmbilleder: `tests/mcpclients_shots.py`.
+- **Tag over (v2.2.0):** når et job, brugeren har startet i appen, når AI-assistentens tur, lægger kortet det ud som
+  et job i `claude_turn` (`jobs.publish_app_job`: `job.json` med `"origin": "app"`, `source.json`, `task.json`).
+  `wait`, `status` og `get_text` uden `job_id` tager det job, der venter på assistenten (`jobs.waiting_job`), før det,
+  appen arbejder på, og det seneste. `get_text` skriver `jobs/<id>/taken.json`; ser kortet den (eller nye
+  `parts/*.json`) efter at chat-visningen blev bygget, skifter det til MCP-visningen, og appen overtager jobbet som et
+  MCP-job (`App.adopt_job`: `review_cuts` og `done` når også assistenten). Svar, brugeren allerede har sat ind fra en
+  chat, droppes, så de to aldrig blandes; har brugeren sat alle dele ind, vinder chatten, og jobbet får tilstanden
+  `by_user`. Et kort, der lukkes uden overtagelse, sætter jobbet til `cancelled` (og appen lukker ved start de
+  app-jobs, en tidligere kørsel efterlod åbne). Manualen (`guide.py`, "Taking over a job started in the app") kender
+  sætningen på alle fire sprog. Test: `tests/test_take_over.py` (uden GUI) og `tests/test_assistant_panel.py`.
 
 ## Klip før undertekster og dub (v1.9)
 "Klip videoen først" (og `start_video(klip=true)`) tilføjer trinene Claude foreslår klip -> brugeren gennemser dem

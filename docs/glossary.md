@@ -9,7 +9,7 @@ right-hand column shows what the user sees.
 |---|---|---|---|
 | Video | The original recording the user picks. Never changed. | `video` | video |
 | Job | One run for one video: what to make, its state, its files. Shared between the app and the MCP server. | `jobs.py`, `jobs/<id>/` | – |
-| State | Where a job is: queued, running, claude_turn, review_cuts, paused, done, error, cancelled, busy. | `jobs.STATES` | the steps on the left |
+| State | Where a job is: queued, running, claude_turn, review_cuts, paused, done, error, cancelled, busy, by_user (the user did the assistant's turn in an AI chat). | `jobs.STATES` | the steps on the left |
 | Spoken language | The language spoken in the video. | `lang`, `spoken_language` | "Sprog i videoen" |
 | Transcription | Speech recognition (Whisper) of the spoken language into cues. | `engine.transcribe` | "Lytter og skriver tekst" |
 | Cue | One subtitle block: start, end (ms), text. Numbered from 1. | `Cue` | blok |
@@ -19,6 +19,7 @@ right-hand column shows what the user sees.
 | Proofreading | The assistant correcting misheard words in the transcript. | `check`, `proofread` | "AI-assistenten retter" |
 | Translation | The assistant translating the cues, keeping numbers and time codes. | `targets` | "oversætter" |
 | The assistant's turn | The step where the assistant proofreads, translates and suggests cuts: through the MCP tools, or in an AI chat (the chat view: copy the instructions per part, copy the answer back). | `claude_turn`, `ClaudePanel` | "Din tur", the "AI-assistent" card |
+| Take over | An MCP assistant takes the assistant's turn of a job the user started in the app ("Tag over i SubaDubaLingo"): `get_text` marks it taken and the card shows the assistant's progress. | `jobs.publish_app_job`, `taken.json`, `App.adopt_job` | "Tag over i SubaDubaLingo" |
 | Instructions / answer | The self-contained prompt per part (`claude.prompt`) and the chat's answer: one code block with `=== <code> ===` per language, `=== cuts ===`, `=== chapters ===`, `=== summary ===`, `=== words ===` (the parser also reads markdown headings, bold labels and a code block per language). | `claude.prompt`, `claude.check_answer` | "Kopiér instruktioner til AI-chat", "Indsæt svar" |
 | Old skill | Up to 2.1.x a Claude skill `subadubalingo` (earlier `videosprog`) with a task-file protocol. Removed in 2.2.0; a one-time notice asks upgraders to delete it. | `upgrade_notice.py`, `guide.OLD_SKILL` | "Ryd op i Claude" |
 | Cut suggestion | A line `<first>-<last block> <kind> <reason>` from the assistant, or a silent pause the app found. | `suggest_cuts`, `parse_cut_lines` | – |

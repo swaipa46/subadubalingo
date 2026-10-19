@@ -35,7 +35,10 @@ The assistant's turn has two modes (spec: `docs/assistant-panel.md`):
   product or skill named) and watches the clipboard for the answer (also "Indsæt svar"). The answer is one code block
   with `=== <code> ===` per language, `=== cuts/chapters/summary/words ===`; `claude.check_answer` also reads markdown
   headings, bold labels and a code block per language (ChatGPT, Gemini). The panel finishes by itself when every
-  part is in. It also nudges MCP users ("Tag over i SubaDubaLingo"); the take-over is round 2 (not wired yet).
+  part is in. It also nudges MCP users ("Tag over i SubaDubaLingo"): the app job is published as a `claude_turn` job
+  (`jobs.publish_app_job`), `status`/`wait`/`get_text` without a job id find it, and `get_text` takes it over
+  (`taken.json`; the card switches to the MCP view and `App.adopt_job` makes it an MCP job). Pasted chat answers are
+  dropped on a take-over; if the user pasted every part first, the chat wins (`by_user`).
 - Up to 2.1.x there was also a Claude skill with a task/answer file round; it was removed in 2.2.0 (owner's decision
   2026-10-19). `upgrade_notice.py` asks upgraders once to delete the old skill in Claude; the MCP guide tells an
   assistant to ignore it.
@@ -49,7 +52,7 @@ The assistant's turn has two modes (spec: `docs/assistant-panel.md`):
 | `editor.py` | Subtitle editor |
 | `queue_view.py` | Queue of videos |
 | `engine.py`, `cutting.py`, `audio.py`, `burnin.py`, `voice_preview.py`, `speakers.py`, `pitch.py` | Media work |
-| `claude.py`, `guide.py`, `mcp_server.py`, `jobs.py`, `textstate.py` | The assistant side |
+| `claude.py`, `guide.py`, `mcp_server.py`, `jobs.py`, `textstate.py` | The assistant side (`jobs.py` also holds the take-over of app jobs) |
 | `upgrade_notice.py` | The one-time "delete the old Claude skill" notice after an update from 2.1.x |
 | `installer.py`, `update.py`, `autoupdate.py`, `ed25519.py` | Install, self-update, signature check |
 | `report.py` | Error reports to the relay (see below) |
@@ -138,11 +141,9 @@ to swaipa46/subadubalingo-design. (History: a Claude in Cowork on Kasper's PC ma
 - Relay go-live (token, DRY_RUN=0) and a test report from the app -> an issue.
 - SmartScreen / code signing decision (Kasper).
 - Gemini CLI untested; Codex CLI, VS Code Copilot, Cursor untested ("should work").
-- 2.2.0: bump `APP_VERSION` to 2.2.0 (`upgrade_notice.SKILL_REMOVED_IN` assumes it; change both if the number
-  differs), then the usual release.
-- Round 2 of the assistant panel: the MCP take-over of a job started in the app ("Tag over i SubaDubaLingo":
-  publish the app job, `taken.json`, `app.adopt_job`; see `docs/assistant-panel.md`). The nudge line is in the panel
-  already but does nothing yet on the server side.
+- 2.2.0: `APP_VERSION` is 2.2.0 (matches `upgrade_notice.SKILL_REMOVED_IN`); CI on Windows, then the usual release.
+  Check on Windows: the chat view, the take-over (write "Tag over i SubaDubaLingo" in Claude desktop while the app
+  waits in the chat view) and the old-skill notice.
 - Optional design polish from review round 3 (CUT · DUB · SUB on the first-start page, done banner width, tile checks,
   empty space under a short cut list).
 - Tests write to the real `~/.subadubalingo/log.txt` (should use a temp data dir).

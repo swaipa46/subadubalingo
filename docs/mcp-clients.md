@@ -1,4 +1,4 @@
-# Brug med andre AI-værktøjer (v2.1.1)
+# Brug med andre AI-værktøjer (v2.1.1, tag over i v2.2.0)
 
 SubaDubaLingo er en lokal MCP-server (JSON-RPC over stdio), så ethvert AI-værktøj, der kan starte en lokal
 MCP-server, kan styre appen: Claude (desktop-appen og Claude Code), Gemini CLI, OpenAI Codex CLI, GitHub Copilot i
@@ -67,6 +67,25 @@ Claude-skill'en fra version 2.1.x og ældre er fjernet (2.2.0). Manualen (afsnit
 `instructions` siger til en assistent, der stadig har en skill "subadubalingo" eller "videosprog", at den er forældet:
 ignorér den, og sig én gang til brugeren, at den kan slettes under Customize -> Skills. `get_text` tager stadig imod
 det gamle argument `skill` og ignorerer det (ukendte argumenter droppes, `mcp_server._known_args`).
+
+## Tag over: et job, brugeren startede i appen (v2.2.0)
+
+Starter brugeren en video i appen selv, viser kortet "AI-assistent" kopiér/indsæt til en hvilken som helst AI-chat og
+desuden linjen "Har du forbundet en AI-assistent? Skriv til den: Tag over i SubaDubaLingo" med en Kopiér-knap.
+Samtidig lægger appen jobbet ud som et job i `claude_turn` (`jobs.publish_app_job`, `job.json` med
+`"origin": "app"`). Skriver brugeren sætningen (eller "take over") til et forbundet værktøj:
+
+1. `status` uden `job_id` finder jobbet, der venter på assistenten (`jobs.waiting_job`; standarden for `wait`,
+   `status` og `get_text` er nu: det ventende job, ellers det, appen arbejder på, ellers det seneste). Svaret siger,
+   at brugeren startede jobbet i appen, og hvordan det overtages.
+2. `get_text` overtager det: serveren skriver `jobs/<id>/taken.json`, kortet skifter til AI'ens fremskridt, og appen
+   melder herefter `review_cuts` og `done` til assistenten som for dens egne jobs.
+3. Resten som altid: `save_text`, `suggest_cuts`, `save_chapters`, `wait`.
+
+Har brugeren allerede sat svar ind fra en chat, droppes de ved overtagelsen (assistenten laver hele teksten). Har
+brugeren sat alle dele ind, vinder chatten: jobbet får tilstanden `by_user`, og `get_text`/`save_text` svarer, at
+der intet er at gøre. Manualen har afsnittet "Taking over a job started in the app" med sætningen på alle fire sprog
+(`guide.TAKE_OVER_PHRASES`, testet mod `gui.parts.mcp_phrase`). Test: `tests/test_take_over.py`.
 
 Klientens navn fra `initialize` (`clientInfo.name`) bestemmer det eneste, der kun gælder Claude: efter en opdatering
 får andre værktøjer "genstart <værktøj>" i stedet for Claude desktops "højreklik på ikonet ved uret".

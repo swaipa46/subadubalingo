@@ -143,6 +143,8 @@ the program meanwhile. If Claude stops along the way, write "continue".
 If the video should be cut, say so, for example "Cut out the waiting time and the pauses and
 make English subtitles". When you see the cuts in the program, you can change them
 there or tell Claude, for example "keep the one at 14:20".
+If you started the video in the program and it is the AI assistant's turn,
+write "Take over in SubaDubaLingo" to Claude. Claude then does the rest.
 To stop a video, write "stop the video" to Claude.
 If you updated the program while Claude was open, Claude will tell you. Then
 close Claude completely (Quit, as in step 1) and open Claude again.
