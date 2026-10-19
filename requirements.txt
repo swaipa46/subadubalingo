@@ -1,0 +1,14 @@
+# Pinned from the dev venv (Python 3.14): what the app, the tests and build.ps1 (PyInstaller) need.
+# The app: numpy, pillow, sv-ttk, sherpa-onnx. The build: pyinstaller and its dependencies.
+altgraph==0.17.5
+numpy==2.5.4
+packaging==26.3
+pefile==2024.8.26
+pillow==12.3.0
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
+pywin32-ctypes==0.2.3
+setuptools==84.0.0
+sherpa-onnx==1.13.8
+sherpa-onnx-core==1.13.8
+sv-ttk==2.6.1

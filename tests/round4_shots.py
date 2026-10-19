@@ -2,11 +2,14 @@
 into a temp folder and copies the shots that show each item to design/implemented/<theme>/round4-<name>.png, then
 shoots Indstillinger on a short monitor (the scroll box with its pixel scroll bar) itself.
 
-  python tests/round4_shots.py --theme light|night [--out OUT_ROOT]
+  python tests/round4_shots.py --theme light|night [--out OUT_ROOT] [--skip SCRIPT]
+
+--skip: leave out one feature script and its shots (CI: queue_flow.py, whose video B needs a Whisper model).
 
 Each script runs in its own process (they replace parts of the app); a failing one stops the run. Windows open on
 the monitor the user is not working on and are captured with PrintWindow.
 """
+import os
 import shutil
 import subprocess
 import sys
@@ -15,7 +18,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-VIDEO = Path("C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4")
+VIDEO = Path(os.environ.get("SDL_TEST_VIDEO", "C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4"))
 arg = lambda name, default: sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 THEME = arg("--theme", "light")
 OUT = Path(arg("--out", ROOT / "design" / "implemented")) / THEME
@@ -48,7 +51,11 @@ RUNS = [
 
 def main():
     py = sys.executable
+    skip = arg("--skip", "")
     for script, args, shots in RUNS:
+        if script == skip:
+            print(f"--- {script}: skipped", flush=True)
+            continue
         print(f"--- {script}", flush=True)
         subprocess.run([py, str(HERE / script)] + args, check=True, cwd=ROOT)
         folder = Path(args[1] if script == "editor_shot.py" else args[0])

@@ -2,6 +2,7 @@
 files, and a real ffmpeg burn of 3 s of the test video with each option (checked by looking at the pixels where the
 text and the logo should be). Writes only to a temp folder.
   python tests/test_burnin.py [--keep]   (--keep leaves the burned clips and stills in the temp folder)"""
+import os
 import shutil
 import sys
 import tempfile
@@ -20,7 +21,7 @@ from subadubalingo import burnin, engine
 from subadubalingo.common import FFMPEG, Runner
 
 ROOT = Path(__file__).resolve().parent.parent
-VIDEO = Path("C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4")
+VIDEO = Path(os.environ.get("SDL_TEST_VIDEO", "C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4"))
 LOGO = ROOT / "assets" / "branding" / "icon-256.png"
 L = burnin.Look
 

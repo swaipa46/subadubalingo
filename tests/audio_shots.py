@@ -2,6 +2,7 @@
 speech) and Indstillinger's "Lyd" card. Windows open on the monitor the user is not working on and are captured
 with PrintWindow. The app's data folder is a temp folder.
   python tests/audio_shots.py OUT_DIR --theme light|night [--lang da|sv|no|en] [--video VIDEO]"""
+import os
 import ctypes
 import shutil
 import sys
@@ -26,8 +27,7 @@ out = Path(sys.argv[1])
 out.mkdir(parents=True, exist_ok=True)
 arg = lambda name, default: sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 forced_theme, forced_lang = arg("--theme", "light"), arg("--lang", "da")
-src = Path(arg("--video", "C:/Users/karyl/Cowork/Video subtitles test/"
-                          "Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4"))
+src = Path(arg("--video", os.environ.get("SDL_TEST_VIDEO", os.environ.get("SDL_TEST_VIDEO", "C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4"))))
 theme.resolve = lambda choice: forced_theme
 i18n.resolve = lambda choice: forced_lang
 gui.Settings.save = lambda self: None

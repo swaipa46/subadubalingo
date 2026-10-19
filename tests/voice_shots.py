@@ -5,6 +5,7 @@ Windows open on the monitor the user is not working on and are captured with Pri
 
   python tests/voice_shots.py [OUT_ROOT] --theme light|night      (OUT_ROOT/<theme>/voice-*.png)
 """
+import os
 import ctypes
 import shutil
 import sys
@@ -67,7 +68,7 @@ app = gui.App(root)
 app.settings.voice_mode = "person"
 _screen.place(root)
 video = tmp / "Call with David.mp4"
-shutil.copy(r"C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4",
+shutil.copy(os.environ.get("SDL_TEST_VIDEO", os.environ.get("SDL_TEST_VIDEO", "C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4")),
             video)
 app.video.set(str(video))
 app._refresh(lang_changed=True)

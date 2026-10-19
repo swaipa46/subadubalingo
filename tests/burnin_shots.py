@@ -2,6 +2,7 @@
 video, and big text at the top in a box with a logo. The window opens on the monitor the user is not working on and
 is captured with PrintWindow. Settings and data go to a temp folder.
   python tests/burnin_shots.py OUT_DIR --theme light|night [--lang da]"""
+import os
 import ctypes
 import shutil
 import sys
@@ -32,7 +33,7 @@ i18n.resolve = lambda choice: forced_lang
 installer._save_ui_language = lambda code: None
 theme.load_fonts()
 ROOT = Path(__file__).resolve().parent.parent
-VIDEO = Path("C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4")
+VIDEO = Path(os.environ.get("SDL_TEST_VIDEO", "C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4"))
 video = TMP / VIDEO.name
 if VIDEO.exists():
     shutil.copyfile(VIDEO, video)

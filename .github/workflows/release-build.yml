@@ -1,0 +1,40 @@
+# Builds the release zip for tools\release.ps1 (Kasper's PC: install, checklist, sign, publish). This workflow never
+# publishes a release and has no signing key: the manifest is signed on his PC (tools\release_key.py, DPAPI).
+name: Release build
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Version (common.py APP_VERSION)
+        id: version
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path app\subadubalingo\common.py -Pattern 'APP_VERSION = "(.+)"').Matches[0].Groups[1].Value
+          "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Host "SubaDubaLingo $v"
+      - name: Make the test clip
+        shell: pwsh
+        run: .venv\Scripts\python.exe tests\make_test_clip.py "$env:RUNNER_TEMP\media"
+      - name: Unit tests
+        shell: pwsh
+        run: .venv\Scripts\python.exe tests\ci_run.py unit "$env:RUNNER_TEMP\media"
+      # app\models (the test voices) does not go into the zip: build.ps1 bundles only what it names
+      - name: build.ps1
+        shell: pwsh
+        run: .\build.ps1
+      - name: Upload the zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-zip
+          path: dist/SubaDubaLingo ${{ steps.version.outputs.version }}.zip
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0

@@ -10,6 +10,7 @@ folder and the user's answers made up:
 
   python tests/queue_flow.py OUT_DIR [--theme light|night] [--scenario main|cancel|resume] [--lang da]
 Windows open on the monitor the user is not working on and are captured with PrintWindow. No sound is played."""
+import os
 import ctypes
 import json
 import shutil
@@ -39,7 +40,7 @@ THEME, SCENARIO, LANG = arg("--theme", "light"), arg("--scenario", "main"), arg(
 theme.resolve = lambda choice: THEME
 i18n.resolve = lambda choice: LANG
 theme.load_fonts()
-SRC = Path("C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4")
+SRC = Path(os.environ.get("SDL_TEST_VIDEO", "C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4"))
 SRC_SRT = SRC.with_name(SRC.stem + " - danske undertekster.srt")
 DA, NO = LANG_BY_CODE["da"], LANG_BY_CODE["no"]
 

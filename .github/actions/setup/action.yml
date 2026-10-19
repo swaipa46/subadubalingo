@@ -1,0 +1,38 @@
+name: Set up SubaDubaLingo
+description: Python with .venv from requirements.txt, bin\ from fetch-tools.ps1 and the Piper voices the tests use (all cached)
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.14'
+        cache: pip
+        cache-dependency-path: requirements.txt
+    # build.ps1 and tools\publish.ps1 run .venv\Scripts\python.exe, as on the dev PC
+    - name: Create .venv
+      shell: pwsh
+      run: |
+        python -m venv .venv
+        .venv\Scripts\python.exe -m pip install --disable-pip-version-check -r requirements.txt
+    # whisper.cpp, Piper and ffmpeg: downloaded again only when fetch-tools.ps1 changes
+    - name: Cache bin
+      id: bin
+      uses: actions/cache@v4
+      with:
+        path: bin
+        key: bin-${{ runner.os }}-${{ hashFiles('fetch-tools.ps1') }}
+    - name: fetch-tools.ps1
+      if: steps.bin.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: .\fetch-tools.ps1
+    # The clip's Danish speaker and the Swedish voices voice_shots.py samples (no Whisper model: see tests/ci_run.py)
+    - name: Cache Piper voices
+      id: voices
+      uses: actions/cache@v4
+      with:
+        path: app/models
+        key: voices-${{ hashFiles('tests/make_test_clip.py') }}
+    - name: Fetch Piper voices
+      if: steps.voices.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: .venv\Scripts\python.exe tests\make_test_clip.py --fetch-voices app\models

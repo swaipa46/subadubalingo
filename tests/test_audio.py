@@ -6,6 +6,7 @@ With VIDEO (default: the 18 s test recording, if it is there): takes 5 s with sp
 folder, puts it through the chain, and checks the loudness (ebur128) before and after, that the sound has not
 moved in time, that the result is marked so it is not cleaned twice, and that a cut video gets the chain too.
 """
+import os
 import shutil
 import subprocess
 import sys
@@ -86,7 +87,7 @@ assert "[0:a:0]aresample=48000,asetnsamples" in cutting._filters([(1000, 2000)],
 print("mix ok")
 
 # --- A real run on 5 s of a video ---------------------------------------------------------------------------
-DEFAULT = Path("C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4")
+DEFAULT = Path(os.environ.get("SDL_TEST_VIDEO", "C:/Users/karyl/Cowork/Video subtitles test/Call with David Gabelgaard-20260930_134558-Meeting Recording.mp4"))
 src = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT
 if not src.is_file():
     print("no test video; skipped the ffmpeg part")

@@ -1,0 +1,40 @@
+# Tests and screenshots on Windows (the app is Windows only; development happens on Linux).
+# What does not run here, and why: see the docstring of tests/ci_run.py (scripts that need a Whisper model, Kasper's
+# recordings or two built program folders).
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Make the test clip
+        shell: pwsh
+        run: .venv\Scripts\python.exe tests\make_test_clip.py "$env:RUNNER_TEMP\media"
+      - name: Unit tests (tests/test_*.py)
+        shell: pwsh
+        run: .venv\Scripts\python.exe tests\ci_run.py unit "$env:RUNNER_TEMP\media"
+      - name: GUI screenshots (both themes)
+        if: success() || failure()
+        shell: pwsh
+        run: .venv\Scripts\python.exe tests\ci_run.py shots "$env:RUNNER_TEMP\media" design\implemented
+      - name: Upload screenshots
+        if: success() || failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: design/implemented/**
+          if-no-files-found: warn
+          retention-days: 14
