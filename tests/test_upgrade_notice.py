@@ -133,7 +133,10 @@ if root is not None:
     first = app._notice
     un.show(app)
     check(app._notice is first, "one notice at a time")
-    first.event_generate("<Escape>")
+    # The CI runner's windows never get keyboard focus, so a generated key press is dropped: check the bindings,
+    # then call what they run.
+    check(first.bind("<Escape>") and first.bind("<Return>"), "Escape and Enter are bound")
+    first.close()
     root.update()
     check(not first.winfo_exists(), "Escape closes it")
     root.destroy()

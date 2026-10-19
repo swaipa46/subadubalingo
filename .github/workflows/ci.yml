@@ -8,6 +8,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      only:
+        description: "Run only these unit tests (a glob such as test_queue.py) and no screenshots"
+        required: false
+        default: ""
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -25,13 +30,15 @@ jobs:
         run: .venv\Scripts\python.exe tests\make_test_clip.py "$env:RUNNER_TEMP\media"
       - name: Unit tests (tests/test_*.py)
         shell: pwsh
+        env:
+          SDL_CI_ONLY: ${{ inputs.only }}
         run: .venv\Scripts\python.exe tests\ci_run.py unit "$env:RUNNER_TEMP\media"
       - name: GUI screenshots (both themes)
-        if: success() || failure()
+        if: (success() || failure()) && !inputs.only
         shell: pwsh
         run: .venv\Scripts\python.exe tests\ci_run.py shots "$env:RUNNER_TEMP\media" design\implemented
       - name: Upload screenshots
-        if: success() || failure()
+        if: (success() || failure()) && !inputs.only
         uses: actions/upload-artifact@v4
         with:
           name: screenshots

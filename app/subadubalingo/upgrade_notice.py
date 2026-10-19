@@ -97,8 +97,9 @@ def show(app):
         anchor="w", pady=(10, 0))
     ok = ttk.Button(f, text=t("oldskill.ok"), style="Accent.TButton", command=win.destroy, default="active")
     ok.pack(anchor="w", pady=(14, 0))
-    win.bind("<Escape>", lambda e: win.destroy())
-    win.bind("<Return>", lambda e: win.destroy())
+    win.close = lambda e=None: win.destroy()   # also what the test calls: a key event needs focus, which CI lacks
+    win.bind("<Escape>", win.close)
+    win.bind("<Return>", win.close)
     app._notice = win
     gui.place_over(win, root)
     ok.focus_set()

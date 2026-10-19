@@ -62,7 +62,8 @@ def unit(media: Path, env: dict) -> list[str]:
     clip, long_clip = media / f"{NAME}.mp4", media / f"{NAME} 45s.mp4"
     extra = {"test_audio.py": [str(clip)], "test_cutting.py": [str(long_clip)]}
     failed = []
-    for t in sorted(HERE.glob("test_*.py")):
+    only = os.environ.get("SDL_CI_ONLY") or "test_*.py"   # workflow_dispatch input "only": rerun one test fast
+    for t in sorted(HERE.glob(only)):
         why = run(t.name, [str(t), *extra.get(t.name, [])], True, env)
         if why:
             failed.append(f"{t.name}: {why}")
@@ -101,7 +102,8 @@ def shots(media: Path, out: Path, env: dict) -> list[str]:
 
 def main():
     mode, media = sys.argv[1], Path(sys.argv[2]).resolve()
-    env = dict(os.environ, SDL_TEST_VIDEO=str(media / f"{NAME}.mp4"), PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    env = dict(os.environ, SDL_TEST_VIDEO=str(media / f"{NAME}.mp4"), PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
+               PYTHONUNBUFFERED="1", PYTHONFAULTHANDLER="1")   # a native crash (Tk) still shows where it was
     if mode == "unit":
         failed = unit(media, env)
     elif mode == "shots":
