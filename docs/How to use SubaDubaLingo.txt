@@ -26,14 +26,9 @@ The first time you press Start, the program says some files are missing
 If that doesn't work, click the links, download the files and put them in the model
 folder (the "Open model folder" button).
 
-Also add the Claude skill to Claude (once). The program shows the
-"Add the Claude skill" window by itself, with four steps:
-1. Click "Save the skill file". It goes into your Downloads folder.
-2. Open Claude and go to Customize -> Skills.
-3. Delete the old "subadubalingo" and "videosprog" skills if they are there.
-4. Click "Upload skill" and choose "subadubalingo-skill.zip".
-Then click "I have done it". The skill teaches Claude the rules and EG's product
-terms (such as Membercare).
+If you used an older version where you added a Claude skill to Claude, the
+program asks you once to delete it (Customize -> Skills in Claude). It is no
+longer used.
 
 
 HOW TO MAKE A VIDEO
@@ -47,8 +42,8 @@ HOW TO MAKE A VIDEO
 4. Press Start. You can get on with other work in the meantime.
 
 While the program works, it shows the steps and how far it has got.
-When the text is written, the program comes to the front, and the "Claude" panel
-on the right lights up with "Your turn" (see CLAUDE below). After that the program
+When the text is written, the program comes to the front, and the "AI assistant" card
+on the right lights up with "Your turn" (see THE AI ASSISTANT below). After that the program
 does the rest by itself, and when the video is ready it says "Done!" with buttons
 to play it, show it in the folder or make a new one.
 
@@ -67,34 +62,29 @@ go first, so you can keep working. If the PC still gets too
 slow (in a Teams meeting, say), press "Pause". The program then stops using
 the PC completely, and when you press "Resume" it carries on where it
 left off. Don't close the program while it's working - it would have to start over.
-While it's your turn (Claude or the cuts), "Pause" is greyed out: the program
+While it's your turn (the AI assistant or the cuts), "Pause" is greyed out: the program
 is just waiting for you.
 
 "Cancel" asks first whether you want to stop. Afterwards it tells you whether anything
 was saved (such as the Danish subtitles, so next time is faster).
 
 
-CLAUDE
-------
-Claude fixes misheard words (product names, for example) and translates into the
-languages the new video needs. It works with one file there and one file back:
-1. Click "Copy file" in the Claude card.
-2. Open a new chat in Claude, paste (Ctrl+V) and send. (If you can't paste
-   the file, click "Show in folder" and drag the file into Claude.)
-3. Claude makes a reply file ("... - from Claude.txt"). Click it in Claude's reply
-   and press Download.
-4. The program finds the file in your Downloads folder by itself, checks it and
-   carries on. There's nothing to save or move. Meanwhile, step 3 shows
-   that the program is waiting for the reply file, and for how long.
+THE AI ASSISTANT
+----------------
+An AI assistant fixes misheard words (product names, for example) and
+translates into the languages the new video needs. Use the AI chat your
+workplace allows (Copilot, ChatGPT, Gemini or Claude, for example):
+1. Click "Copy instructions for AI chat" in the card on the right.
+2. Open a new chat, paste (Ctrl+V) and send.
+3. When the chat is done, copy the whole answer (the copy button in the chat).
+   The program notices by itself, checks the answer and carries on. You can
+   also click "Paste answer".
+If the text is long, it is split into parts. Send them in the same chat, one
+at a time. If the answer was not quite finished, the program says what is
+missing. Ask the chat to write the rest, and copy it again.
 
-If the reply file isn't right (for example if Claude didn't finish), it tells you what
-to do: click "Copy message for Claude", paste the message into the same chat, and
-download the new file. (The technical reason is in small grey text below.) If it keeps acting up, you can use "Use copy/paste in parts instead".
-
-The program remembers the words Claude corrects, so they come out right next time.
-Every now and then you can give Claude the new words: the cog wheel at the top right ->
-"Save Claude skill...", then upload the saved file to Claude as described under
-THE FIRST TIME (delete the old skill first).
+The program remembers the words the AI assistant corrects, so they come out
+right next time, and sends them along in the instructions.
 
 
 FIXING MISTAKES IN THE TEXT
@@ -116,11 +106,11 @@ times faster, but gets a few more words wrong.
 CUT THE VIDEO FIRST (for example a Teams recording)
 ---------------------------------------------------
 Tick "Cut the video first: remove waiting, breaks and what should not be in it" before you press Start. The program then
-finds long pauses by itself, and Claude suggests what to cut out:
+finds long pauses by itself, and the AI assistant suggests what to cut out:
 the waiting time before the meeting gets going, interruptions, the end where the recording
 drags on, and anything inappropriate, off-topic or impossible to make out.
 
-When Claude is done, the program shows a timeline with all the cuts in colour.
+When the AI assistant is done, the program shows a timeline with all the cuts in colour.
 Nothing is cut until you have approved it:
 - Cut 1 is selected to begin with. Click a cut to see the frame just before
   and just after it, and press

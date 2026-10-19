@@ -26,14 +26,9 @@ Första gången du trycker Starta säger programmet att det saknas några filer
 Fungerar det inte, klicka på länkarna, hämta filerna och lägg dem i modellmappen
 (knappen "Öppna modellmapp").
 
-Lägg också in Claude-skillen i Claude (en gång). Programmet visar själv
-fönstret "Lägg in Claude-skillen" med fyra steg:
-1. Klicka "Spara skill-filen". Den hamnar i mappen Hämtade filer.
-2. Öppna Claude och gå till Customize -> Skills.
-3. Ta bort de gamla "subadubalingo" och "videosprog", om de finns där.
-4. Klicka "Upload skill" och välj "subadubalingo-skill.zip".
-Klicka sedan "Jag har gjort det". Skillen lär Claude reglerna och EG:s fackord
-(till exempel Membercare).
+Har du använt en äldre version där du lade in en Claude-skill i Claude, ber
+programmet dig en gång att ta bort den (Customize -> Skills i Claude). Den
+används inte längre.
 
 
 SÅ GÖR DU EN VIDEO
@@ -47,8 +42,8 @@ SÅ GÖR DU EN VIDEO
 4. Tryck Starta. Du kan jobba vidare med annat under tiden.
 
 Medan programmet arbetar visar det stegen och hur långt det har kommit.
-När texten är skriven kommer programmet fram, och panelen "Claude" till höger
-lyser upp med "Din tur" (se CLAUDE nedan). Sedan gör programmet resten
+När texten är skriven kommer programmet fram, och kortet "AI-assistent" till höger
+lyser upp med "Din tur" (se AI-ASSISTENTEN nedan). Sedan gör programmet resten
 självt, och när videon är klar står det "Klart!" med knappar för att spela upp
 den, visa den i mappen eller göra en ny.
 
@@ -67,34 +62,29 @@ program gå före, så att du kan jobba vidare. Blir datorn ändå för
 långsam (till exempel i ett Teams-möte), tryck "Paus". Då slutar programmet helt
 att använda datorn, och när du trycker "Fortsätt" jobbar det vidare där det
 slutade. Stäng inte programmet medan det arbetar - då måste det börja om.
-Medan det är din tur (Claude eller klippen) är "Paus" grå: programmet
+Medan det är din tur (AI-assistenten eller klippen) är "Paus" grå: programmet
 väntar ju bara på dig.
 
 "Avbryt" frågar först om du vill stoppa. Efteråt står det om något
 sparades (till exempel de svenska undertexterna, så att det går snabbare nästa gång).
 
 
-CLAUDE
-------
-Claude rättar felhörda ord (till exempel produktnamn) och översätter till de språk
-den nya videon ska ha. Det sker med en fil fram och en fil tillbaka:
-1. Klicka "Kopiera fil" i Claude-kortet.
-2. Öppna en ny chatt i Claude, klistra in (Ctrl+V) och skicka. (Går det inte att
-   klistra in filen, klicka "Visa i mapp" och dra in filen i Claude.)
-3. Claude gör en svarsfil ("... - från Claude.txt"). Klicka på den i Claudes svar
-   och tryck Download.
-4. Programmet hittar själv filen i mappen Hämtade filer, kontrollerar den och
-   fortsätter. Du behöver inte spara eller flytta något. Under tiden står det under
-   steg 3 att programmet väntar på svarsfilen, och hur länge.
+AI-ASSISTENTEN
+--------------
+En AI-assistent rättar felhörda ord (till exempel produktnamn) och översätter
+till de språk den nya videon ska ha. Använd den AI-chatt som din arbetsplats
+tillåter (till exempel Copilot, ChatGPT, Gemini eller Claude):
+1. Klicka "Kopiera instruktioner till AI-chatt" i kortet till höger.
+2. Öppna en ny chatt, klistra in (Ctrl+V) och skicka.
+3. När chatten är klar, kopiera hela svaret (kopieringsknappen i chatten).
+   Programmet märker det själv, kontrollerar svaret och fortsätter. Du kan
+   också klicka "Klistra in svar".
+Är texten lång är den delad i flera delar. Skicka dem i samma chatt, en i taget.
+Var svaret inte helt klart står det vad som saknas. Be chatten skriva resten
+och kopiera det igen.
 
-Är svarsfilen inte i ordning (till exempel om Claude inte blev klar) står det vad du
-ska göra: klicka "Kopiera meddelande till Claude", klistra in meddelandet i samma chatt
-och hämta den nya filen. (Den tekniska orsaken står med liten grå text under.) Krånglar det kan du använda "Använd kopiera/klistra in i delar i stället".
-
-Programmet kommer ihåg orden som Claude rättar, så att de blir rätt nästa gång.
-Då och då kan du ge Claude de nya orden: kugghjulet längst upp till höger ->
-"Spara Claude-skill...", och ladda upp den sparade filen i Claude som beskrivs under
-FÖRSTA GÅNGEN (ta bort den gamla skillen först).
+Programmet kommer ihåg orden som AI-assistenten rättar, så att de blir rätt
+nästa gång, och skickar med dem i instruktionerna.
 
 
 RÄTTA FEL I TEXTEN
@@ -116,11 +106,11 @@ gånger snabbare, men fler ord blir felhörda.
 KLIPP VIDEON FÖRST (till exempel en Teams-inspelning)
 -----------------------------------------------------
 Bocka i "Klipp videon först: ta bort väntetid, pauser och det som inte ska vara med" innan du trycker Starta. Då hittar
-programmet själv långa pauser, och Claude föreslår vad som ska klippas bort:
+programmet själv långa pauser, och AI-assistenten föreslår vad som ska klippas bort:
 väntetiden innan mötet kommer igång, avbrott, slutet där inspelningen
 drar ut på tiden, och sådant som är olämpligt, inte hör till ämnet eller inte går att förstå.
 
-När Claude är klar visar programmet en tidslinje med alla klipp i färger.
+När AI-assistenten är klar visar programmet en tidslinje med alla klipp i färger.
 Ingenting klipps förrän du har godkänt det:
 - Klipp 1 är valt från början. Klicka på ett klipp för att se bilden precis före
   och precis efter, och tryck

@@ -26,14 +26,9 @@ Første gang du trykker Start, siger programmet, at der mangler nogle filer
 Virker det ikke, så klik på linkene, hent filerne og læg dem i modelmappen
 (knappen "Åbn modelmappe").
 
-Læg også Claude-skill'en ind i Claude (én gang). Programmet viser selv
-vinduet "Læg Claude-skill'en ind" med fire trin:
-1. Klik "Gem skill-filen". Den lægges i din Overførsler-mappe.
-2. Åbn Claude, og gå til Customize -> Skills.
-3. Slet de gamle "subadubalingo" og "videosprog", hvis de er der.
-4. Klik "Upload skill", og vælg "subadubalingo-skill.zip".
-Klik så "Jeg har gjort det". Skill'en lærer Claude reglerne og EG's fagord
-(fx Membercare).
+Har du brugt en ældre version, hvor du lagde en Claude-skill ind i Claude, beder
+programmet dig én gang om at slette den (Customize -> Skills i Claude). Den
+bruges ikke længere.
 
 
 SÅDAN LAVER DU EN VIDEO
@@ -47,8 +42,8 @@ SÅDAN LAVER DU EN VIDEO
 4. Tryk Start. Du kan arbejde videre med andet imens.
 
 Mens programmet arbejder, viser det trinene, og hvor langt det er nået.
-Når teksten er skrevet, kommer programmet frem, og panelet "Claude" til højre
-lyser op med "Din tur" (se CLAUDE nedenfor). Bagefter laver programmet selv
+Når teksten er skrevet, kommer programmet frem, og kortet "AI-assistent" til højre
+lyser op med "Din tur" (se AI-ASSISTENTEN nedenfor). Bagefter laver programmet selv
 resten, og når videoen er klar, står der "Færdig!" med knapper til at afspille
 den, vise den i mappen eller lave en ny.
 
@@ -67,34 +62,29 @@ programmer forrang, så du kan arbejde videre. Bliver pc'en alligevel for
 langsom (fx i et Teams-møde), så tryk "Pause". Så holder programmet helt op
 med at bruge pc'en, og når du trykker "Fortsæt", arbejder det videre, hvor det
 slap. Luk ikke programmet, mens det arbejder - så skal det starte forfra.
-Mens det er din tur (Claude eller klippene), er "Pause" grå: programmet
+Mens det er din tur (AI-assistenten eller klippene), er "Pause" grå: programmet
 venter jo bare på dig.
 
 "Annullér" spørger først, om du vil stoppe. Bagefter står der, om noget
 blev gemt (fx de danske undertekster, så næste gang går hurtigere).
 
 
-CLAUDE
-------
-Claude retter fejlhørte ord (fx produktnavne) og oversætter til de sprog, den
-nye video skal have. Det sker med én fil frem og én fil tilbage:
-1. Klik "Kopiér fil" i Claude-kortet.
-2. Åbn en ny chat i Claude, indsæt (Ctrl+V) og send. (Kan du ikke indsætte
-   filen, så klik "Vis i mappe" og træk filen ind i Claude.)
-3. Claude laver en svarfil ("... - fra Claude.txt"). Klik på den i Claudes svar,
-   og tryk Download.
-4. Programmet finder selv filen i din Overførsler-mappe, tjekker den og
-   fortsætter. Der er intet at gemme eller flytte. Imens står der under
-   trin 3, at programmet venter på svarfilen, og hvor længe.
+AI-ASSISTENTEN
+--------------
+En AI-assistent retter fejlhørte ord (fx produktnavne) og oversætter til de
+sprog, den nye video skal have. Brug den AI-chat, din arbejdsplads tillader
+(fx Copilot, ChatGPT, Gemini eller Claude):
+1. Klik "Kopiér instruktioner til AI-chat" i kortet til højre.
+2. Åbn en ny chat, indsæt (Ctrl+V) og send.
+3. Når chatten er færdig, så kopiér hele svaret (kopiknappen i chatten).
+   Programmet opdager det selv, tjekker svaret og fortsætter. Du kan også
+   klikke "Indsæt svar".
+Er teksten lang, er den delt i flere dele. Send dem i samme chat, én ad gangen.
+Var svaret ikke helt færdigt, står der, hvad der mangler. Bed chatten skrive
+resten, og kopiér det igen.
 
-Er svarfilen ikke i orden (fx hvis Claude ikke blev færdig), står der, hvad du
-skal gøre: klik "Kopiér besked til Claude", indsæt beskeden i samme chat, og
-hent den nye fil. (Den tekniske grund står med lille grå skrift under.) Driller det, kan du bruge "Brug kopiér/indsæt i dele i stedet".
-
-Programmet husker de ord, Claude retter, så de bliver rigtige næste gang.
-Engang imellem kan du give Claude de nye ord: tandhjulet øverst til højre ->
-"Gem Claude-skill...", og upload den gemte fil i Claude som beskrevet under
-FØRSTE GANG (slet den gamle skill først).
+Programmet husker de ord, AI-assistenten retter, så de bliver rigtige næste
+gang, og sender dem med i instruktionerne.
 
 
 RETTE FEJL I TEKSTEN
@@ -116,11 +106,11 @@ gange hurtigere, men hører lidt flere ord forkert.
 KLIP VIDEOEN FØRST (fx en Teams-optagelse)
 ------------------------------------------
 Sæt flueben i "Klip videoen først: fjern ventetid, pauser og det, der ikke skal med", før du trykker Start. Så finder
-programmet selv lange pauser, og Claude foreslår, hvad der skal klippes væk:
+programmet selv lange pauser, og AI-assistenten foreslår, hvad der skal klippes væk:
 ventetiden før mødet går i gang, afbrydelser, slutningen hvor optagelsen
 trækker ud, og ting der er upassende, off-topic eller ikke til at forstå.
 
-Når Claude er færdig, viser programmet en tidslinje med alle klip i farver.
+Når AI-assistenten er færdig, viser programmet en tidslinje med alle klip i farver.
 Intet bliver klippet, før du har sagt god for det:
 - Klip 1 er valgt fra starten. Klik på et klip for at se billedet lige før
   og lige efter, og tryk
