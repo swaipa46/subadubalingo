@@ -41,5 +41,5 @@
  "editor.words_add_one": "Add {n} word to the word list",
  "editor.words_skip": "Skip",
  "editor.remake_check": "Make the video again with the new subtitles",
- "editor.remake_hint": "The video was made with the old text. Claude is not used again."
+ "editor.remake_hint": "The video was made with the old text. The AI assistant is not used again."
 }

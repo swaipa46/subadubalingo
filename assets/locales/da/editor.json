@@ -41,5 +41,5 @@
  "editor.words_add_one": "Føj {n} ord til ordlisten",
  "editor.words_skip": "Spring over",
  "editor.remake_check": "Lav videoen igen med de nye undertekster",
- "editor.remake_hint": "Videoen blev lavet med den gamle tekst. Claude bruges ikke igen."
+ "editor.remake_hint": "Videoen blev lavet med den gamle tekst. AI-assistenten bruges ikke igen."
 }

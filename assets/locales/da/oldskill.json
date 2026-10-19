@@ -1,0 +1,8 @@
+{
+ "oldskill.heading": "Ryd op i Claude",
+ "oldskill.intro": "{app} bruger ikke længere en Claude-skill. Har du lagt skill'en ind i Claude, så slet den, så Claude ikke bliver forvirret. Det tager et minut, og du skal kun gøre det én gang.",
+ "oldskill.step_open": "Åbn Claude, og gå til Customize -> Skills.",
+ "oldskill.step_delete": "Slet {names}, hvis de er der.",
+ "oldskill.no_claude": "Bruger du ikke Claude, eller har du aldrig lagt skill'en ind, så skal du ikke gøre noget.",
+ "oldskill.ok": "Forstået"
+}

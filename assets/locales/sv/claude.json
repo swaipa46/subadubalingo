@@ -1,7 +1,5 @@
 {
  "claude.language_problem": "{language}: {problem}",
- "claude.no_answer": "Det finns inget svar från Claude i urklippet. Klicka på kopieringsknappen högst upp i Claudes kodblock (eller under hela svaret) och försök igen.",
- "claude.still_missing": "Saknas fortfarande: {languages}.",
- "claude.answer_no_cuts": "Svarsfilen saknar avsnittet === cuts === med förslag på klipp (det får gärna vara tomt).",
- "claude.answer_no_end": "Svarsfilen slutar inte med === end ===, så den blev nog inte färdigskriven."
+ "claude.no_answer": "Det finns inget svar i urklipp. Kopiera hela svaret från AI-chatten och försök igen.",
+ "claude.still_missing": "Saknas fortfarande: {languages}."
 }

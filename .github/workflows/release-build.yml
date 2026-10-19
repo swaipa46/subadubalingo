@@ -34,8 +34,7 @@ jobs:
       - name: build-info.json
         shell: pwsh
         run: |
-          $skill = (Select-String -Path app\subadubalingo\claude.py -Pattern '^SKILL_VERSION = (\d+)').Matches[0].Groups[1].Value
-          [ordered]@{ version = '${{ steps.version.outputs.version }}'; skill = [int]$skill; sha = '${{ github.sha }}'
+          [ordered]@{ version = '${{ steps.version.outputs.version }}'; sha = '${{ github.sha }}'
                       run = ${{ github.run_id }} } | ConvertTo-Json | Set-Content dist\build-info.json -Encoding utf8NoBOM
           Get-Content dist\build-info.json
       - name: Upload the zip

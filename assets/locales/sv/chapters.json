@@ -10,5 +10,5 @@
  "chapters.mcp_waiting": "Kapitel och beskrivning: inte mottagna än",
  "chapters.mcp_done": "Kapitel och beskrivning: {n} kapitel mottagna",
  "chapters.type": "kapitel",
- "chapters.from_claude": "Från Claude"
+ "chapters.from_claude": "Från AI"
 }

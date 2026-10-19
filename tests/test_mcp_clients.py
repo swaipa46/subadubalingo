@@ -1,12 +1,13 @@
 """Every MCP client, not only Claude (version 2.1.1), without the GUI and without a client. Run:
   python tests/test_mcp_clients.py
 
-- the guide and the Claude skill share their text (the skill of version 6 is unchanged, its word list is the guide's);
+- the guide: the rules, the steps, the word list, and that a Claude skill of 2.1.x and older is obsolete;
 - a raw JSON-RPC session over stdio against the source server (python app/main.py --mcp), as Gemini CLI would hold
   it: initialize announces tools, prompts and resources; the tool "guide" (whole and per section) in the app's UI
   language with the word list; prompts/list and prompts/get; resources/list and resources/read; errors for unknown
   names; find_videos; requests sent just before stdin closes are still answered;
-- Claude-only parts by client: no skill note or skill.json for Gemini, "restart <client>" after an update;
+- by client: no skill note or skill.json for anyone (the old 'skill' argument is ignored), "restart <client>" after
+  an update;
 - the setup per client (mcpclients.snippet): valid JSON or TOML, pointing at the launcher, also for a user name
   with an apostrophe;
 - the launcher (tools/mcp_launcher.cs, compiled here with .NET Framework's csc): it runs current.txt's version with
@@ -15,7 +16,6 @@
   copies it, also over one that is running.
 Sandbox: LOCALAPPDATA, APPDATA and USERPROFILE point into a temp folder (never the real installation or settings).
 """
-import hashlib
 import json
 import os
 import shutil
@@ -24,7 +24,6 @@ import sys
 import tempfile
 import time
 import tomllib
-import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -49,28 +48,24 @@ def check(cond, what):
     ok &= bool(cond)
 
 
-# --- The guide and the skill share one text -------------------------------------------------------------------------
-# The skill of version 6, byte for byte. If SKILL_MD changes meaningfully, bump claude.SKILL_VERSION (the app then
-# asks the user to upload the new skill) and put the new hash here.
-SKILL_V6 = "dc75669567557c4a5cb6e3ab16736e0d51c7c8a3dac57b1d36906a92640c9e9a"
-check(hashlib.sha256(claude.SKILL_MD.encode()).hexdigest() == SKILL_V6 and claude.SKILL_VERSION == 6,
-      "SKILL_MD is still the skill of version 6")
-check(guide.TASK in claude.SKILL_MD and guide.TOOLS_INTRO in claude.SKILL_MD and guide.TOOLS_REST in claude.SKILL_MD,
-      "the skill is built from the guide's rules and steps")
+# --- The guide --------------------------------------------------------------------------------------------------
 whole = guide.guide_text("Swedish", ["Membercare", "Lex"], [("memberkær", "Membercare")])
 check(guide.TASK in whole and guide.TOOLS_INTRO in whole and guide.TOOLS_REST in whole,
-      "the guide holds the same rules and steps")
+      "the guide holds the rules and the steps")
 check("skill: 6" not in whole and "Talk to the user in Swedish" in whole and "## Never" in whole
       and "## Job states" in whole, "the guide: no skill version, the user's language, states, never")
+check(guide.OLD_SKILL in whole and '"subadubalingo" or "videosprog"' in guide.OLD_SKILL and "ignore it" in guide.OLD_SKILL
+      and "Customize -> Skills" in guide.OLD_SKILL, "the guide: an old skill is obsolete, tell the user to delete it")
+check("cut=yes" not in whole and "til Claude.txt" not in whole.replace(guide.OLD_SKILL, ""),
+      "the guide: nothing of the task file")
 check(guide.words_md(["flow", "Membercare"], [("memberkær", "Membercare"), ("fløv", "flow")]) ==
       "# Word list\n\nKnown words (spelled exactly like this in every language):\n\n- flow\n- Membercare\n\n"
       "Typical mishearings by the speech recognition:\n\n- memberkær => Membercare\n- fløv => flow\n",
-      "words.md keeps its form")
-claude.skill_zip(T / "skill.zip")   # with the default corrections.txt of the temp data folder
-words_md = zipfile.ZipFile(T / "skill.zip").read("subadubalingo/words.md").decode("utf-8")
-check("- Membercare" in words_md and " => " in words_md
-      and mcp_server.tool_guide("words").endswith(words_md.replace("# Word list", "## Word list")),
-      "the guide's word list is the skill's words.md (the user's corrections.txt)")
+      "the word list keeps its form")
+check("- Membercare" in mcp_server.tool_guide("words") and " => " in mcp_server.tool_guide("words"),
+      "the guide's word list is the user's corrections.txt")
+check(not hasattr(claude, "SKILL_MD") and not hasattr(claude, "skill_zip") and not hasattr(claude, "work_file_text"),
+      "the skill and the task file are gone")
 
 # --- A raw stdio session against the source server --------------------------------------------------------------
 home = T / "srv-home"
@@ -80,7 +75,7 @@ videos = T / "videos"
 videos.mkdir()
 (videos / "webinar.mp4").write_bytes(b"x")
 (videos / "notes.txt").write_text("x")
-env = dict(os.environ, USERPROFILE=str(home), PYTHONIOENCODING="utf-8")
+env = dict(os.environ, USERPROFILE=str(home), HOME=str(home), PYTHONIOENCODING="utf-8")   # HOME: on Linux
 
 
 class Server:
@@ -121,6 +116,10 @@ s.send("notifications/initialized", notify=True)
 check(set(init["capabilities"]) == {"tools", "prompts", "resources"}, f"capabilities {init['capabilities']}")
 check("'guide'" in init["instructions"] and "Swedish" in init["instructions"],
       "the instructions point to the guide and name the user's language")
+check("videosprog" in init["instructions"] and "obsolete" in init["instructions"]
+      and "Customize -> Skills" in init["instructions"] and "the subadubalingo skill" not in init["instructions"],
+      "the instructions: an old skill is obsolete (ignore it, tell the user once)")
+check("skill" not in json.dumps(s.call("tools/list")["result"]), "no tool takes a skill version any more")
 tools = {t["name"]: t for t in s.call("tools/list")["result"]["tools"]}
 check(set(tools) == set(mcp_server.HANDLERS) and list(tools)[0] == "guide", f"tools {list(tools)}")
 check("guide (once) -> start_video -> wait" in tools["start_video"]["description"]
@@ -177,21 +176,21 @@ check(not err and "start_video" in text, "an older client: the guide tool works"
 s.p.stdin.close()
 s.p.wait(10)
 
-# --- Claude-only parts by client ----------------------------------------------------------------------------------
+# --- Parts by client ----------------------------------------------------------------------------------
 job = "clientjob"
 src = [Cue(i * 5000, i * 5000 + 3000, f"Blok {i + 1}.") for i in range(3)]
 d = jobs.job_dir(job)
 jobs.write_json(d / "source.json", jobs.cues_to_json(src))
 jobs.write_json(d / "task.json", {"src": "da", "check": True, "targets": [], "codes": ["da"], "blocks": 3,
                                   "words": [], "cut": False, "duration": 15_000, "rules": []})
-mcp_server._client.update(name="gemini-cli-mcp-client", title="Gemini CLI")
-text = mcp_server.tool_get_text(job)
-check(not text.startswith("NOTE") and not (d / "skill.json").exists(),
-      "Gemini without a skill: no skill note, no skill.json (the app shows no Claude skill guide)")
-mcp_server._client.update(name="claude-ai", title="claude-ai")
-text = mcp_server.tool_get_text(job)
-check(text.startswith("NOTE: You do not have the subadubalingo skill") and (d / "skill.json").exists(),
-      "Claude without the skill: the note and skill.json as before")
+for name in ("gemini-cli-mcp-client", "claude-ai"):
+    mcp_server._client.update(name=name, title=name)
+    text = mcp_server.tool_get_text(job)
+    check(text.startswith("Task for job") and not (d / "skill.json").exists(),
+          f"{name}: no skill note and no skill.json")
+# A stale 2.1.x skill still sends get_text its version: accepted and ignored
+text = mcp_server.tool_get_text(**mcp_server._known_args("get_text", {"job_id": job, "skill": 6, "start": 1}))
+check(text.startswith("Task for job") and not (d / "skill.json").exists(), "get_text ignores the old 'skill' argument")
 fake = T / "la" / "fake" / "2.1.1" / "SubaDubaLingo.exe"
 fake.parent.mkdir(parents=True)
 (fake.parent.parent / "current.txt").write_text("2.1.2", encoding="utf-8")

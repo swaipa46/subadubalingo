@@ -19,9 +19,9 @@
  "engine.dub.tempo": "Tilpasser tempoet: sætning {n} af {total}",
  "engine.dub.pitch": "Giver stemmerne hver sin tone: {n} af {total}",
  "engine.compare.none": "Der blev ikke fundet nogen undertekster i teksten.",
- "engine.compare.timecode": "Blok {n} har en anden tidskode end originalen ({orig} s mod {got} s). Bed Claude om at beholde tidskoderne præcist.",
+ "engine.compare.timecode": "Blok {n} har en anden tidskode end originalen ({orig} s mod {got} s). Bed AI-assistenten om at beholde tidskoderne præcist.",
  "engine.compare.missing": "Der mangler {missing} blokke (fik {got} af {total}). Svaret er nok blevet afkortet.",
- "engine.compare.extra": "Der er {extra} blokke for mange. Bed Claude om ikke at dele blokke op.",
+ "engine.compare.extra": "Der er {extra} blokke for mange. Bed AI-assistenten om ikke at dele blokke op.",
  "engine.compare.empty": "Blok {n} er tom.",
  "engine.corrections.header": "# Rettelser til ord, som computeren hører forkert.\n# Én rettelse pr. linje:  forkert = rigtigt\n# Store/små bogstaver er ligegyldige i \"forkert\". \"forkert\" skal stå sidst i et ord, men må gerne være\n# sidste del af et sammensat ord (fløv retter også tilmeldingsfløv). Linjer med # foran bliver ikke brugt.\n# Rettelserne bruges, næste gang der laves undertekster."
 }

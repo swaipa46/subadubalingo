@@ -1,8 +1,7 @@
 {
- "mcp.cancelled_app_not_running": "Stoppet fra Claude (appen kørte ikke).",
+ "mcp.cancelled_app_not_running": "Stoppet fra AI-assistenten (appen kørte ikke).",
  "mcp.button.resume": "Fortsæt",
  "mcp.button.cancel": "Annullér",
  "mcp.button.settings": "Indstillinger",
- "mcp.button.save_skill": "Gem Claude-skill...",
  "mcp.button.cut_video": "Klip videoen"
 }

@@ -72,7 +72,7 @@ if (Test-Path $infoFile) {
 } else {
     throw "build-info.json mangler i artifact'en (bygget før release-build skrev den?)"
 }
-Write-Host "Zip: $($zip.FullName) ($([math]::Round($zip.Length / 1MB)) MB), version $version, skill $($info.skill)"
+Write-Host "Zip: $($zip.FullName) ($([math]::Round($zip.Length / 1MB)) MB), version $version"
 
 # --- 3. Newer than the latest release? -------------------------------------------------------------------------
 $latest = & gh release view --repo $repo --json tagName --jq .tagName 2>$null

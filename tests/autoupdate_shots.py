@@ -52,7 +52,7 @@ assert str(gui.Settings.path).startswith(str(T)), gui.Settings.path
 
 # An update staged and waiting; no network at all
 installer.running_installed = lambda: True
-update.ready = lambda current=None: {"version": "2.1.0", "notes": "Hurtigere klip og en ny stemme.", "skill": 5}
+update.ready = lambda current=None: {"version": "2.1.0", "notes": "Hurtigere klip og en ny stemme."}
 update.run = lambda *a, **k: (_ for _ in ()).throw(AssertionError("no network in this test"))
 switched, restarted = [], []
 update.switch = lambda v: switched.append(v) or Path(r"C:\fake\2.1.0\SubaDubaLingo.exe")

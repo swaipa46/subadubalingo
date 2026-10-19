@@ -3,7 +3,7 @@
     jobs/inbox/<id>.json           a request from Claude: video, languages (the app picks it up when it is free)
     jobs/<id>/job.json             the request, once the app has taken it
     jobs/<id>/status.json          written by the app only: state, percent, step, result ...
-    jobs/<id>/source.json          the text in the spoken language (blocks), when it is Claude's turn
+    jobs/<id>/source.json          the text in the spoken language (blocks), when it is the assistant's turn
     jobs/<id>/task.json            what Claude must do: codes, block count, words
     jobs/<id>/parts/<code>.json    blocks Claude has delivered so far (written by the MCP server)
     jobs/<id>/parts/cuts.json      cut suggestions Claude has delivered (lines, and whether it is done)
@@ -22,10 +22,10 @@ from pathlib import Path
 
 from .common import Cue, data_dir, log
 
-STATES = {   # told to Claude by the MCP server
+STATES = {   # told to the assistant by the MCP server
     "queued": "waiting for the app to take it",
     "running": "working",
-    "claude_turn": "Claude's turn: correct and translate the text",
+    "claude_turn": "your turn: correct and translate the text",
     "review_cuts": "the user is reviewing the cuts in the app",
     "paused": "paused in the app",
     "done": "done",

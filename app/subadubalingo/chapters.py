@@ -1,10 +1,10 @@
-"""Chapters and a short description of the video, made by Claude in the same round as the subtitles.
+"""Chapters and a short description of the video, made by the assistant in the same round as the subtitles.
 
-Claude reads the whole text anyway, so it also returns chapters (a start time and a title) and a description of a
-few sentences, in the language of the new video. In the answer file they are the optional sections
+The assistant reads the whole text anyway, so it also returns chapters (a start time and a title) and a description
+of a few sentences, in the language of the new video. In a chat answer they are the optional sections
 `=== chapters ===` (lines "0:00 Title", times from the subtitles' time codes in the original video) and
-`=== summary ===`; through the MCP tools they come with `save_chapters`. Answers without them (skill version 5 and
-earlier) are still fine: there are just no chapters.
+`=== summary ===`; through the MCP tools they come with `save_chapters`. Answers without them are still fine: there
+are just no chapters.
 
 The app saves them as "<video> - kapitler.txt" (named in the UI language, recognised in any) next to the video, laid
 out as a YouTube description: the description, a blank line, then the chapters ("0:00 Intro"). When the video is cut,

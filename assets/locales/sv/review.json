@@ -1,10 +1,10 @@
 {
  "review.title": "Gå igenom klippen",
  "review.zoom_all": "Hela videon",
- "review.found": "Claude har föreslagit {claude} klipp, och programmet har hittat {auto} långa pauser.",
- "review.found_none": "Varken Claude eller programmet har hittat något att klippa bort.",
+ "review.found": "AI-assistenten har föreslagit {claude} klipp, och programmet har hittat {auto} långa pauser.",
+ "review.found_none": "Varken AI-assistenten eller programmet har hittat något att klippa bort.",
  "review.hint": "De färgade fälten klipps bort. Klicka på ett klipp för att se det, och dra i kanterna för att ändra det.",
- "review.hint_mcp": "Du kan också säga det till Claude i chatten, t.ex. \"behåll det vid 14:20\".",
+ "review.hint_mcp": "Du kan också säga det till AI-assistenten i chatten, t.ex. \"behåll det vid 14:20\".",
  "review.col_time": "Tid",
  "review.col_why": "Varför",
  "review.keys": "Mellanslag eller dubbelklick: behåll / klipp bort igen  ·  Delete: ta bort klipp  ·  Mushjul: zooma  ·  Shift + mushjul: rulla i sidled",

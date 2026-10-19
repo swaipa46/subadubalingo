@@ -10,5 +10,5 @@
  "chapters.mcp_waiting": "Chapters and description: none received yet",
  "chapters.mcp_done": "Chapters and description: {n} chapters received",
  "chapters.type": "chapters",
- "chapters.from_claude": "From Claude"
+ "chapters.from_claude": "From AI"
 }

@@ -1,45 +1,33 @@
-"""The Claude step: the user copies a prompt into a Claude chat and pastes the answer back.
+"""The assistant's turn in an AI chat: the user copies a prompt into any AI chat (ChatGPT, Gemini, Claude, ...)
+and copies the answer back. (An assistant with MCP does the same work through mcp_server.py instead.)
 
-One round per part of the video: Claude corrects the subtitles in the spoken language (product names and
+One round per part of the video: the assistant corrects the subtitles in the spoken language (product names and
 other known words), translates them to the languages the new video needs, and lists words it corrected.
 Those words are saved to corrections.txt, so the next transcription gets them right and the next prompt
-carries them along. The `subadubalingo` skill holds the same rules and the word list for claude.ai;
-the prompt works on its own too, in case the skill is not installed or not picked up.
+carries them along. The prompt is self-contained: the rules, the word list and the answer format are all in it,
+so it works in any chat model.
 
-The protocol (headers, section markers, cut kinds) and the prompts are English, the domain language
-(docs/glossary.md); Claude talks to the user in the app's own language (i18n), which the prompts name. Answers in
-the Danish protocol of skill version 3 and earlier (=== ordliste ===, === klip ===, === slut ===, VIDEOSPROG-SVAR)
-are still read.
+The section markers and cut kinds are English, the domain language (docs/glossary.md). The answer parser is
+tolerant: besides the asked-for "=== xx ===" markers it reads markdown headings and bold labels, a code block per
+language, English or Scandinavian language names, the Danish section names of older versions (=== ordliste ===,
+=== klip ===) and an answer without the trailing words section.
 """
 from __future__ import annotations
 
-import io
 import math
 import re
-import zipfile
-from pathlib import Path
 
 from .common import APP_NAME, Cue, Language, LANGUAGES, format_srt, log, parse_srt_text
 from . import chapters as chapters_mod
-from . import engine, guide
+from . import engine
 from .i18n import current, t
 
-SKILL_NAME = "subadubalingo"
-OLD_SKILL_NAMES = ("videosprog",)   # the skill under the app's earlier name; the guide says to delete it
-# Bump when SKILL_MD (or what the program expects from Claude) changes. The program knows which skill version it
-# ships with: after an update it guides the user to upload the new skill, and Claude reports the version it has
-# (answer file header "skill=N", or hent_tekst(skill=N)), so a forgotten update is caught too.
-# 1 = before cutting (v1.8), 2 = cutting (v1.9.0-1.9.2), 3 = version stamp, 4 = SubaDubaLingo, English protocol,
-# 5 = talk to the user in their language (the app's UI language), not always Danish, 6 = the cut kind "filler", and
-# chapters and a description of the video (=== chapters ===, === summary ===, save_chapters). Answers of version 5
-# and earlier (without them) are still read.
-SKILL_VERSION = 6
 LANG_BY_CODE = {l.code: l for l in LANGUAGES}
 
 # --- Parts ------------------------------------------------------------------------------
 
 def part_size(n_languages: int) -> int:
-    """Blocks per round, so Claude's answer (one SRT per language) is not cut off."""
+    """Blocks per round, so the chat's answer (one SRT per language) is not cut off."""
     return 120 if n_languages <= 2 else 90
 
 
@@ -87,22 +75,23 @@ def add_words(pairs: list[tuple[str, str]]) -> list[tuple[str, str]]:
 
 # --- Prompt ---------------------------------------------------------------------------------
 #
-# Claude answers in ONE code block, with a marker line before each language:
+# The chat answers in ONE code block, with a marker line before each language:
 #     === da ===      (corrected text in the spoken language)
 #     === sv ===      (translations)
 #     === words ===   (wrong => right)
-# One block means one copy, whichever copy button the user uses (the block's or the whole answer's).
+# One block means one copy, whichever copy button the user uses (the block's or the whole answer's). The prompt names
+# no product and no skill: it must work in any chat (ChatGPT, Gemini, Claude, Copilot, ...).
 
 NAMES_EN = {"da": "Danish", "sv": "Swedish", "no": "Norwegian", "en": "English"}
 CUT_TASK = "suggest what to cut out"
 CHAPTERS_TASK = "make chapters and a short summary of the video"
-# An example cut reason per UI language, so the example in the prompt is in the language Claude is to write in
+# An example cut reason per UI language, so the example in the prompt is in the language the assistant is to write in
 CUT_EXAMPLE = {"da": "Folk kommer ind og tester lyd", "sv": "Folk ansluter och testar ljudet",
                "no": "Folk kommer inn og tester lyden", "en": "People join and test the sound"}
 
 
 def user_language() -> str:
-    """The user's language (the app's UI language) in English, for telling Claude what to talk to the user in."""
+    """The user's language (the app's UI language) in English, for telling the assistant what to talk to the user in."""
     return NAMES_EN.get(current(), "English")
 
 
@@ -166,16 +155,19 @@ def prompt(src: Language, proofread: bool, targets: list[Language], part: list[C
     words = known_words()
     rules = word_rules()
     lines = [
-        f"Use the {SKILL_NAME} skill if you have it.",
-        "",
-        f"Subtitles from the app {APP_NAME}. {part_note}Task: " + ", and ".join(_tasks(src, proofread, targets, cut, chapters)) + ".",
+        f"Please help with the subtitles of a video, made with speech recognition by the app {APP_NAME}. "
+        f"{part_note}Task: " + ", and ".join(_tasks(src, proofread, targets, cut, chapters)) + ".",
         "",
         "Rules:",
         "- Keep the numbering and time codes exactly. The same number of blocks; do not merge or split blocks.",
         "- At most 2 lines per block and about 42 characters per line. Natural spoken language, as one would say it.",
+    ] + (["- Only correct what was misheard (especially names and product terms); do not change the content."]
+         if proofread else []) + [
         "- Product and screen names are spelled as in the word list and not translated.",
-        "- Answer directly in the chat (no files, no code), with EVERYTHING in ONE code block. Before each language "
-        "a line with === and the language code, in this order: " + ", ".join(f"=== {c} ===" for c in order) + ".",
+        "- Answer directly in the chat: no files, no tools, no code to run. Put EVERYTHING in ONE code block (```). "
+        "Before each language a line with === and the language code, in this order: "
+        + ", ".join(f"=== {c} ===" for c in order) + ".",
+        "- Write out every block of every language in full; never shorten the answer with \"...\".",
     ]
     if cut:
         lines += ["- Then, in the same code block, a line === cuts === with your cut suggestions for this part (no "
@@ -215,21 +207,33 @@ def prompt(src: Language, proofread: bool, targets: list[Language], part: list[C
 
 # --- Answer -----------------------------------------------------------------------------------
 
-_NAMES = {"da": ["da", "dansk", "danske"], "sv": ["sv", "svensk", "svenske", "svenska"],
-          "no": ["no", "nb", "norsk", "norske"], "en": ["en", "engelsk", "engelske", "english"]}
-_LABEL = {alias: code for code, names in _NAMES.items() for alias in names}
-# Section names, also the Danish ones of skill version 3 and earlier
-_LABEL.update({"words": "words", "corrections": "words", "ordliste": "words", "rettelser": "words", "ord": "words",
-               "cuts": "cuts", "klip": "cuts", "end": "end", "slut": "end",
-               "chapters": "chapters", "kapitler": "chapters", "kapitel": "chapters", "chapter": "chapters",
-               "summary": "summary", "description": "summary", "beskrivelse": "summary", "beskrivning": "summary",
-               "sammendrag": "summary", "resume": "summary", "resumé": "summary"})
+# Language names an answer may use for a section: the codes, and the names in English and the app's languages
+# (a chat model often writes "### Swedish" or "**Svensk (sv)**" instead of "=== sv ===").
+_NAMES = {"da": ["da", "dansk", "danske", "danish", "danska"],
+          "sv": ["sv", "se", "svensk", "svenske", "svenska", "swedish"],
+          "no": ["no", "nb", "norsk", "norske", "norwegian", "norska", "bokmål", "bokmal"],
+          "en": ["en", "engelsk", "engelske", "english", "engelska"]}
+_LANG = {alias: code for code, names in _NAMES.items() for alias in names}
+_LABEL = dict(_LANG)
+# Section names, also the Danish ones of older versions and what chat models write in their headings
+_SECTION_WORDS = {"words": "words", "corrections": "words", "ordliste": "words", "rettelser": "words", "ord": "words",
+                  "wordlist": "words", "glossary": "words", "mishearings": "words", "misheard": "words",
+                  "cuts": "cuts", "cut": "cuts", "klip": "cuts", "klipp": "cuts", "end": "end", "slut": "end",
+                  "chapters": "chapters", "kapitler": "chapters", "kapitel": "chapters", "chapter": "chapters",
+                  "kapitlar": "chapters", "summary": "summary", "description": "summary", "beskrivelse": "summary",
+                  "beskrivning": "summary", "sammendrag": "summary", "sammanfattning": "summary",
+                  "resume": "summary", "resumé": "summary"}
+_LABEL.update(_SECTION_WORDS)
 SECTIONS = ("words", "end", "cuts", "chapters", "summary")   # the sections that are not a language
 # A marker line: "=== sv ===", "### Svensk", "**srt-sv**", "Svensk:" ... (alone on its line)
 MARKER_RE = re.compile(r"^[ \t>#*=_-]*(?:srt[-_ ])?([A-Za-zæøåÆØÅ]+)[ \t]*(?:\([^)]*\))?[ \t:*=#_-]*$")
 # The format the prompt asks for ("=== sv ==="): a marker wherever it stands.
 STRICT_MARKER_RE = re.compile(r"^={2,}\s*(?:srt[-_ ]?)?([A-Za-zæøåÆØÅ]+)\s*={2,}$")
 FENCE_RE = re.compile(r"^```[ \t]*([^\n`]*)$")
+# A heading of several words: a markdown heading, a bold line or a short line ending in a colon
+# ("## Corrected Danish text", "**Swedish translation:**", "3. Corrected words:")
+HEADING_RE = re.compile(r"^(?:#{1,6}\s+.+|\*\*.+\*\*:?|__.+__:?|[^:]{1,60}:)$")
+_WORD_RE = re.compile(r"[A-Za-zæøåÆØÅäöÄÖ]+")
 
 
 def _label(line: str) -> str | None:
@@ -239,22 +243,55 @@ def _label(line: str) -> str | None:
     return _LABEL.get(m.group(1).lower())
 
 
+def _heading_label(line: str) -> str | None:
+    """The section a heading of several words names, or None. A section word wins over a language ("Corrected
+    words (Danish)" is the words); one language must be named unambiguously (a code in parentheses decides)."""
+    s = line.strip()
+    if not s or "-->" in s or len(s) > 80 or not HEADING_RE.match(s):
+        return None
+    words = [w.lower() for w in _WORD_RE.findall(s)]
+    if not words or len(words) > 8:
+        return None
+    for w in words:
+        if w in _SECTION_WORDS:
+            return _SECTION_WORDS[w]
+    code = re.search(r"\((da|sv|no|nb|en)\)", s, re.I)
+    if code:
+        return _LANG[code.group(1).lower()]
+    # Only full language names here: two-letter codes ("no", "en", "da") are ordinary words in a heading
+    langs = {_LANG[w] for w in words if w in _LANG and len(w) > 2}
+    return langs.pop() if len(langs) == 1 else None
+
+
 def _sections(text: str) -> dict[str, list[str]]:
-    """The answer's lines per section: language codes, "words", "cuts", "end"."""
+    """The answer's lines per section: language codes, "words", "cuts", "chapters", "summary", "end"."""
     sections: dict[str, list[str]] = {}
     current = None
+    in_fence = False
     # A marker must start a paragraph, so a subtitle line that just says "Norsk" is not taken for one.
     para_start = True
     for raw in text.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
         f = FENCE_RE.match(raw.strip())
         if f:
-            lab = _LABEL.get(re.sub(r"^srt[-_ ]?", "", f.group(1).strip().lower()))
-            if lab:
-                current = lab
+            if in_fence and not f.group(1).strip():
+                # A closing fence ends the section: chat text after it ("Let me know if ...") is not subtitles.
+                # The one-block format keeps working, since its markers all stand inside the block.
+                in_fence = False
+                current = None
+            else:
+                in_fence = True
+                lab = _LABEL.get(re.sub(r"^srt[-_ ]?", "", f.group(1).strip().lower()))
+                if lab:
+                    current = lab
+                    sections.setdefault(lab, [])
             para_start = True
             continue
         strict = STRICT_MARKER_RE.match(raw.strip())
-        lab = _LABEL.get(strict.group(1).lower()) if strict else (_label(raw) if para_start else None)
+        lab = None
+        if strict:
+            lab = _LABEL.get(strict.group(1).lower())
+        elif para_start:
+            lab = _label(raw) or _heading_label(raw)
         para_start = not raw.strip()
         if lab:
             current = lab
@@ -266,9 +303,14 @@ def _sections(text: str) -> dict[str, list[str]]:
     return sections
 
 
+def _fenced_blocks(text: str) -> list[str]:
+    """The contents of the answer's code blocks, in order."""
+    return re.findall(r"^```[^\n`]*\n(.*?)^```", text.replace("\r\n", "\n"), re.M | re.S)
+
+
 def parse_answer(text: str) -> tuple[dict[str, list[Cue]], list[tuple[str, str]]]:
     """Per language code the SRT blocks, and the corrected words. Reads the one-block format, separate
-    labelled code blocks (```srt-sv), and headings before blocks; fence lines are treated as separators."""
+    labelled code blocks (```srt-sv), and headings or bold labels before blocks; a closing fence ends a section."""
     sections = _sections(text)
     by_lang = {}
     for code, lines in sections.items():
@@ -289,7 +331,7 @@ def answer_cuts(text: str) -> list[str] | None:
 
 
 def answer_outline(text: str, duration: int | None = None, raw: bool = False) -> chapters_mod.Outline:
-    """The chapters and summary in the answer (empty when it has none: older skills, short videos). raw: one part's
+    """The chapters and summary in the answer (empty when it has none: older answers, short videos). raw: one part's
     chapters as given (parts mode joins them with chapters.merge_parts)."""
     return chapters_mod.from_answer(_sections(text), duration, raw)
 
@@ -309,11 +351,15 @@ def check_answer(part: list[Cue], codes: list[str], text: str, have: dict | None
     (languages so far, new words, None when all `codes` are there and valid, else a message)."""
     have = dict(have or {})
     by_lang, words = parse_answer(text)
-    if not by_lang:
+    missing = [c for c in codes if c not in have]
+    blocks = [c for c in (parse_srt_text(b) for b in _fenced_blocks(text)) if c] if not by_lang else []
+    if len(blocks) > 1 and missing:
+        # One unlabelled code block per language, in the asked order (a chat that ignored the markers)
+        by_lang = dict(zip(missing, blocks))
+    elif not by_lang:
         # A bare SRT (copied from one of several code blocks, without its label): take it as the first
         # language still missing, or Swedish when it is clearly Swedish (ä/ö). The status shows which.
         bare = parse_srt_text(text)
-        missing = [c for c in codes if c not in have]
         if bare and missing:
             body = " ".join(c.text for c in bare).lower()
             swedish = body.count("ä") + body.count("ö") >= 3
@@ -336,184 +382,3 @@ def check_answer(part: list[Cue], codes: list[str], text: str, have: dict | None
     if missing:
         return have, words, t("claude.still_missing", languages=", ".join(missing))
     return have, words, None
-
-# --- The work file: the whole text in one file instead of many copy-paste rounds -------------------
-#
-# The program writes "<video> - til Claude.txt" (named in the UI language) with a header line carrying a job id, the
-# task, the user's language (ui=) and the subtitles. The user pastes the file into a Claude chat; the skill (Claude
-# with code execution) writes "<video> - fra Claude.txt" in a fixed template, which the user downloads. The program
-# watches the Downloads folder for a file whose first line has the same id (whatever the file is called), checks it
-# and carries on.
-
-TASK_HEADER = "SUBADUBALINGO-TASK"
-ANSWER_HEADER = "SUBADUBALINGO-ANSWER"
-OLD_ANSWER_HEADERS = ("VIDEOSPROG-SVAR", "VIDEO-UNDERTEKSTER-SVAR")   # files under the app's earlier names
-
-
-def work_file_text(src: Language, proofread: bool, targets: list[Language], cues: list[Cue], job_id: str,
-                   answer_name: str, cut: bool = False, chapters: Language | None = None) -> str:
-    """The task file. chapters: the language to write chapters and the summary in (None: not asked for)."""
-    order = ([src.code] if proofread else []) + [t.code for t in targets]
-    words = known_words()
-    rules = word_rules()
-    lines = [
-        f"{TASK_HEADER} id={job_id} languages={','.join(order)} blocks={len(cues)}" + (" cut=yes" if cut else "")
-        + (f" chapters={chapters.code}" if chapters else "") + f" ui={current()}",
-        "",
-        f"To Claude: use the {SKILL_NAME} skill. Task: " + ", and ".join(_tasks(src, proofread, targets, cut, chapters)) + ".",
-        f"Make the answer file \"{answer_name}\" as a file the user can download, following the template in the skill:",
-        f"first line \"{ANSWER_HEADER} id={job_id} skill=<the version number from the skill>\", then "
-        + ", ".join(f"=== {c} ===" for c in order) + " with all " + str(len(cues)) + " blocks each, "
-        + ("then === cuts === with your cut suggestions, " if cut else "")
-        + ("then === chapters === and === summary ===, " if chapters else "")
-        + "then === words === and finally === end ===.",
-        "Keep the numbering and time codes exactly. Do not write the subtitles in the chat. "
-        f"Talk to the user in {user_language()}.",
-    ]
-    if cut:
-        lines += [""] + cut_rules()
-    if chapters:
-        lines += [""] + chapter_rules(chapters)
-    if words:
-        lines += ["", "Word list (known words): " + ", ".join(words)]
-    if rules:
-        lines += ["Typical mishearings: " + "; ".join(f"{w} => {r}" for w, r in rules[:80])]
-    lines += ["", f"=== {src.code} ===", format_srt(cues).rstrip(), ""]
-    return "\n".join(lines) + "\n"
-
-
-def answer_skill(text: str) -> int | None:
-    """The skill version Claude wrote in the answer file's first line ("skill=4"), or None (no skill, or an old one)."""
-    first = text.lstrip("\ufeff").split("\n", 1)[0]
-    m = re.search(r"\bskill=(\d+)", first)
-    return int(m.group(1)) if m else None
-
-
-def answer_id(text: str) -> str | None:
-    """The job id from an answer file's first line, or None if it is not an answer file."""
-    first = text.lstrip("﻿").split("\n", 1)[0].strip()
-    m = re.match(rf"(?:{'|'.join((ANSWER_HEADER,) + OLD_ANSWER_HEADERS)})\s+id=(\S+)", first)
-    return m.group(1) if m else None
-
-
-def check_file_answer(cues: list[Cue], codes: list[str], text: str, cut: bool = False
-                      ) -> tuple[dict[str, list[Cue]], list, str | None]:
-    """Check a whole answer file: every language complete, the cut section when asked for, and the end marker."""
-    have, words, msg = check_answer(cues, codes, text)
-    if msg is None and cut and answer_cuts(text) is None:
-        msg = t("claude.answer_no_cuts")
-    if msg is None and not re.search(r"^={2,}\s*(?:end|slut)\s*={2,}\s*$", text, re.M | re.I):
-        msg = t("claude.answer_no_end")
-    return have, words, msg
-
-
-def followup_text(answer_name: str, msg: str, cut: bool = False) -> str:
-    """A message the user can paste to Claude when the answer file was incomplete (msg is the app's text, in the UI
-    language)."""
-    lang = user_language()
-    return (f"The answer file was not right. The app says (in {lang}): {msg}\n"
-            f"Please make \"{answer_name}\" again, complete and following the template in the {SKILL_NAME} skill "
-            f"(every language, every block, {'=== cuts ===, ' if cut else ''}=== end === last). Answer me in {lang}.")
-
-# --- The skill ------------------------------------------------------------------------------------
-
-# The skill: its own frame (the front matter, the task file, pasting) around the pieces it shares with the
-# guide for every MCP client (guide.py: the rules for the text, cuts and chapters, and the tool steps).
-SKILL_HEAD = """---
-name: subadubalingo
-description: Corrects and translates subtitles from the Windows app "SubaDubaLingo" (formerly "Videosprog") between Danish, Swedish, Norwegian and English, suggests cuts in recordings of Teams meetings and webinars (waiting, breaks, filler words, inappropriate or unclear passages), writes chapters and a short description of the video, and learns product terms such as Membercare. Use it when the user wants subtitles or a dub of a video or wants a recording cut (e.g. "lav denne video på svensk med norske undertekster", "klipp bort väntetiden", "make this video in Norwegian"), when the SubaDubaLingo tools (start_video, wait, get_text, save_text) are available, when the user sends a file "... - til Claude.txt" or the same in Swedish, Norwegian or English (first line SUBADUBALINGO-TASK or VIDEOSPROG-OPGAVE), or pastes subtitles from SubaDubaLingo.
----
-
-# SubaDubaLingo: subtitles, dubs and cuts
-
-**Skill version: 6.** The app asks for this number to see whether the user has the newest skill: write it in the
-answer file's first line (`skill=6`) and pass it to `get_text` (`skill: 6`).
-
-The user makes subtitles and dubs of videos in the app SubaDubaLingo. The app writes the text with speech
-recognition; you correct and translate it. The app reads your answer by machine, so follow the format exactly.
-**Talk to the user in their language** (they are not technical): the one the task names (`ui=<code>` in the
-task file's first line, or "Talk to the user in <language>" / "Answer the user in <language>"), else the one they
-write in. Everything for the app follows the format below.
-
-"""
-
-SKILL_TAIL = """## A. The user sends a file "... - til Claude.txt" (or the same in the user's language)
-The first line is `SUBADUBALINGO-TASK id=<id> languages=<codes> blocks=<count>`, maybe with `cut=yes`,
-`chapters=<code>` (make chapters and a summary in that language) and `ui=<code>` (the user's language: talk to them
-in it) (older versions of the app:
-`VIDEOSPROG-OPGAVE id=<id> sprog=<codes> blokke=<count>`, answer those with `VIDEOSPROG-SVAR` and the Danish
-section names `=== klip ===`, `=== ordliste ===`, `=== slut ===`).
-
-1. Read the file with code. The subtitles follow the line `=== <spoken language> ===`.
-2. Make the answer file with exactly the name the task gives (`... - fra Claude.txt`), as a file the user can
-   download. Work in chunks: correct and translate at most about 100 blocks at a time, and append each chunk to
-   the file with code until every block is in. Do not write the subtitles in the chat.
-3. Template for the answer file:
-
-```
-SUBADUBALINGO-ANSWER id=<the same id as in the task> skill=6
-=== da ===
-1
-00:00:01,000 --> 00:00:03,500
-Velkommen til webinaret om Membercare.
-
-(... every block ...)
-=== sv ===
-1
-00:00:01,000 --> 00:00:03,500
-Välkommen till webbinariet om Membercare.
-
-(... every block ...)
-=== cuts ===
-1-14 start Folk kommer ind og tester lyd
-212-218 offtopic Snak om vejret
-240 filler "øh, øhm"
-251 filler Gentagelse: "vi vi skal"
-=== chapters ===
-0:00 Velkommen
-2:15 Sådan opretter du et medlem
-9:40 Spørgsmål
-=== summary ===
-Et webinar om Membercare: hvordan man opretter medlemmer og sender kontingent ud.
-=== words ===
-memberkær => Membercare
-=== end ===
-```
-
-   - One section per language in the order `languages=` gives. The spoken language too (corrected) when it is
-     in `languages=`.
-   - `=== cuts ===` only when the first line has `cut=yes`: your cut suggestions, see "Suggest cuts" above
-     (empty if there is nothing to cut).
-   - `=== chapters ===` and `=== summary ===` only when the first line has `chapters=<code>`: see "Chapters and a
-     summary" above (no chapter lines if the video is too short; a summary in any case).
-   - `=== words ===`: the misheard words you corrected, one per line `wrong => right`. The app remembers them
-     and corrects them itself next time.
-   - `=== end ===` as the last line tells the app the file is complete.
-4. Check with code that each section has exactly `blocks=` blocks with the same time codes as the original. Fix
-   it if not.
-5. Answer in the chat with one short sentence in the user's language: the file is ready, and the user should
-   click it and download it (Download). The app finds it in the Downloads folder by itself.
-
-## B. The user pastes subtitles directly into the chat (fallback)
-The message has a task and a code block with the subtitles, maybe "Part x of y".
-- Answer directly in the chat, without files or code, with EVERYTHING in ONE code block: a line
-  `=== <code> ===` before each language in the given order, then `=== cuts ===`, `=== chapters ===` and
-  `=== summary ===` when the message asks for them, then `=== words ===` with corrected words. No text
-  before or after.
-
-## Word list
-See [words.md](words.md). These words are spelled exactly like this in every language.
-"""
-
-SKILL_MD = (SKILL_HEAD + guide.TASK + "\n## If you have the SubaDubaLingo tools (the best way)\n"
-            + guide.tools_steps("(about 120 blocks, and always with\n   `skill: 6`)") + "\n" + SKILL_TAIL)
-
-
-def skill_zip(dest: Path) -> Path:
-    """Write the skill (with the current word list) as a zip for Claude > Settings > Skills > Upload."""
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr(f"{SKILL_NAME}/SKILL.md", SKILL_MD)
-        z.writestr(f"{SKILL_NAME}/words.md", guide.words_md(known_words(), word_rules()))
-    dest.write_bytes(buf.getvalue())
-    return dest

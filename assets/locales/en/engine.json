@@ -19,9 +19,9 @@
  "engine.dub.tempo": "Adjusting the pace: sentence {n} of {total}",
  "engine.dub.pitch": "Giving each voice its own pitch: {n} of {total}",
  "engine.compare.none": "No subtitles were found in the text.",
- "engine.compare.timecode": "Block {n} has a different time code than the original ({orig} s instead of {got} s). Ask Claude to keep the time codes exactly.",
+ "engine.compare.timecode": "Block {n} has a different time code than the original ({orig} s instead of {got} s). Ask the AI assistant to keep the time codes exactly.",
  "engine.compare.missing": "{missing} blocks are missing (got {got} of {total}). The answer was probably cut short.",
- "engine.compare.extra": "There are {extra} blocks too many. Ask Claude not to split blocks.",
+ "engine.compare.extra": "There are {extra} blocks too many. Ask the AI assistant not to split blocks.",
  "engine.compare.empty": "Block {n} is empty.",
  "engine.corrections.header": "# Fixes for words the computer hears wrong.\n# One fix per line:  wrong = right\n# Upper/lower case does not matter in \"wrong\". \"wrong\" must be at the end of a word, but may be the\n# last part of a compound word (fløv also fixes tilmeldingsfløv). Lines starting with # are not used.\n# The fixes are used the next time subtitles are made."
 }

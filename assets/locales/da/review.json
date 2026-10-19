@@ -1,10 +1,10 @@
 {
  "review.title": "Gennemse klippene",
  "review.zoom_all": "Hele videoen",
- "review.found": "Claude har foreslået {claude} klip, og programmet har fundet {auto} lange pauser.",
- "review.found_none": "Hverken Claude eller programmet har fundet noget at klippe.",
+ "review.found": "AI-assistenten har foreslået {claude} klip, og programmet har fundet {auto} lange pauser.",
+ "review.found_none": "Hverken AI-assistenten eller programmet har fundet noget at klippe.",
  "review.hint": "De farvede felter klippes væk. Klik på et klip for at se det, og træk i kanterne for at rette det.",
- "review.hint_mcp": "Du kan også sige det til Claude i chatten, fx \"behold det ved 14:20\".",
+ "review.hint_mcp": "Du kan også sige det til AI-assistenten i chatten, fx \"behold det ved 14:20\".",
  "review.col_time": "Tid",
  "review.col_why": "Hvorfor",
  "review.keys": "Mellemrum eller dobbeltklik: behold / klip væk igen  ·  Delete: slet klip  ·  Musehjul: zoom  ·  Shift + musehjul: rul til siden",

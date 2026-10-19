@@ -1,0 +1,8 @@
+{
+ "oldskill.heading": "Tidy up in Claude",
+ "oldskill.intro": "{app} no longer uses a Claude skill. If you added the skill to Claude, delete it so Claude does not get confused. It takes a minute, and you only do it once.",
+ "oldskill.step_open": "Open Claude and go to Customize -> Skills.",
+ "oldskill.step_delete": "Delete {names}, if they are there.",
+ "oldskill.no_claude": "If you do not use Claude, or never added the skill, there is nothing to do.",
+ "oldskill.ok": "Got it"
+}

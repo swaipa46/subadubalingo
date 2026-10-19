@@ -3,7 +3,9 @@ tools/release_key.py; the public key below is the only one the app trusts, so a 
 key is never installed, even if the GitHub account is taken.
 
     {"version": "2.0.1", "zip": "SubaDubaLingo-2.0.1.zip", "size": ..., "sha256": "...", "notes": "...",
-     "skill": 3, "signature": "<hex>"}
+     "signature": "<hex>"}
+
+(Manifests up to 2.1.x also carry "skill", the Claude skill's version; it is signed with the rest and ignored.)
 
 The steps, each usable on its own (tests/test_autoupdate.py runs them against a local server):
     check()     fetch the manifest, verify the signature, and return it when its version is newer than this one
@@ -189,7 +191,7 @@ def stage(zip_path: Path, manifest: dict) -> Path:
     finally:   # a refused zip is not kept either: the next check downloads it again
         shutil.rmtree(work, ignore_errors=True)
         zip_path.unlink(missing_ok=True)
-    info = {k: manifest.get(k) for k in ("version", "notes", "skill")}
+    info = {k: manifest.get(k) for k in ("version", "notes")}
     (updates_dir() / READY_FILE).write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
     log.info("update %s staged in %s", version, dst)
     return dst

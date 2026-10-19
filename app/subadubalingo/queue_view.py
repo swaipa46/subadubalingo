@@ -296,7 +296,9 @@ def rotated(rel: str, quarter: int) -> tk.PhotoImage:
 
 # --- Dropping files on the window ------------------------------------------------------------------------------------
 
-_WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t)
+# CFUNCTYPE where there is no WINFUNCTYPE: lets tests import the GUI on Linux
+_WNDPROC = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)(ctypes.c_ssize_t, ctypes.c_void_p, ctypes.c_uint,
+                                                            ctypes.c_size_t, ctypes.c_ssize_t)
 _targets: list = []   # kept alive for the life of the process (Windows calls them)
 
 
@@ -1431,8 +1433,4 @@ class QueueController:
         app._show("done")
         skin.skin_cards(app.views["done"])
         if not replay:
-            if app._skill_warning:
-                reason, have = app._skill_warning
-                app._skill_warning = None
-                app.root.after(1200, lambda: app.show_skill_guide(reason, have))
             app._call_attention()

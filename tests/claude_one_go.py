@@ -1,11 +1,11 @@
-"""End-to-end run of skill version 6 through the real App: a fake Claude answers the task file with a filler cut,
+"""End-to-end run through the real App: a fake AI chat answers the chat view's instructions with a filler cut,
 chapters and a summary; the fake user approves the cuts; the run must cut the filler block cleanly, save
 "<video> - kapitler.txt" (with the summary; an 18 s video is too short for chapters, so they are left out) and show
 the "Kapitler og beskrivelse" card in the done view.
 
-The data folder and Downloads are temp folders, and the video is copied to a temp folder first, so nothing of the
-user's is touched. The window opens on the monitor the user is not working on.
-  python tests/claude_one_go.py VIDEO [--parts]"""
+The data folder is a temp folder, and the video is copied to a temp folder first, so nothing of the user's is
+touched. The window opens on the monitor the user is not working on.
+  python tests/claude_one_go.py VIDEO"""
 import shutil
 import sys
 import tempfile
@@ -20,12 +20,11 @@ tmp = Path(tempfile.mkdtemp(prefix="sdl-claude-e2e-"))
 common._DATA_DIR = tmp / "data"
 common._DATA_DIR.mkdir()
 import ctypes  # noqa: E402
-import re  # noqa: E402
 import tkinter as tk  # noqa: E402
 from tkinter import messagebox  # noqa: E402
 
 import _screen  # noqa: E402
-from subadubalingo import chapters, claude, engine, gui  # noqa: E402
+from subadubalingo import chapters, engine, gui  # noqa: E402
 from subadubalingo.common import format_srt, read_srt  # noqa: E402
 
 ctypes.windll.shcore.SetProcessDpiAwareness(1)
@@ -33,9 +32,6 @@ said = []
 for name in ("showwarning", "showerror", "showinfo"):
     setattr(messagebox, name, lambda *a, n=name, **k: said.append((n, a[1] if len(a) > 1 else a)))
 messagebox.askyesno = lambda *a, **k: True
-downloads = tmp / "Downloads"
-downloads.mkdir()
-gui.downloads_dir = lambda: downloads
 gui.Settings.save = lambda self: None
 
 src_video = Path(sys.argv[1])
@@ -79,27 +75,16 @@ def answer_body(d, cues, first=1, last=True):
     return text + "=== words ===\n"
 
 
-def fake_claude(d: gui.ClaudePanel):
-    work = d.work_file.read_text(encoding="utf-8")
-    head = work.splitlines()[0]
-    print("task:", head)
-    assert f"chapters={d.chapter_lang.code}" in head and "filler" in work, head
+def fake_chat(d: gui.ClaudePanel):
     src = read_srt(d.src_srt)
     print("text:", [c.text for c in src])
-    if "--parts" in sys.argv:
-        d._to_parts()
-        for i, part in enumerate(d.parts):
-            d._copy(i)
-            assert "=== chapters ===" in root.clipboard_get()
-            root.clipboard_clear()
-            root.clipboard_append("```\n" + answer_body(d, part, d._first_number(i), i + 1 == len(d.parts)) + "```")
-            root.update()
-            d._paste(i)
-        d._save_parts()
-        return
-    job = re.search(r"id=(\S+)", head).group(1)
-    (downloads / d.answer_name).write_text(f"{claude.ANSWER_HEADER} id={job} skill={claude.SKILL_VERSION}\n"
-                                           + answer_body(d, src) + "=== end ===\n", encoding="utf-8")
+    for i, part in enumerate(d.parts):
+        d._copy(i)
+        prompt = root.clipboard_get()
+        assert "=== chapters ===" in prompt and "filler" in prompt, prompt[:300]
+        root.clipboard_clear()
+        root.clipboard_append("```\n" + answer_body(d, part, d._first_number(i), i + 1 == len(d.parts)) + "```")
+        pump(2)   # the clipboard watch picks it up; after the last part the panel finishes by itself
 
 
 t0 = time.time()
@@ -128,7 +113,7 @@ while app._busy() and time.time() - t0 < 900:
     d = app._tdialog
     if d is not None and not answered and d.winfo_exists():
         answered = True
-        fake_claude(d)
+        fake_chat(d)
 pump(1.5)
 print("status:", app.status.cget("text"))
 print("files:", app.files.get(0, "end"))

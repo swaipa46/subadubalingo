@@ -1,6 +1,7 @@
-"""Screenshots of feature "claude" in one theme: the done view with Claude's chapters and description
-(claude-done-chapters.png, and claude-done-summary-only.png for a video too short for chapters), and the cut review
-with a filler cut in the legend and on the timeline (claude-review-filler.png). The data folder is a temp folder,
+"""Screenshots of feature "claude" in one theme: the done view with the assistant's chapters and description
+(claude-done-chapters.png, and claude-done-summary-only.png for a video too short for chapters), the assistant panel's
+chat view (claude-chat-view.png, claude-chat-copied.png), the one-time old-skill notice (claude-oldskill-notice.png),
+and the cut review with a filler cut in the legend and on the timeline (claude-review-filler.png). The data folder is a temp folder,
 the video is copied to a temp folder; windows open on the monitor the user is not working on (PrintWindow).
   python tests/claude_shots.py VIDEO OUT_ROOT --theme light|night [--lang da|sv|no|en]
 Saves to OUT_ROOT/<theme>/claude-*.png."""
@@ -89,6 +90,34 @@ shot(root, "claude-done-chapters.png")
 app.outline = Outline([], "En kort test af undertekster i et Teams-møde.")
 app._show_result("done", result, replay=True)
 shot(root, "claude-done-summary-only.png")
+
+# The assistant's turn in the chat view (a job started in the app, docs/assistant-panel.md): before and after copying
+# the instructions, then the one-time "delete the old skill" notice an upgrade from 2.1.x shows
+app._show("work")
+app.job = {"video": video, "lang": L["da"], "subs": L["sv"], "cut": True, "transcribe": True, "check": True,
+           "translate": [L["sv"]]}
+app.claude_idle.grid_remove()
+app._set_claude_width(True)
+panel = gui.ClaudePanel(app.claude_box, app, video, L["da"], find_srt(video, L["da"]), True, [L["sv"]],
+                        on_finish=lambda ok: None, cut=True, duration=18_000)
+app._tdialog = panel
+panel.grid(row=0, column=0, sticky="nsew")
+app.callout.grid()
+app.claude_box.configure(style="TurnA.TLabelframe")
+gui.skin.skin_cards(app.main)
+shot(root, "claude-chat-view.png")
+panel._copy(0)
+shot(root, "claude-chat-copied.png")
+panel.on_finish = None
+app._close_claude_panel()
+gui.upgrade_notice.show(app)
+notice = app._notice
+notice.lift()
+notice.attributes("-topmost", True)
+pump(root, 0.8)
+_screen.grab_window(ctypes.windll.user32.GetParent(notice.winfo_id())).save(out / "claude-oldskill-notice.png")
+print("saved", out / "claude-oldskill-notice.png")
+notice.destroy()
 
 # The cut review with a filler cut (block 3, "Testing, testing") next to a Claude start cut and the pauses
 app._show("setup")

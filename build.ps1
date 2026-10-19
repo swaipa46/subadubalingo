@@ -27,8 +27,6 @@ foreach ($g in 'Sådan bruger du', 'Så använder du', 'Slik bruker du', 'How to
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 & $csc /nologo /target:winexe /optimize+ "/win32icon:$brand\SubaDubaLingo.ico" "/out:$dir\$name-mcp.exe" tools\mcp_launcher.cs | Out-Null
 if ($LASTEXITCODE) { throw 'csc failed (MCP launcher)' }
-& .venv\Scripts\python.exe tools\make_skill.py "$dir\subadubalingo-skill.zip"
-if ($LASTEXITCODE) { throw 'make_skill failed' }
 $zip = "$Out\$name $version.zip"
 Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path $dir -DestinationPath $zip

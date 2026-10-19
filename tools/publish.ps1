@@ -1,12 +1,12 @@
 # Makes a release for the self-update (docs/auto-opdatering.md, section 5): builds with build.ps1, writes latest.json
-# (version, zip name, sha256, size, notes, skill version), signs it with tools/release_key.py sign, and prints the
+# (version, zip name, sha256, size, notes), signs it with tools/release_key.py sign, and prints the
 # gh release create command to run. It never uploads anything itself.
 #
 #   tools\publish.ps1 -Notes "Short note for the user (Danish)"          build, sign, print the command
 #   tools\publish.ps1 -Notes "..." -SkipBuild                      reuse the zip build.ps1 made in -Out
 #   tools\publish.ps1 -Notes "..." -Zip "<dir>\SubaDubaLingo 2.1.2.zip"   a zip built elsewhere (the release-build
 #                                                                  workflow; tools\release.ps1 passes it): no build,
-#                                                                  version and skill from build-info.json next to it
+#                                                                  the version from build-info.json next to it
 #   tools\publish.ps1 -Notes "..." -DryRun                         no build, no signing: the manifest (unsigned) and
 #                                                                  the command, to see what would happen
 #
@@ -28,16 +28,15 @@ $name = 'SubaDubaLingo'
 $py = Join-Path $root '.venv\Scripts\python.exe'
 if (-not (Test-Path $py)) { $py = 'D:\SubaDubaLingo\.venv\Scripts\python.exe' }   # a worktree uses the main venv
 $version = (Select-String -Path app\subadubalingo\common.py -Pattern 'APP_VERSION = "(.+)"').Matches[0].Groups[1].Value
-$skill = (Select-String -Path app\subadubalingo\claude.py -Pattern '^SKILL_VERSION = (\d+)').Matches[0].Groups[1].Value
 $repo = (Select-String -Path app\subadubalingo\update.py -Pattern '^REPO = "(.+)"').Matches[0].Groups[1].Value
 $built = Join-Path $Out "$name $version.zip"
 if ($Zip) {
-    # Built by CI from a commit this checkout may not have: the version and skill come with the zip
+    # Built by CI from a commit this checkout may not have: the version comes with the zip
     $built = (Resolve-Path $Zip).Path
     $info = Join-Path (Split-Path $built -Parent) 'build-info.json'
     if (Test-Path $info) {
         $bi = Get-Content $info -Raw -Encoding UTF8 | ConvertFrom-Json
-        $version, $skill = $bi.version, [string]$bi.skill
+        $version = $bi.version
     }
     if ((Split-Path $built -Leaf) -ne "$name $version.zip") { throw "$built is not $name $version.zip" }
     $SkipBuild = $true
@@ -47,7 +46,7 @@ $asset = Join-Path $release "$name-$version.zip"
 # The same zip under a fixed name, for the website's download button (releases/latest/download/SubaDubaLingo.zip)
 $stable = Join-Path $release "$name.zip"
 $manifest = Join-Path $release 'latest.json'
-Write-Host "$name $version (skill $skill) -> $repo"
+Write-Host "$name $version -> $repo"
 
 if ($DryRun -and -not $SkipBuild) {
     Write-Host "[dry run] would run: .\build.ps1 -Out $Out"
@@ -69,8 +68,7 @@ if (Test-Path $built) {
     throw "Missing $built (run without -SkipBuild)"
 }
 # The fields update.py checks; the signature covers all of them (update.manifest_bytes)
-$m = [ordered]@{ version = $version; zip = "$name-$version.zip"; size = $size; sha256 = $sha; notes = $Notes
-                 skill = [int]$skill }
+$m = [ordered]@{ version = $version; zip = "$name-$version.zip"; size = $size; sha256 = $sha; notes = $Notes }
 [IO.File]::WriteAllText($manifest, ($m | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))
 if ($DryRun) {
     Write-Host "[dry run] would run: $py tools\release_key.py sign $manifest"

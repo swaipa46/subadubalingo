@@ -128,7 +128,7 @@ assert qv.choices_text(it) == "Dansk · svensk tale · norske undertekster · kl
 assert qv.choices_text(qv.Item("C:/v/a.mp4", *DA)) == "Dansk · danske undertekster"
 assert qv.choices_text(qv.Item("C:/v/a.mp4", "en")) == "Engelsk · kun teksten"
 it.state, it.phase = "running", 1
-assert qv.state_text(it) == "Claude-runde nu"
+assert qv.state_text(it) == "AI-runde nu"
 i18n.set_language("sv")
 assert qv.choices_text(qv.Item("C:/v/a.mp4", *SV_DUB)).startswith("Danska · tal på svenska · norska undertexter")
 i18n.set_language("da")

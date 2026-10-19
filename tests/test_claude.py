@@ -1,4 +1,4 @@
-"""Filler cuts and chapters (feature "claude", skill version 6), without the GUI. Run: python tests/test_claude.py
+"""Filler cuts and chapters (feature "claude"), without the GUI. Run: python tests/test_claude.py
 
 - the cut kind "filler": its aliases, short blocks cut cleanly (into the silence around them, never into the next
   word), and filler cuts with a word between them are not merged into one;
@@ -84,7 +84,7 @@ for code in i18n.CODES:
         assert i18n.has(key, code), (key, code)
 assert names["da"] == "Webinar - kapitler.txt" and names["en"] == "Webinar - chapters.txt", names
 assert all(chapters.is_chapters_file(tmp / n) for n in names.values())
-assert not chapters.is_chapters_file(tmp / "Webinar - fra Claude.txt")
+assert not chapters.is_chapters_file(tmp / "Webinar - noter.txt")
 i18n.set_language("en")
 chapters.save(video, o)
 assert chapters.find_chapters(video).name == "Webinar - chapters.txt"
@@ -102,7 +102,7 @@ d = jobs.job_dir(job)
 jobs.write_json(d / "source.json", jobs.cues_to_json(src))
 jobs.write_json(d / "task.json", {"src": "da", "check": True, "targets": [], "codes": ["da"], "blocks": len(src),
                                   "words": [], "cut": False, "duration": 180_000, "chapters": "sv", "rules": []})
-text = mcp_server.tool_get_text(job, skill=claude.SKILL_VERSION)
+text = mcp_server.tool_get_text(job)
 assert "save_chapters" in text and "in Swedish" in text and "chapters and summary (save_chapters)" in text, text
 r = mcp_server.tool_save_text(job, "da", common.format_srt(src))
 assert "Still missing: chapters and summary" in r and not (d / "complete.json").exists(), r

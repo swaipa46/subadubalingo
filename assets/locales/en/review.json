@@ -1,10 +1,10 @@
 {
  "review.title": "Review the cuts",
  "review.zoom_all": "Whole video",
- "review.found": "Cuts suggested by Claude: {claude}. Long pauses found by the program: {auto}.",
- "review.found_none": "Neither Claude nor the program found anything to cut.",
+ "review.found": "Cuts suggested by the AI assistant: {claude}. Long pauses found by the program: {auto}.",
+ "review.found_none": "Neither the AI assistant nor the program found anything to cut.",
  "review.hint": "The coloured areas are cut out. Click a cut to see it, and drag its edges to adjust it.",
- "review.hint_mcp": "You can also tell Claude in the chat, e.g. \"keep the one at 14:20\".",
+ "review.hint_mcp": "You can also tell the AI assistant in the chat, e.g. \"keep the one at 14:20\".",
  "review.col_time": "Time",
  "review.col_why": "Why",
  "review.keys": "Space or double-click: keep / cut again  ·  Delete: delete cut  ·  Mouse wheel: zoom  ·  Shift + mouse wheel: scroll sideways",

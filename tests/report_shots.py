@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import tkinter as tk  # noqa: E402
 
 import _screen  # noqa: E402
-from subadubalingo import claude, common, gui, i18n, installer, report, theme  # noqa: E402
+from subadubalingo import common, gui, i18n, installer, report, theme  # noqa: E402
 
 ctypes.windll.shcore.SetProcessDpiAwareness(1)
 out = Path(sys.argv[1])
@@ -31,8 +31,7 @@ out.mkdir(parents=True, exist_ok=True)
 arg = lambda name, default: sys.argv[sys.argv.index(name) + 1] if name in sys.argv else default
 forced_theme, forced_lang = arg("--theme", "light"), arg("--lang", "da")
 assert common.data_dir() == T / "home" / ".subadubalingo"
-(common.data_dir() / "settings.json").write_text(json.dumps({"skill_installed": claude.SKILL_VERSION,
-                                                             "ui_language": forced_lang}), encoding="utf-8")
+(common.data_dir() / "settings.json").write_text(json.dumps({"ui_language": forced_lang}), encoding="utf-8")
 theme.resolve = lambda choice: forced_theme
 i18n.resolve = lambda choice: forced_lang
 installer._save_ui_language = lambda code: None

@@ -10,7 +10,6 @@ import sys
 import threading
 import time
 import traceback
-import uuid
 import webbrowser
 import shutil
 import ctypes
@@ -19,7 +18,7 @@ import tkinter.font as tkfont
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import audio, autoupdate, burnin, chapters, claude, cutting, editor, engine, jobs, report, textstate
+from . import audio, autoupdate, burnin, chapters, claude, cutting, editor, engine, jobs, report, textstate, upgrade_notice
 from .burnin_ui import BurninCard
 from .chapters_view import ChaptersCard
 from . import i18n, mcpclients, queue_view, skin, theme, voice_preview
@@ -27,9 +26,9 @@ from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
 from .theme import IMG, P
 from .common import (APP_NAME, APP_TAGLINE, APP_VERSION, branding_dir, set_app_icon, set_app_id, FFMPEG, LANG_BY_CODE, LANGUAGES, NO_WINDOW, PIPER, WHISPER, Cancelled,
-                     Cue, Language, Runner, ToolError, burned_name, copy_file_to_clipboard, cut_name, data_dir, downloads_dir,
+                     Cue, Language, Runner, ToolError, burned_name, cut_name, data_dir, started_by_assistant,
                      dub_name, find_cut, find_srt, lang_by_name,
-                     free_memory_gb, output_path,
+                     free_memory_gb,
                      log, log_file, model_dirs, read_srt, srt_name, write_srt)
 
 PAD = {"padx": 8, "pady": 4}
@@ -68,7 +67,6 @@ class Settings:
         self.cut_first = False             # "Klip videoen først", remembered from the last run
         self.gender_voices = True          # (v1.9.6) kept for old settings files; voice_mode replaces it
         self.voice_mode = "person"         # dub: "person" (a voice per person), "gender" (deep/light) or "one"
-        self.skill_installed = 0           # the Claude skill version the user has put into Claude (0 = unknown)
         self.theme = "system"              # Udseende: "system" (follow Windows), "light" (Lys) or "night" (Nat)
         self.ui_language = ""              # Programmets sprog: da, sv, no or en ("" until picked: Windows' language)
         self.queue_auto_cuts = False       # Kø: take Claude's cut suggestions without the review (queue_view.py)
@@ -83,21 +81,30 @@ class Settings:
         self.burnin_logo_corner = "br"     # "tl", "tr", "bl" or "br"
         self.check_updates = True          # look for a new version on GitHub at start (autoupdate.py)
         self.update_checked = 0.0          # when it last asked (time.time()); at most once a day
+        self.last_version = ""             # the version that last started (upgrade_notice.py)
+        self.old_skill_notice_done = False     # the one-time "delete the old Claude skill" notice is settled
+        self.old_skill_notice_pending = False  # it is due but not shown yet (an assistant started the app)
+        # The file as read, for decisions about where the user comes from (upgrade_notice); None: no file
+        self._saved: dict | None = None
         try:
             saved = json.loads(self.path.read_text(encoding="utf-8"))
-            self.__dict__.update(saved)
-            if "ui_language" not in saved:
-                self.ui_language = "da"   # used before 2.1, when the app was Danish only
+            if isinstance(saved, dict):
+                self._saved = dict(saved)
+                self.__dict__.update({k: v for k, v in saved.items() if not k.startswith("_")})
+                if "ui_language" not in saved:
+                    self.ui_language = "da"   # used before 2.1, when the app was Danish only
         except Exception:
             pass
         self.__dict__.pop("model", None)  # v1.0.0 key; the default changed from turbo to large-v3
+        self.__dict__.pop("skill_installed", None)  # up to 2.1.x: the Claude skill's version (read via _saved)
         self.__dict__.pop("keep_original", None)  # before v1.3.2 on by default; now off
         if self.whisper_model not in engine.WHISPER_MODELS:
             self.whisper_model = "large"
 
     def save(self):
         try:
-            self.path.write_text(json.dumps(self.__dict__, indent=2), encoding="utf-8")
+            data = {k: v for k, v in self.__dict__.items() if not k.startswith("_")}
+            self.path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         except Exception:
             log.exception("could not save settings")
 
@@ -175,7 +182,8 @@ def place_over(win, parent):
     win.focus_set()
 
 
-_HOOKPROC = ctypes.WINFUNCTYPE(ctypes.c_ssize_t, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t)
+_HOOKPROC = getattr(ctypes, "WINFUNCTYPE", ctypes.CFUNCTYPE)(   # CFUNCTYPE: lets tests import gui on Linux
+    ctypes.c_ssize_t, ctypes.c_int, ctypes.c_size_t, ctypes.c_ssize_t)
 
 
 def _box_over(fn, *args, parent=None, **kw):
@@ -278,6 +286,9 @@ class App:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.settings = Settings()
+        self.from_assistant = started_by_assistant()
+        # Before anything else saves the settings: where the user comes from decides the old-skill notice
+        old_skill_notice = upgrade_notice.decide_at_start(self.settings, self.from_assistant)
         i18n.set_language(i18n.resolve(self.settings.ui_language))
         self.events: queue.Queue = queue.Queue()
         self.runner: Runner | None = None
@@ -360,16 +371,12 @@ class App:
         threading.Thread(target=self._self_check, daemon=True).start()
         autoupdate.start(self)
         root.after(300, self.vq.enable_drop)
-        if "--from-claude" not in sys.argv:
+        if not self.from_assistant:
             root.after(1200, self.vq.offer_resume)
-        self._skill_guide = None
-        self._skill_warning: tuple | None = None
-        if "--from-claude" not in sys.argv and self.settings.skill_installed < claude.SKILL_VERSION:
-            # This version ships a newer skill than the one the user has put into Claude
-            # 0: unknown, most likely never put in (the "first" wording), else this version ships a newer one
-            first = self.settings.skill_installed == 0
-            root.after(900, lambda: self.show_skill_guide("first" if first else "update"))
-        if "--from-claude" not in sys.argv:
+        self._notice = None   # a start-up notice on screen (one dialog at a time)
+        if old_skill_notice:
+            root.after(900, lambda: upgrade_notice.show(self))
+        if not self.from_assistant:
             root.after(2000, self.offer_crash_report)
 
     # --- Layout -------------------------------------------------------------------------
@@ -397,7 +404,7 @@ class App:
         self.claude_wrap.grid(row=1, column=1, sticky="nsew")
         self.claude_wrap.columnconfigure(0, weight=1)
         self.claude_wrap.rowconfigure(0, weight=1)
-        self.claude_box = skin.Card(self.claude_wrap, text=" Claude ", padding=12)
+        self.claude_box = skin.Card(self.claude_wrap, text=f" {t('gui.claude.card_title')} ", padding=12)
         self.claude_box.grid(row=0, column=0, sticky="nsew")
         self.claude_box.columnconfigure(0, weight=1)
         self.claude_box.rowconfigure(0, weight=1)
@@ -1440,7 +1447,7 @@ class App:
             self.status.configure(text=t("gui.work.claude_stops"))
             self.runner.cancel()
         else:
-            self._jstatus(state="cancelled", message="Stoppet fra Claude.")
+            self._jstatus(state="cancelled", message="Stoppet fra AI-assistenten.")
 
     def _check_inbox(self):
         """Take a job Claude has sent, if the app is free; otherwise tell Claude it is busy."""
@@ -1807,7 +1814,7 @@ class App:
                     self._user_turn(True)
                     if self.mcp_job:
                         self.status.configure(text=t("gui.work.claude_in_chat"))
-                        self._jstatus(state="claude_turn", step="Claude retter og oversætter", eta="",
+                        self._jstatus(state="claude_turn", step="AI-assistenten retter og oversætter", eta="",
                                       percent=int(float(self.bar.cget("value")) / 10), message="Teksten er klar til dig.")
                     else:
                         self.status.configure(text=t("gui.work.waiting_for_you"))
@@ -1856,7 +1863,7 @@ class App:
     def _show_result(self, kind: str, info, replay: bool = False):
         """The done view for a run's end: kind "done" (info: the result file), "error" (info: the error text),
         "skipped" (info: the message) or "cancelled". replay: drawn again after a theme or language switch, without
-        the side effects (skill guide, attention). Kind "queue": the summary after a queue (queue_view)."""
+        the side effects (attention). Kind "queue": the summary after a queue (queue_view)."""
         if kind == "queue":
             self.vq.show_summary(replay)
             return
@@ -1901,10 +1908,6 @@ class App:
                     self.d_edit.configure(style="Tall.TButton")
                     self.d_edit.pack(side="left", padx=(0, int(14 * k)))
             self.d_acts.grid()
-            if self._skill_warning and not replay:
-                reason, have = self._skill_warning
-                self._skill_warning = None
-                self.root.after(1200, lambda: self.show_skill_guide(reason, have))
             self.d_next_hint.configure(text=t("gui.done.next_hint"))
             self.d_same.grid()
             if not replay:
@@ -2220,7 +2223,7 @@ class App:
         try:
             if any(isinstance(w, report.ReportDialog) for w in self.root.winfo_children()):
                 return
-            if self._skill_guide is not None and self._skill_guide.winfo_exists():
+            if self._notice is not None and self._notice.winfo_exists():
                 self.root.after(3000, self.offer_crash_report)   # one dialog at a time
                 return
         except (tk.TclError, AttributeError):
@@ -2269,26 +2272,6 @@ class App:
                 options["whisper_model"] = Path(job["model"]).name
             state["options"] = options
         return state
-
-    # --- The Claude skill's version ---------------------------------------------------------
-
-    def note_skill(self, version: int | None):
-        """What Claude reported about its skill in a Claude round: the current version (remember it), an old one or
-        none (show the update guide when the run is done)."""
-        if version is not None and version >= claude.SKILL_VERSION:
-            if self.settings.skill_installed < version:
-                self.settings.skill_installed = version
-                self.settings.save()
-            self._skill_warning = None
-            return
-        log.info("Claude used skill version %s (expected %s)", version, claude.SKILL_VERSION)
-        self._skill_warning = ("missing", None) if version is None else ("old", version)
-
-    def show_skill_guide(self, reason: str, have: int | None = None):
-        if self._skill_guide is not None and self._skill_guide.winfo_exists():
-            self._skill_guide.lift()
-            return
-        self._skill_guide = SkillGuide(self.root, self, reason, have)
 
     def _translation_finished(self, ok: bool):
         self._translation_ok = ok
@@ -2391,9 +2374,9 @@ class App:
                 u32.ShowWindow(ctypes.c_void_p(frame_hwnd(self.root)), 4)  # SW_SHOWNOACTIVATE
             self.root.bell()
             target = self._grab_window()
-            guide = getattr(self, "_skill_guide", None)
-            if target is None and guide is not None and guide.winfo_exists():
-                target = guide
+            notice = getattr(self, "_notice", None)
+            if target is None and notice is not None and notice.winfo_exists():
+                target = notice
             hwnd = frame_hwnd(target or self.root)
 
             class FLASHWINFO(ctypes.Structure):
@@ -2447,63 +2430,6 @@ class SegmentBar(ttk.Frame):
             x0 = i * (seg + gap)
             colour = P.progress_fill_current if i == filled - 1 and filled < self.SEGMENTS else P.progress_fill
             c.create_rectangle(x0, 0, x0 + seg, h, fill=colour, outline="")
-
-
-class SkillGuide(tk.Toplevel):
-    """How to put the new Claude skill into Claude: after an update (this version ships a newer skill), or when
-    Claude worked without the skill or with an old one."""
-
-    def __init__(self, parent, app: App, reason: str, have: int | None = None):
-        super().__init__(parent)
-        self.withdraw()   # shown by place_over, so it never flashes in Windows' default spot
-        self.app = app
-        heading = t("gui.skill.heading_first") if reason == "first" else t("gui.skill.heading_update")
-        self.title(heading)
-        self.transient(parent)
-        self.resizable(False, False)
-        intro = t(f"gui.skill.intro_{reason}", app=APP_NAME, have=have, newest=claude.SKILL_VERSION)
-        f = ttk.Frame(self, padding=18)
-        f.pack(fill="both", expand=True)
-        wrap = int(520 * app.scale)
-        ttk.Label(f, text=heading, style="Section.TLabel", foreground=P.heading).pack(anchor="w")
-        ttk.Label(f, text=intro, wraplength=wrap, justify="left").pack(anchor="w", pady=(6, 12))
-        old = (claude.SKILL_NAME,) + claude.OLD_SKILL_NAMES
-        steps = [t("gui.skill.step_save", save=t("gui.skill.save")),
-                 t("gui.skill.step_open"),
-                 t("gui.skill.step_delete", names=f" {t('gui.and')} ".join(f"\"{n}\"" for n in old)),
-                 t("gui.skill.step_upload", file=f"{claude.SKILL_NAME}-skill.zip")]
-        # The delete step stays on "first" too: skill_installed 0 means unknown, not absent (installed through
-        # Settings, "Senere", or before tracking), and uploading over an existing one is what it prevents. The skill
-        # under the app's earlier name would otherwise answer next to the new one.
-        for i, step in enumerate(steps, 1):
-            ttk.Label(f, text=f"{i}.  {step}", wraplength=wrap, justify="left").pack(anchor="w", pady=2)
-        self.status = ttk.Label(f, text="", style="Hint.TLabel", wraplength=wrap, justify="left")
-        self.status.pack(anchor="w", pady=(10, 0))
-        b = ttk.Frame(f)
-        b.pack(anchor="w", pady=(14, 0))
-        save_btn = ttk.Button(b, text=t("gui.skill.save"), style="Accent.TButton", command=self._save, default="active")
-        save_btn.pack(side="left")
-        ttk.Button(b, text=t("gui.skill.done"), command=self._done).pack(side="left", padx=8)
-        ttk.Button(b, text=t("gui.skill.later"), command=self.destroy).pack(side="left")
-        self.bind("<Escape>", lambda e: self.destroy())
-        self.bind("<Return>", lambda e: self._save())
-        place_over(self, parent.winfo_toplevel())
-        save_btn.focus_set()
-
-    def _save(self):
-        dest = downloads_dir() / f"{claude.SKILL_NAME}-skill.zip"
-        try:
-            claude.skill_zip(dest)
-        except OSError as e:
-            self.status.configure(text=t("gui.skill.save_failed", error=e), foreground=P.error)
-            return
-        self.status.configure(text=t("gui.skill.saved", path=dest), foreground=P.success)
-        subprocess.Popen(["explorer", "/select,", str(dest)])
-
-    def _done(self):
-        self.app.settings.skill_installed = claude.SKILL_VERSION
-        self.app.settings.save()
-        self.destroy()
 
 
 class SettingsDialog(tk.Toplevel):
@@ -2569,7 +2495,6 @@ class SettingsDialog(tk.Toplevel):
         links.grid(row=6, column=0, sticky="w", pady=(12, 0))
         ttk.Button(links, text=t("gui.open_model_dir"), command=lambda: self._open(model_dirs()[0])).pack(side="left")
         ttk.Button(links, text=t("gui.settings.edit_corrections"), command=lambda: self._open(engine.corrections_file())).pack(side="left", padx=6)
-        ttk.Button(links, text=t("gui.settings.save_skill"), command=self._save_skill).pack(side="left", padx=(0, 6))
         ttk.Button(links, text=t("gui.open_log"), command=lambda: self._open(log_file())).pack(side="left")
         self.improve_audio = tk.BooleanVar(value=settings.improve_audio)
         sound = audio.settings_card(outer, self.improve_audio)
@@ -2656,15 +2581,6 @@ class SettingsDialog(tk.Toplevel):
             boxes.showerror(t("gui.settings.connect"), t("gui.settings.connect_failed", error=e), parent=self)
             return
         boxes.showinfo(t("gui.settings.connect"), t("gui.settings.connect_done", path=path), parent=self)
-
-    def _save_skill(self):
-        dest = filedialog.asksaveasfilename(parent=self, title=t("gui.settings.save_skill_title"), defaultextension=".zip",
-                                            initialdir=str(Path.home() / "Downloads"),
-                                            initialfile=f"{claude.SKILL_NAME}.zip", filetypes=[("Zip", "*.zip")])
-        if not dest:
-            return
-        claude.skill_zip(Path(dest))
-        boxes.showinfo(t("gui.settings.skill_title"), t("gui.settings.skill_saved"), parent=self)
 
     def _save(self):
         self.s.whisper_model, self.s.use_gpu, self.s.keep_original_audio = self.model.get(), self.gpu.get(), self.keep.get()
@@ -2787,16 +2703,17 @@ class ModelDialog(tk.Toplevel):
 
 
 class ClaudePanel(ttk.Frame):
-    """The Claude round, in the right-hand card.
+    """The assistant's turn, in the right-hand card (docs/assistant-panel.md).
 
-    File mode (normal): the program writes "<video> - til Claude.txt"; the user copies the file into a Claude chat,
-    the skill writes "<video> - fra Claude.txt", the user downloads it, and the program picks it up from the Downloads
-    folder by the job id in its first line, checks it and carries on by itself.
+    Chat view (a job started in the app, the default): the user copies the instructions per part into any AI chat
+    (ChatGPT, Gemini, Claude, ...) and copies the answer back; the clipboard is watched, and "Indsæt svar" reads it
+    by hand. Once every part is in, the panel finishes by itself.
 
-    Parts mode (fallback): copy a prompt per part and paste Claude's answer back, as before.
+    MCP view (the job came from an MCP assistant): the assistant works through the MCP tools while the panel shows
+    the progress; "Gør det selv i en AI-chat i stedet" switches to the chat view when it stalls.
 
     One answer holds the corrected text in the spoken language (when `check`), the translations to `targets`,
-    and the words Claude corrected. `on_finish(True/False)` tells the waiting run the outcome."""
+    and the words the assistant corrected. `on_finish(True/False)` tells the waiting run the outcome."""
 
     def __init__(self, master, app: App, video: Path, src: Language, src_srt: Path, check: bool,
                  targets: list[Language], on_finish=None, mcp_job: str | None = None, cut: bool = False,
@@ -2814,15 +2731,13 @@ class ClaudePanel(ttk.Frame):
         self.part_outlines: dict[int, chapters.Outline] = {}
         self.cues = read_srt(src_srt)
         self.words: list[tuple[str, str]] = []
-        self.job_id = uuid.uuid4().hex[:10]
-        self.work_file = output_path(video, t("file.task"))
-        self.answer_name = output_path(video, t("file.answer")).name
-        self.started = time.time()
-        self.mode = "file"
+        self.mode = "chat"
         self.watching: int | None = None
-        self._prompt_text = ""
+        self.parts: list[list[Cue]] = []
+        self.part_rows: list[dict] = []
+        self._prompts: set[str] = set()
         self._seen_clip = ""
-        self._seen_files: dict[str, float] = {}
+        self._finishing = False
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
 
@@ -2845,10 +2760,9 @@ class ClaudePanel(ttk.Frame):
         self.footer = ttk.Frame(self)
         self.footer.grid(row=3, column=0, sticky="ew", pady=(12, 0))
         self.footer.columnconfigure(0, weight=1)
-        self.switch_btn = ttk.Button(self.footer, text=t("gui.claude.to_parts"), command=self._to_parts)
-        self.switch_btn.grid(row=0, column=0, sticky="w")
+        # Only in the MCP view: the way out when the assistant stalls or hits a usage limit
+        self.switch_btn = ttk.Button(self.footer, text=t("gui.claude.to_chat"), command=self._mcp_to_chat)
         ttk.Button(self.footer, text=t("gui.claude.stop"), command=self._close).grid(row=0, column=1, padx=(0, 8))
-        self.save_btn = ttk.Button(self.footer, text=t("gui.claude.save_continue"), command=self._save_parts)
         # Whatever is on the clipboard now is old (maybe an answer from an earlier round): never accept it.
         try:
             self._seen_clip = self.clipboard_get()
@@ -2857,11 +2771,11 @@ class ClaudePanel(ttk.Frame):
         if mcp_job:
             self._build_mcp_mode()
         else:
-            self._build_file_mode()
-            self._spin_fsteps()
+            self._build_chat()
+        self._spin_parts()
         self.after(700, self._tick)
 
-    # --- Claude does it in the chat (job from the MCP server) ----------------------------------
+    # --- The assistant does it through the MCP tools (job from the MCP server) --------------------------
 
     def _build_mcp_mode(self):
         self.mode = "mcp"
@@ -2896,18 +2810,18 @@ class ClaudePanel(ttk.Frame):
             self.mcp_cut_lbl.grid(row=len(self.codes) + 1, column=0, sticky="w", pady=(10, 0))
         self.mcp_ch_lbl = ttk.Label(b, text=t("chapters.mcp_waiting"), style="Hint.TLabel")
         self.mcp_ch_lbl.grid(row=len(self.codes) + 2, column=0, sticky="w", pady=(6, 0))
-        self.switch_btn.configure(text=t("gui.claude.to_file"), command=self._mcp_to_file)
+        self.switch_btn.grid(row=0, column=0, sticky="w")
 
-    def _mcp_to_file(self):
-        self.mode = "file"
+    def _mcp_to_chat(self):
+        """The user does the round in an AI chat after all (the assistant stalled or hit a limit)."""
+        self.mode = "chat"
         self.head.configure(text=t("gui.claude.your_turn"))
         for w in self.body.winfo_children():
             w.destroy()
-        self.switch_btn.configure(text=t("gui.claude.to_parts"), command=self._to_parts)
+        self.switch_btn.grid_remove()
         self.app.callout.grid()
         self.app._pulsing = True
-        self._build_file_mode()
-        self._spin_fsteps()
+        self._build_chat()
         skin.skin_cards(self.app.main)
 
     def _mcp_tick(self):
@@ -2923,254 +2837,49 @@ class ClaudePanel(ttk.Frame):
         got = jobs.read_json(d / "parts" / "chapters.json")
         if got is not None:
             self.mcp_ch_lbl.configure(text=t("chapters.mcp_done", n=len(got.get("chapters") or [])))
-        done = jobs.read_json(d / "complete.json")
-        if done:
+        self._mcp_complete()
+
+    def _mcp_complete(self):
+        """The assistant handed in everything through the tools: finish the round (also from the chat view, if the
+        user switched while the assistant was still at it; the first to finish wins)."""
+        done = jobs.read_json(jobs.root() / self.mcp_job / "complete.json")
+        if done and self.on_finish:
             self.words = [tuple(w) for w in done.get("words", [])]
             self.app.cut_lines = list(done.get("cuts") or [])
             self.outline = chapters.Outline.from_json(done.get("outline"))
-            skill = jobs.read_json(d / "skill.json")
-            if skill is not None:
-                self.app.note_skill(skill.get("skill"))
             by_code = {code: jobs.cues_from_json(rows) for code, rows in done["codes"].items()}
-            self.on_finish and self._finish(by_code)
-
-    # --- File mode ---------------------------------------------------------------------
-
-    def _build_file_mode(self):
-        try:
-            self.work_file.write_text(claude.work_file_text(self.src, self.check, self.targets, self.cues,
-                                                            self.job_id, self.answer_name, self.cut,
-                                                            self.chapter_lang), encoding="utf-8")
-        except OSError as e:
-            log.error("could not write work file: %s", e)
-            boxes.showwarning("Claude", t("gui.claude.work_file_failed", error=e),
-                                   parent=self.app.root)
-            self._to_parts()
-            return
-        b = self.body
-        self.fsteps = []
-        k = self.app.scale
-        texts = [
-            (t("gui.claude.step_copy"), f"\"{self.work_file.name}\""),
-            (t("gui.claude.step_paste"), t("gui.claude.step_paste_hint")),
-            (t("gui.claude.step_download"), t("gui.claude.step_download_hint")),
-        ]
-        for i, (title, sub) in enumerate(texts):
-            row = ttk.Frame(b, padding=(0, 6))
-            row.grid(row=i, column=0, sticky="ew")
-            row.columnconfigure(1, weight=1)
-            icon = tk.Label(row, image=IMG.get("icons/step-pending"), borderwidth=0, background=P.card)
-            icon.grid(row=0, column=0, rowspan=2, sticky="nw", pady=(2, 0))
-            head = ttk.Label(row, text=f"{title}", font="SunValleyBodyStrongFont")
-            head.grid(row=0, column=1, sticky="w", padx=(10, 0))
-            s = ttk.Label(row, text=sub, style="Hint.TLabel", justify="left")
-            s.grid(row=1, column=1, sticky="ew", padx=(10, 0))
-            self.app._wrap(s, row, int(60 * k))
-            self.fsteps.append({"icon": icon, "title": head, "sub": s, "row": row, "state": "todo"})
-        acts = ttk.Frame(self.fsteps[0]["row"])
-        acts.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(8, 0))
-        self.copy_file_btn = skin.IconButton(acts, "copy", text=t("gui.claude.copy_file"), command=self._copy_file)
-        self.copy_file_btn.pack(side="left")
-        skin.IconButton(acts, "show-in-folder", text=t("gui.show_in_folder"), command=lambda: self.app._show_in_folder(self.work_file)).pack(side="left", padx=8)
-        acts3 = ttk.Frame(self.fsteps[2]["row"])
-        acts3.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(8, 0))
-        skin.IconButton(acts3, "choose-video", text=t("gui.claude.pick_answer"), command=self._pick_answer).pack(side="left")
-        # What the program is doing about step 3 right now (waiting, found a file, checking it)
-        self.wait_lbl = ttk.Label(self.fsteps[2]["row"], text="", style="Hint.TLabel", justify="left")
-        self.wait_lbl.grid(row=3, column=1, sticky="ew", padx=(10, 0), pady=(6, 0))
-        self.app._wrap(self.wait_lbl, self.fsteps[2]["row"], int(60 * k))
-        self._wait_since: float | None = None
-        self._answer_found = False   # the waiting line shows a found answer (file or clipboard), not the wait
-        self.result = ttk.Label(b, text="", justify="left")
-        self.result.grid(row=3, column=0, sticky="ew", pady=(14, 0))
-        self.app._wrap(self.result, b, 10)
-        self.problem_detail = ttk.Label(b, text="", style="Hint.TLabel", foreground=P.hint, justify="left")
-        self.app._wrap(self.problem_detail, b, 10)
-        self.followup_btn = ttk.Button(b, text=t("gui.claude.copy_followup"), command=self._copy_followup)
-        self._set_fstep(0)
-
-    def _set_fstep(self, active: int, failed: bool = False):
-        for i, st in enumerate(self.fsteps):
-            st["state"] = "done" if i < active else ("active" if i == active else "todo")
-            if failed and i == active:
-                st["state"] = "failed"
-            st["title"].configure(foreground=P.success if st["state"] == "done" else
-                                  P.error if st["state"] == "failed" else
-                                  P.heading if st["state"] == "active" else P.hint)
-            self._draw_fstep(st)
-        self.copy_file_btn.configure(style="Accent.TButton" if active == 0 else "TButton")
-
-    def _draw_fstep(self, st: dict, frame: int = 0):
-        """The sub-step's pixel icon, as in the step list: done, failed, the current one (animated) or not yet."""
-        name = {"done": "step-done", "failed": "step-error", "active": f"step-active-{frame % 6}"}.get(
-            st["state"], "step-pending")
-        st["icon"].configure(image=IMG.get(f"icons/{name}"))
-
-    def _spin_fsteps(self, frame: int = 0):
-        """About 120 ms a frame on the current sub-step, while the panel lives."""
-        if not self.winfo_exists():
-            return
-        for st in getattr(self, "fsteps", []):
-            if st["state"] == "active":
-                self._draw_fstep(st, frame)
-        self.after(120, lambda: self._spin_fsteps(frame + 1))
-
-    def _copy_file(self):
-        if copy_file_to_clipboard(self.work_file):
-            self.fsteps[0]["sub"].configure(text=t("gui.claude.copied_file", name=self.work_file.name))
-            # Step 2 (paste it into Claude) stays open until an answer file shows up: the program cannot see the chat
-            if self.fsteps[2]["state"] not in ("active", "failed"):
-                self._set_fstep(1)
-            if self._wait_since is None:
-                self._wait_since = time.time()
-        else:
-            self.fsteps[0]["sub"].configure(text=t("gui.claude.copy_failed", show=t("gui.show_in_folder")))
-            self.app._show_in_folder(self.work_file)
-
-    def _pick_answer(self):
-        p = filedialog.askopenfilename(parent=self.app.root, title=t("gui.claude.pick_answer_title"),
-                                       initialdir=str(downloads_dir()),
-                                       filetypes=[(t("gui.filetype.text"), "*.txt *.srt *.md"), (t("gui.filetype.all"), "*.*")])
-        if p:
-            self._try_answer_file(Path(p), picked=True)
-
-    def _scan_downloads(self):
-        """Look for a new answer file with our job id in the Downloads folder."""
-        d = downloads_dir()
-        try:
-            files = [f for f in d.iterdir() if f.suffix.lower() in (".txt", ".srt", ".md") and f.is_file()]
-        except OSError:
-            return
-        for f in files:
-            try:
-                st = f.stat()
-            except OSError:
-                continue
-            if st.st_mtime < self.started - 5 or st.st_size > 50_000_000:
-                continue
-            key = str(f)
-            if self._seen_files.get(key) == st.st_mtime:
-                continue
-            self._seen_files[key] = st.st_mtime
-            try:
-                head = f.open("r", encoding="utf-8-sig", errors="replace").readline()
-            except OSError:
-                continue
-            if claude.answer_id(head) == self.job_id:
-                self._try_answer_file(f)
-                return
-
-    def _try_answer_file(self, f: Path, picked: bool = False):
-        # An answer file means steps 1 and 2 happened, whatever was clicked here
-        self._set_fstep(2)
-        self._answer_found = True
-        self.wait_lbl.configure(text=t("gui.claude.found_checking", name=f.name))
-        self.update_idletasks()
-        try:
-            text = f.read_text(encoding="utf-8-sig", errors="replace")
-        except OSError as e:
-            self._show_problem(t("gui.claude.read_failed_detail", name=f.name, error=e),
-                               plain=t("gui.claude.read_failed"), followup=False)
-            return
-        aid = claude.answer_id(text)
-        if picked and aid not in (None, self.job_id):
-            self._show_problem(t("gui.claude.other_round_detail"), plain=t("gui.claude.other_round"), followup=False)
-            return
-        have, words, msg = claude.check_file_answer(self.cues, self.codes, text, self.cut)
-        log.info("answer file %s: %s", f.name, msg or "ok")
-        if msg:
-            self._show_problem(msg)
-            return
-        self.words = list(words)
-        self.app.cut_lines = claude.answer_cuts(text) or []
-        self.outline = claude.answer_outline(text, self.duration or None)
-        self.app.note_skill(claude.answer_skill(text))
-        self._set_fstep(3)
-        self.wait_lbl.configure(text=t("gui.claude.found", name=f.name))
-        self.result.configure(text=t("gui.claude.answer_ok_blocks", n=len(self.cues)),
-                              foreground=P.success, font="SunValleyBodyStrongFont")
-        self.problem_detail.grid_remove()
-        self.followup_btn.grid_remove()
-        self.after(1200, lambda: self._finish(have))
-
-    def _show_problem(self, msg: str, plain: str | None = None, followup: bool = True):
-        """One plain sentence for the user; the technical reason only as a small grey line (and in the log)."""
-        log.info("answer problem: %s", msg)
-        self._followup = claude.followup_text(self.answer_name, msg, self.cut)
-        self._set_fstep(2, failed=True)
-        self._answer_found = False
-        self.wait_lbl.configure(text="")
-        self.result.configure(text=plain or t("gui.claude.answer_incomplete", button=t("gui.claude.copy_followup")),
-                              foreground=P.error, font="SunValleyBodyFont")
-        self.problem_detail.configure(text=t("gui.claude.details", text=msg))
-        self.problem_detail.grid(row=4, column=0, sticky="ew", pady=(4, 0))
-        if followup:
-            self.followup_btn.grid(row=5, column=0, sticky="w", pady=(8, 0))
-            self.followup_btn.configure(style="Accent.TButton")
-        else:
-            self.followup_btn.grid_remove()
-        self._wait_since = time.time()
-        self.started = time.time() - 4  # only newer downloads from now on
-
-    def _copy_followup(self):
-        self.clipboard_clear()
-        self.clipboard_append(self._followup)
-        self.update()
-        self.followup_btn.configure(text=t("gui.claude.followup_copied"), style="TButton")
-        self.after(3000, lambda: self.winfo_exists() and self.followup_btn.configure(text=t("gui.claude.copy_followup")))
+            self._finish(by_code)
 
     def _tick(self):
         if not self.winfo_exists():
             return
-        if self.mode == "mcp" and self.on_finish:
-            self._mcp_tick()
-        elif self.mode == "file" and self.on_finish:
-            if self.fsteps[2]["state"] != "done":
-                # Also before "Kopiér fil": the user may have dragged the file into Claude themselves
-                self._scan_downloads()
-            if self._wait_since is not None and self.fsteps[2]["state"] != "done" and not self._answer_found:
-                mins = int((time.time() - self._wait_since) // 60)
-                self.wait_lbl.configure(text=t("gui.claude.waiting_minutes", mins=mins) if mins
-                                        else t("gui.claude.waiting"))
-            # Claude's answer pasted as text also counts (if Claude wrote it in the chat instead of a file)
-            try:
-                text = self.clipboard_get()
-            except tk.TclError:
-                text = ""
-            if text and text != self._seen_clip and "-->" in text and "===" in text:
-                self._seen_clip = text
-                have, words, msg = claude.check_file_answer(self.cues, self.codes, text + "\n=== end ===", self.cut)
-                if msg is None:
-                    self.words = list(words)
-                    self.app.cut_lines = claude.answer_cuts(text) or []
-                    self.outline = claude.answer_outline(text, self.duration or None)
-                    self.app.note_skill(claude.answer_skill(text))
-                    self._set_fstep(3)
-                    self._answer_found = True
-                    self.wait_lbl.configure(text=t("gui.claude.found_clipboard"))
-                    self.problem_detail.grid_remove()
-                    self.result.configure(text=t("gui.claude.answer_ok"), foreground=P.success)
-                    self.after(1200, lambda: self._finish(have))
-        elif self.mode == "parts":
-            self._watch_clipboard()
+        if self.on_finish:
+            if self.mode == "mcp":
+                self._mcp_tick()
+            else:
+                self._watch_clipboard()
+                if self.mcp_job and self.on_finish:
+                    self._mcp_complete()
         self.after(900, self._tick)
 
-    # --- Parts mode (fallback) -------------------------------------------------------------
+    # --- Chat view: copy the instructions into any AI chat, copy the answer back ------------------------
 
-    def _to_parts(self):
-        self.mode = "parts"
-        for w in self.body.winfo_children():
-            w.destroy()
-        self.fsteps = []   # their icons are gone: the spinner must not draw them any more
-        self.switch_btn.grid_remove()
-        self.save_btn.grid(row=0, column=2)
+    def _build_chat(self):
+        self.mode = "chat"
         self.parts = claude.split_parts(self.cues, len(self.codes))
-        self.answers: list[dict | None] = [None] * len(self.parts)
+        n_parts = len(self.parts)
+        self.answers: list[dict | None] = [None] * n_parts
         self.partial: list[dict] = [{} for _ in self.parts]
-        self.copied = [False] * len(self.parts)
+        self.copied = [False] * n_parts
+        self.problem = [False] * n_parts
         self.words = []
+        self.cut_parts, self.part_outlines = {}, {}
+        self.watching = None
+        self._finishing = False
+        k = self.app.scale
         b = self.body
         b.rowconfigure(2, weight=1)
+        # The one thing to do now
         self.next_box = tk.Frame(b, background=P.card, padx=12, pady=10)
         self.next_box.grid(row=0, column=0, sticky="ew")
         self.next_box.columnconfigure(0, weight=1)
@@ -3178,10 +2887,12 @@ class ClaudePanel(ttk.Frame):
                                  foreground=P.heading, justify="left", anchor="w")
         self.next_lbl.grid(row=0, column=0, sticky="ew")
         self.next_box.bind("<Configure>", lambda e: self.next_lbl.configure(wraplength=max(150, e.width - 30)))
-        ttk.Label(b, text=(t("gui.parts.split", n=len(self.parts)) if len(self.parts) > 1 else ""),
-                  style="Hint.TLabel").grid(row=1, column=0, sticky="w", pady=(8, 4))
+        if n_parts > 1:
+            split = ttk.Label(b, text=t("gui.parts.split", n=n_parts), style="Hint.TLabel", justify="left")
+            split.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+            self.app._wrap(split, b, 10)
         holder = ttk.Frame(b)
-        holder.grid(row=2, column=0, sticky="nsew")
+        holder.grid(row=2, column=0, sticky="nsew", pady=(4, 0))
         holder.columnconfigure(0, weight=1)
         holder.rowconfigure(0, weight=1)
         canvas = tk.Canvas(holder, highlightthickness=0, borderwidth=0, background=self.app.bg)
@@ -3203,50 +2914,103 @@ class ClaudePanel(ttk.Frame):
                         if str(e.widget).startswith(str(canvas)) else None)
         self.canvas = canvas
         rows.columnconfigure(0, weight=1)
-        self.state_labels, self.copy_btns, self.paste_btns, self.part_titles = [], [], [], []
+        self.part_rows = []
         n0 = 1
         for i, part in enumerate(self.parts):
-            box = ttk.Frame(rows, padding=(0, 8))
+            box = ttk.Frame(rows, padding=(0, 6))
             box.grid(row=i, column=0, sticky="ew")
-            box.columnconfigure(0, weight=1)
+            box.columnconfigure(1, weight=1)
+            icon = tk.Label(box, image=IMG.get("icons/step-pending"), borderwidth=0, background=P.card)
+            icon.grid(row=0, column=0, rowspan=3, sticky="nw", pady=(2, 0))
             title = ttk.Label(box, text=t("gui.parts.title", n=i + 1, first=n0, last=n0 + len(part) - 1),
                               font="SunValleyBodyStrongFont")
-            title.grid(row=0, column=0, sticky="w")
-            cb = ttk.Button(box, text=t("gui.parts.copy"), width=9, command=lambda i=i: self._copy(i))
-            cb.grid(row=0, column=1, padx=6)
-            pb = ttk.Button(box, text=t("gui.parts.paste"), width=11, command=lambda i=i: self._paste(i))
-            pb.grid(row=0, column=2)
+            if n_parts > 1:
+                title.grid(row=0, column=1, sticky="w", padx=(10, 0))
+            acts = ttk.Frame(box)
+            acts.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(4 if n_parts > 1 else 0, 0))
+            cb = skin.IconButton(acts, "copy", text=t("gui.parts.copy"), command=lambda i=i: self._copy(i))
+            cb.pack(side="left")
+            pb = ttk.Button(acts, text=t("gui.parts.paste"), command=lambda i=i: self._paste(i))
+            pb.pack(side="left", padx=(6, 0))
             lab = ttk.Label(box, text="", justify="left", foreground=P.hint)
-            lab.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(2, 0))
-            box.bind("<Configure>", lambda e, lab=lab: lab.configure(wraplength=max(150, e.width - 10)))
-            self.state_labels.append(lab)
-            self.copy_btns.append(cb)
-            self.paste_btns.append(pb)
-            self.part_titles.append(title)
+            lab.grid(row=2, column=1, sticky="ew", padx=(10, 0), pady=(4, 0))
+            box.bind("<Configure>", lambda e, lab=lab: lab.configure(wraplength=max(150, e.width - int(40 * k))))
+            self.part_rows.append({"icon": icon, "title": title, "copy": cb, "paste": pb, "state_lbl": lab,
+                                   "state": "todo"})
             n0 += len(part)
+        data = ttk.Label(b, text=t("gui.parts.data"), style="Hint.TLabel", justify="left")
+        data.grid(row=3, column=0, sticky="ew", pady=(8, 0))
+        self.app._wrap(data, b, 10)
+        # An assistant with MCP can take the job over (round 2 wires the phrase up in the MCP server)
+        nudge = ttk.Frame(b)
+        nudge.grid(row=4, column=0, sticky="ew", pady=(12, 0))
+        nudge.columnconfigure(0, weight=1)
+        ask = ttk.Label(nudge, text=t("gui.parts.mcp_nudge"), style="Hint.TLabel", justify="left")
+        ask.grid(row=0, column=0, sticky="ew")
+        self.app._wrap(ask, nudge, 10)
+        line = ttk.Frame(nudge)
+        line.grid(row=1, column=0, sticky="w", pady=(2, 0))
+        self.phrase = t("gui.parts.mcp_phrase", app=APP_NAME)
+        ttk.Label(line, text=f"\"{self.phrase}\"", font="SunValleyBodyStrongFont").pack(side="left")
+        self.phrase_btn = skin.IconButton(line, "copy", text=t("gui.parts.copy_phrase"), command=self._copy_phrase)
+        self.phrase_btn.pack(side="left", padx=(8, 0))
         self._guide()
 
+    def _part_state(self, i: int, nxt: int | None) -> str:
+        if self.answers[i]:
+            return "done"
+        if self.problem[i]:
+            return "failed"
+        return "active" if i == nxt else "todo"
+
+    def _draw_part(self, row: dict, frame: int = 0):
+        """The part's pixel icon, as in the step list: done, a problem, the current one (animated) or later."""
+        name = {"done": "step-done", "failed": "step-error", "active": f"step-active-{frame % 6}"}.get(
+            row["state"], "step-pending")
+        row["icon"].configure(image=IMG.get(f"icons/{name}"))
+
+    def _spin_parts(self, frame: int = 0):
+        """About 120 ms a frame on the current part, while the panel lives."""
+        if not self.winfo_exists():
+            return
+        for row in self.part_rows:
+            if row["state"] == "active":
+                try:
+                    self._draw_part(row, frame)
+                except tk.TclError:   # the chat view was rebuilt
+                    pass
+        self.after(120, lambda: self._spin_parts(frame + 1))
+
     def _guide(self):
-        """Parts mode: highlight the one button to press next and say what to do."""
-        for b in self.copy_btns + self.paste_btns:
-            b.configure(style="TButton")
-        self.save_btn.configure(style="TButton", state="disabled")
+        """Highlight the one button to press next, say what to do, and finish once every part is in."""
         nxt = next((i for i, a in enumerate(self.answers) if a is None), None)
-        for i, title in enumerate(self.part_titles):
-            title.configure(foreground=P.success if self.answers[i] else (P.step_active if i == nxt else ""))
+        for i, row in enumerate(self.part_rows):
+            row["state"] = self._part_state(i, nxt)
+            row["title"].configure(foreground={"done": P.success, "failed": P.error,
+                                               "active": P.step_active}.get(row["state"], ""))
+            row["copy"].configure(style="TButton", text=t("gui.parts.copy_again" if self.copied[i] and
+                                                          not self.answers[i] else "gui.parts.copy"))
+            row["paste"].configure(style="TButton")
+            self._draw_part(row)
         if nxt is None:
             self.watching = None
-            self.save_btn.configure(state="normal", style="Accent.TButton")
-            self.save_btn.focus_set()
-            self.next_lbl.configure(text=t("gui.parts.all_ready", save=t("gui.claude.save_continue")))
+            self.next_lbl.configure(text=t("gui.claude.answer_ok_blocks", n=len(self.cues)), foreground=P.success)
+            if not self._finishing:
+                self._finishing = True
+                self.after(1200, self._save_parts)
             return
+        self.next_lbl.configure(foreground=P.heading)
+        row = self.part_rows[nxt]
         n = t("gui.parts.part", n=nxt + 1) if len(self.parts) > 1 else t("gui.parts.the_text")
-        if not self.copied[nxt]:
-            self.copy_btns[nxt].configure(style="Accent.TButton")
-            self.copy_btns[nxt].focus_set()
-            self.next_lbl.configure(text=t("gui.parts.next_copy", copy=t("gui.parts.copy"), part=n))
+        if self.problem[nxt]:
+            row["paste"].configure(style="Accent.TButton")
+            self.next_lbl.configure(text=t("gui.parts.problem", part=n))
+        elif not self.copied[nxt]:
+            row["copy"].configure(style="Accent.TButton")
+            row["copy"].focus_set()
+            self.next_lbl.configure(text=t("gui.parts.next_copy", copy=t("gui.parts.copy")))
         else:
-            self.paste_btns[nxt].configure(style="Accent.TButton")
+            row["paste"].configure(style="Accent.TButton")
             self.next_lbl.configure(text=t("gui.parts.waiting", part=n))
 
     def _watch_clipboard(self):
@@ -3256,7 +3020,7 @@ class ClaudePanel(ttk.Frame):
             text = self.clipboard_get()
         except tk.TclError:
             text = ""
-        if text and text != self._prompt_text and text != self._seen_clip and "-->" in text:
+        if text and text not in self._prompts and text != self._seen_clip and "-->" in text:
             self._seen_clip = text
             self._paste(self.watching, text)
 
@@ -3269,18 +3033,33 @@ class ClaudePanel(ttk.Frame):
         self.clipboard_clear()
         self.clipboard_append(text)
         self.update()
-        self._prompt_text = text
+        self._prompts.add(text)
         self.copied[i] = True
         self.watching = i
-        self.state_labels[i].configure(text=t("gui.parts.copied"), foreground=P.hint)
+        if not self.answers[i] and not self.problem[i]:
+            self.part_rows[i]["state_lbl"].configure(text=t("gui.parts.copied"), foreground=P.hint)
         self._guide()
 
+    def _copy_phrase(self):
+        """The take-over phrase for a connected assistant; never an answer (no time codes, and remembered as seen)."""
+        self.clipboard_clear()
+        self.clipboard_append(self.phrase)
+        self.update()
+        self._seen_clip = self.phrase
+        self.phrase_btn.configure(text=t("gui.parts.copied_short"))
+        self.after(3000, lambda: self.winfo_exists() and self.phrase_btn.winfo_exists()
+                   and self.phrase_btn.configure(text=t("gui.parts.copy_phrase")))
+
     def _paste(self, i: int, text: str | None = None):
+        if self.answers[i]:
+            return
         if text is None:
             try:
                 text = self.clipboard_get()
             except tk.TclError:
                 text = ""
+        if text in self._prompts:   # "Indsæt svar" right after copying the instructions
+            text = ""
         have, words, msg = claude.check_answer(self.parts[i], self.codes, text, self.partial[i])
         self.partial[i] = have
         cut_lines = claude.answer_cuts(text) if self.cut else None
@@ -3290,41 +3069,42 @@ class ClaudePanel(ttk.Frame):
         if part_outline:
             self.part_outlines[i] = part_outline
         self.words += words
+        lab = self.part_rows[i]["state_lbl"]
         if msg:
             self.answers[i] = None
+            # Nothing usable at all is not a problem with the answer yet (e.g. "Indsæt svar" clicked too early)
+            self.problem[i] = bool(have) or text.count("-->") > 0
+            self.watching = i
             got = [claude.LANG_BY_CODE[c].singular for c in self.codes if c in have]
             prefix = t("gui.parts.have", langs=", ".join(got)) + " " if got and len(self.codes) > 1 else ""
-            self.state_labels[i].configure(text="✗ " + prefix + msg, foreground=P.error)
+            lab.configure(text="✗ " + prefix + msg, foreground=P.error)
         else:
             self.answers[i] = have
+            self.problem[i] = False
             if self.words:
                 ok = t("gui.parts.ok_words", n=len(self.parts[i]), words=len(set(self.words)))
             else:
                 ok = t("gui.parts.ok", n=len(self.parts[i]))
-            self.state_labels[i].configure(text="✓ " + ok, foreground=P.success)
+            lab.configure(text="✓ " + ok, foreground=P.success)
             if self.watching == i:
                 self.watching = None
         self._guide()
 
     def _save_parts(self):
-        if not all(self.answers):
+        if not all(self.answers) or not self.on_finish:
             return
         self.app.cut_lines = [l for i in sorted(self.cut_parts) for l in self.cut_parts[i]]
         self.outline = chapters.merge_parts([self.part_outlines[i] for i in sorted(self.part_outlines)],
                                             self.duration or None)
         self._finish({code: [c for part in self.answers for c in part[code]] for code in self.codes})
 
-    # --- Both modes ------------------------------------------------------------------------
+    # --- Both views ------------------------------------------------------------------------
 
     def _close(self):
         if self.on_finish:
-            if not boxes.askyesno("Claude", t("gui.claude.stop_ask"), parent=self.app.root):
+            if not boxes.askyesno(t("gui.claude.card_title"), t("gui.claude.stop_ask"), parent=self.app.root):
                 return
             done, self.on_finish = self.on_finish, None
-            try:
-                self.work_file.unlink(missing_ok=True)
-            except OSError:
-                pass
             done(False)
 
     def _finish(self, by_code: dict[str, list[Cue]]):
@@ -3340,7 +3120,7 @@ class ClaudePanel(ttk.Frame):
                 textstate.set_checked(out, True)
             self.app.add_file(out)
         new = claude.add_words(list(dict.fromkeys(self.words)))
-        log.info("claude round saved: %s; new words %s", [w.name for w in written], new)
+        log.info("assistant round saved: %s; new words %s", [w.name for w in written], new)
         # Chapters and summary: next to the original video, in its times (moved again if the video is cut)
         self.app.outline = self.outline
         try:
@@ -3349,12 +3129,8 @@ class ClaudePanel(ttk.Frame):
             log.exception("could not save the chapters")
         if self.app.chapters_file:
             self.app.add_file(self.app.chapters_file)
-        try:
-            self.work_file.unlink(missing_ok=True)
-        except OSError:
-            pass
-        # No dialog here: it would stop the run until someone clicks OK (nobody does when Claude drives it).
-        # The learned words are shown in the result view and sent to Claude with the status instead.
+        # No dialog here: it would stop the run until someone clicks OK (nobody does when an assistant drives it).
+        # The learned words are shown in the result view and sent to the assistant with the status instead.
         self.app.learned_words = list(new)
         done, self.on_finish = self.on_finish, None
         if done:
@@ -3413,7 +3189,7 @@ def main():
     settings = Settings()
     i18n.set_language(i18n.resolve(settings.ui_language))
     from .installer import offer_install
-    if "--from-claude" not in sys.argv and not offer_install():   # installed (or the installed copy started); this copy stops here
+    if not started_by_assistant() and not offer_install():   # installed (or the installed copy started); this copy stops here
         return
     if already_running():
         return

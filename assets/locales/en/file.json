@@ -4,7 +4,5 @@
  "file.dub": "{singular} dub.mp4",
  "file.dub_subs": "{singular} dub with {plural} subtitles.mp4",
  "file.cut": "cut.mp4",
- "file.task": "for Claude.txt",
- "file.answer": "from Claude.txt",
  "file.chapters": "chapters.txt"
 }

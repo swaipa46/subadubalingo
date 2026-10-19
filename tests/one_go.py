@@ -1,20 +1,16 @@
-"""One-go run through the real App object with a fake Claude that corrects/translates by prefixing the text
-and reports one corrected word.
+"""One-go run through the real App object with a fake AI chat that corrects/translates by prefixing the text
+and reports one corrected word. The chat view: the fake user copies each part's instructions and the fake chat's
+answer is put on the clipboard, where the panel finds it by itself (--broken: first an incomplete answer).
 
-Default is the file round: the fake Claude reads "<video> - til Claude.txt" and writes the answer file into a
-temporary Downloads folder, where the program must find it by itself. --parts uses the copy/paste fallback.
-
-  python tests/one_go.py VIDEO [--speech Svensk] [--subs Norske] [--redo] [--cpu] [--close] [--parts] [--broken]
+  python tests/one_go.py VIDEO [--speech Svensk] [--subs Norske] [--redo] [--cpu] [--close] [--broken]
                          [--cut [--recut] [--skip-cut] [--shots DIR]]
 
---cut: the fake Claude also suggests cuts (the first three blocks as "start", and one block in the middle as
+--cut: the fake chat also suggests cuts (the first three blocks as "start", and one block in the middle as
 off-topic); the fake user moves an edge on the timeline, switches the pause suggestions off and approves.
 """
 import ctypes
 import ctypes.wintypes as wt
-import re
 import sys
-import tempfile
 import time
 from pathlib import Path
 
@@ -22,15 +18,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
 import tkinter as tk
 from tkinter import messagebox
 
-from subadubalingo import claude, cutting, engine, gui
-from subadubalingo.common import format_srt, read_srt
+from subadubalingo import cutting, engine, gui
+from subadubalingo.common import format_srt
 
 said = []
 for name in ("showwarning", "showerror", "showinfo"):
     setattr(messagebox, name, lambda *a, n=name, **k: said.append((n, a[1] if len(a) > 1 else a)))
 messagebox.askyesno = lambda *a, **k: True
-downloads = Path(tempfile.mkdtemp(prefix="sdl-downloads-"))
-gui.downloads_dir = lambda: downloads
 
 
 def arg(name, default):
@@ -72,48 +66,33 @@ def fake_cuts(n_total, first, count):
     return lines
 
 
-def fake_answer(codes, src_code, cues, first=1, header=None, end=True, cut=False, n_total=None):
+def fake_answer(codes, src_code, cues, first=1, cut=False, n_total=None):
     blocks = []
     for code in codes:
         prefix = "" if code == src_code else f"{code.upper()}: "
         fixed = [engine.Cue(c.start, c.end, prefix + c.text.replace("Testingen", "Testing")) for c in cues]
         blocks.append(f"=== {code} ===\n" + format_srt(fixed, first))
-    text = ("" if header is None else header + "\n") + "\n".join(blocks)
+    text = "\n".join(blocks)
     if cut:
         text += "=== cuts ===\n" + "".join(l + "\n" for l in fake_cuts(n_total or len(cues), first, len(cues)))
-    text += "=== words ===\nTestingen => Testing\n"
-    return text + ("=== end ===\n" if end else "")
+    return text + "=== words ===\nTestingen => Testing\n"
 
 
-def fake_claude_file(d: gui.ClaudePanel):
-    work = d.work_file.read_text(encoding="utf-8")
-    job = re.search(r"id=(\S+)", work.splitlines()[0]).group(1)
-    src = read_srt(d.src_srt)
-    d._copy_file()
-    pump(1)
-    if "--broken" in sys.argv:
-        (downloads / d.answer_name).write_text(fake_answer(d.codes, d.src.code, src[:-1],
-                                                           header=f"{claude.ANSWER_HEADER} id={job}"), encoding="utf-8")
-        pump(3)
-        print("  broken answer ->", d.result.cget("text").splitlines()[0][:110])
-    (downloads / ("x" + d.answer_name)).write_text(fake_answer(d.codes, d.src.code, src,
-                                                               header=f"{claude.ANSWER_HEADER} id={job} skill={claude.SKILL_VERSION}", cut=d.cut),
-                                                   encoding="utf-8")
-    pump(4)
-    print("  work file removed:", not d.work_file.exists())
-
-
-def fake_claude_parts(d: gui.ClaudePanel):
-    d._to_parts()
+def fake_chat(d: gui.ClaudePanel):
     for i, part in enumerate(d.parts):
         d._copy(i)
+        pump(0.5)
+        if "--broken" in sys.argv and i == 0:
+            root.clipboard_clear()
+            root.clipboard_append(fake_answer(d.codes[:1], d.src.code, part, d._first_number(i)))
+            pump(2)   # the clipboard watch picks it up
+            print(f"  broken answer -> {d.part_rows[i]['state_lbl'].cget('text')[:110]}")
         root.clipboard_clear()
         root.clipboard_append(fake_answer(d.codes, d.src.code, part, d._first_number(i), cut=d.cut,
                                           n_total=len(d.cues)))
-        root.update()
-        d._paste(i)
-        print(f"  part {i + 1} {d.codes}: {d.state_labels[i].cget('text')}")
-    d._save_parts()
+        pump(2)
+        print(f"  part {i + 1} {d.codes}: {d.part_rows[i]['state_lbl'].cget('text')}")
+    pump(2)   # the panel finishes by itself
 
 
 shots = Path(arg("--shots", "")) if "--shots" in sys.argv else None
@@ -170,10 +149,8 @@ while app._busy() and time.time() - t0 < 1800:
         answered = True
         if "--close" in sys.argv:
             d._close()
-        elif "--parts" in sys.argv:
-            fake_claude_parts(d)
         else:
-            fake_claude_file(d)
+            fake_chat(d)
 print("status:", app.status.cget("text"))
 print("result:", app.d_title.cget("text"), "|", app.d_msg.cget("text")[:200].replace("\n", " "))
 take("done.png")

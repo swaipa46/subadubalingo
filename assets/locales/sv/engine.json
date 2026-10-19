@@ -19,9 +19,9 @@
  "engine.dub.tempo": "Anpassar tempot: mening {n} av {total}",
  "engine.dub.pitch": "Ger rösterna var sin ton: {n} av {total}",
  "engine.compare.none": "Inga undertexter hittades i texten.",
- "engine.compare.timecode": "Block {n} har en annan tidskod än originalet ({orig} s mot {got} s). Be Claude att behålla tidskoderna exakt.",
+ "engine.compare.timecode": "Block {n} har en annan tidskod än originalet ({orig} s mot {got} s). Be AI-assistenten att behålla tidskoderna exakt.",
  "engine.compare.missing": "Det saknas {missing} block (fick {got} av {total}). Svaret har nog blivit avkortat.",
- "engine.compare.extra": "Det är {extra} block för många. Be Claude att inte dela upp block.",
+ "engine.compare.extra": "Det är {extra} block för många. Be AI-assistenten att inte dela upp block.",
  "engine.compare.empty": "Block {n} är tomt.",
  "engine.corrections.header": "# Rättelser av ord som datorn hör fel.\n# En rättelse per rad:  fel = rätt\n# Stora/små bokstäver spelar ingen roll i \"fel\". \"fel\" ska stå sist i ett ord, men får gärna vara\n# sista delen av ett sammansatt ord (fløv rättar också tilmeldingsfløv). Rader med # först används inte.\n# Rättelserna används nästa gång det görs undertexter."
 }

@@ -4,7 +4,5 @@
  "file.dub": "dubbning på {singular}.mp4",
  "file.dub_subs": "dubbning på {singular} med {plural} undertexter.mp4",
  "file.cut": "klippt.mp4",
- "file.task": "till Claude.txt",
- "file.answer": "från Claude.txt",
  "file.chapters": "kapitel.txt"
 }

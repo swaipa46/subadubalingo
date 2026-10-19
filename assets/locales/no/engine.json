@@ -19,9 +19,9 @@
  "engine.dub.tempo": "Tilpasser tempoet: setning {n} av {total}",
  "engine.dub.pitch": "Gir stemmene hver sin tone: {n} av {total}",
  "engine.compare.none": "Det ble ikke funnet noen undertekster i teksten.",
- "engine.compare.timecode": "Blokk {n} har en annen tidskode enn originalen ({orig} s mot {got} s). Be Claude om å beholde tidskodene nøyaktig.",
+ "engine.compare.timecode": "Blokk {n} har en annen tidskode enn originalen ({orig} s mot {got} s). Be AI-assistenten om å beholde tidskodene nøyaktig.",
  "engine.compare.missing": "Det mangler {missing} blokker (fikk {got} av {total}). Svaret har nok blitt kuttet av.",
- "engine.compare.extra": "Det er {extra} blokker for mye. Be Claude om ikke å dele opp blokker.",
+ "engine.compare.extra": "Det er {extra} blokker for mye. Be AI-assistenten om ikke å dele opp blokker.",
  "engine.compare.empty": "Blokk {n} er tom.",
  "engine.corrections.header": "# Rettelser av ord som datamaskinen hører feil.\n# Én rettelse per linje:  feil = riktig\n# Store/små bokstaver spiller ingen rolle i \"feil\". \"feil\" skal stå sist i et ord, men kan gjerne være\n# siste del av et sammensatt ord (fløv retter også tilmeldingsfløv). Linjer med # foran blir ikke brukt.\n# Rettelsene brukes neste gang det lages undertekster."
 }

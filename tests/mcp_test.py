@@ -11,7 +11,6 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
-from subadubalingo import claude  # noqa: E402
 
 root = Path(__file__).resolve().parent.parent
 video = sys.argv[1]
@@ -56,11 +55,11 @@ text = tool("start_video", video=video, speech=arg("--speech", "swedish"), subti
 job = re.search(r"Job (\S+):", text).group(1)
 for _ in range(200):
     text = tool("wait", job_id=job)
-    if "Claude's turn" in text or ": done" in text.split("\n")[0] or "error" in text.split("\n")[0]:
+    if "your turn" in text or ": done" in text.split("\n")[0] or "error" in text.split("\n")[0]:
         break
 
-if "Claude's turn" in text:
-    first = tool("get_text", job_id=job, start=1, count=150, **({} if "--no-skill" in sys.argv else {"skill": claude.SKILL_VERSION}))
+if "your turn" in text:
+    first = tool("get_text", job_id=job, start=1, count=150)
     srt = first.split("\n\n", 1)[1]
     srt = srt.split("\n\nNext:")[0]
     codes = re.findall(r"hand (?:it )?back as '(\w\w)'", first)

@@ -56,7 +56,7 @@ gui.boxes = type("B", (), {"askyesno": staticmethod(yes),
                            "showinfo": staticmethod(lambda *a, **kw: told.append(a)),
                            "showwarning": staticmethod(lambda *a, **kw: told.append(a)),
                            "showerror": staticmethod(lambda *a, **kw: told.append(a))})()
-gui.App.show_skill_guide = lambda self, *a, **kw: None   # the first-start skill guide is not part of this
+gui.upgrade_notice.show = lambda app: None   # the one-time notice after an update is not part of this
 
 
 def pump(root, sec, until=None):
@@ -136,7 +136,7 @@ def begin(self, item, phase):
 
 
 def work_shot():
-    # A (checked subtitles) needed no listening: "Lyttet igennem, venter på Claude" with step-done, C waits with
+    # A (checked subtitles) needed no listening: "Lyttet igennem, venter på AI-assistenten" with step-done, C waits with
     # step-pending (design review round 4, item 8)
     a, _, c = app.vq.q.items
     status = app.vq._status

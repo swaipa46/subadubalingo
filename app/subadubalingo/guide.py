@@ -2,16 +2,16 @@
 Copilot, Cursor): the steps, the formats and rules for corrections, translation, cuts and chapters, the word list, the
 language to talk to the user in and what never to do.
 
-The Claude skill (claude.SKILL_MD) is built from the same pieces, so the two cannot drift apart: the rules for the
-text, cuts and chapters and the tool steps below are the skill's own text, word for word; only the frame around them
-differs (the skill also covers the task file and pasting, which need Claude's chat). The MCP server serves the guide
-as the tool "guide", as the prompt "subadubalingo_workflow" and as the resources "subadubalingo://guide[/<section>]"
-(mcp_server.py). This module only holds text: the word list and the user's language come in as arguments, so it
-imports nothing of the app.
+The MCP server serves the guide as the tool "guide", as the prompt "subadubalingo_workflow" and as the resources
+"subadubalingo://guide[/<section>]" (mcp_server.py). This module only holds text: the word list and the user's
+language come in as arguments, so it imports nothing of the app.
+
+Up to 2.1.x the app also shipped a Claude skill ("subadubalingo", earlier "videosprog") with a task-file protocol.
+It is gone (2.2.0); OLD_SKILL tells an assistant that still has it to ignore it and to tell the user they can delete it.
 """
 from __future__ import annotations
 
-# --- Pieces shared with the Claude skill (claude.SKILL_MD); change them here and both follow --------------------------
+# --- The rules for the text, cuts and chapters ---------------------------------------------------------------------
 
 TASK_HEAD = """## The task
 Do what the task says (language codes: da, sv, no, en):
@@ -26,7 +26,7 @@ TASK_TEXT = """- **Correct** the text in the spoken language: misheard words, es
   blocks and do not split them, not even mid-sentence. At most 2 lines per block, about 42 characters per line.
 """
 
-TASK_CUTS = """- **Suggest cuts** when the task asks for it (`cut=yes`, or "suggest what to cut out"). The video is usually a
+TASK_CUTS = """- **Suggest cuts** when the task asks for it ("suggest cuts", "suggest what to cut out"). The video is usually a
   recording of a Teams meeting or webinar. Suggest whole blocks, one line per cut:
   `<first block>-<last block> <kind> <short reason>`, e.g. `1-14 start Folk kommer ind og tester lyd` (the reason
   in the user's language: they read it). Kinds:
@@ -47,8 +47,8 @@ TASK_CUTS = """- **Suggest cuts** when the task asks for it (`cut=yes`, or "sugg
   anything is cut. Keep the time codes unchanged; the app moves them after cutting.
 """
 
-TASK_CHAPTERS = """- **Chapters and a summary** when the task asks for it (`chapters=<code>`, or "make chapters and a short summary";
-  write them in that language, the language of the new video):
+TASK_CHAPTERS = """- **Chapters and a summary** when the task asks for it ("make chapters and a short summary in <language>"; write
+  them in that language, the language of the new video):
   - Chapters where the subject changes, one per line `<start time> <title>`, e.g. `0:00 Velkommen` and
     `2:15 Sådan opretter du et medlem`. The start time is the time code of the block the chapter begins with
     (`m:ss`, or `h:mm:ss` from one hour), as in the original; the app moves the times if the video is cut. The first
@@ -62,7 +62,7 @@ TASK_CHAPTERS = """- **Chapters and a summary** when the task asks for it (`chap
 
 TASK = TASK_HEAD + TASK_TEXT + TASK_CUTS + TASK_CHAPTERS
 
-# The steps with the tools. Step 3's "in chunks ..." differs: the skill adds the skill version to pass along.
+# The steps with the tools
 TOOLS_INTRO = """With the tools `start_video`, `wait`, `status`, `get_text`, `save_text`, `suggest_cuts`, `save_chapters`,
 `approve_cuts`, `cancel` and `find_videos`, do it all in the chat:
 1. The user writes e.g. "lav denne video på svensk med norske undertekster: C:\\...\\video.mp4". Call
@@ -93,12 +93,12 @@ If the user wants to stop, or a job hangs and blocks the app, use `cancel` (ask 
 
 
 def tools_steps(chunk: str) -> str:
-    """The steps with the tools; chunk is what follows "get_text in chunks" (the skill: with the skill version)."""
+    """The steps with the tools; chunk is what follows "get_text in chunks"."""
     return TOOLS_INTRO + chunk + TOOLS_REST
 
 
 def words_md(words: list[str], rules: list[tuple[str, str]], heading: str = "# Word list") -> str:
-    """The word list (the skill's words.md): the known words and the typical mishearings from corrections.txt."""
+    """The word list: the known words and the typical mishearings from corrections.txt."""
     lines = [heading, "", "Known words (spelled exactly like this in every language):", ""]
     lines += [f"- {w}" for w in words] or ["- Membercare"]
     lines += ["", "Typical mishearings by the speech recognition:", ""]
@@ -114,7 +114,14 @@ Swedish, Norwegian and English. The app does the slow work itself (listening thr
 recognition, dubbing, burning in subtitles); you do the language work in between: correct what the speech
 recognition misheard, translate, suggest cuts, and write chapters and a summary. You drive the app with the tools of
 this MCP server. The app checks everything you hand in, and its answers say what is wrong or still missing. The
-`claude_turn` state and the "Claude" in some texts mean you, whichever assistant you are.
+state `claude_turn` means your turn, whichever assistant you are.
+"""
+
+# Versions up to 2.1.x shipped a Claude skill; one left in Claude describes task and answer files the app no longer has.
+OLD_SKILL = """## An old skill
+If you have a skill called "subadubalingo" or "videosprog", it is obsolete: ignore it, and never follow its
+task-file or answer-file steps (files "... - til Claude.txt" / "... - fra Claude.txt"). This manual and the tools
+replace it. Tell the user once, briefly, that they can delete the old skill in Claude under Customize -> Skills.
 """
 
 
@@ -173,4 +180,5 @@ def guide_text(language: str, words: list[str], rules: list[tuple[str, str]], se
         if key not in parts:
             raise ValueError(f"Unknown section {section!r}. Use one of: {', '.join(SECTIONS)} (or leave it out).")
         return GUIDE_TITLE + "\n" + talk(language) + "\n" + parts[key]
-    return "\n".join([GUIDE_TITLE, ABOUT, talk(language), parts["steps"], TASK, parts["words"], NEVER]).rstrip() + "\n"
+    return "\n".join([GUIDE_TITLE, ABOUT, OLD_SKILL, talk(language), parts["steps"], TASK, parts["words"],
+                      NEVER]).rstrip() + "\n"

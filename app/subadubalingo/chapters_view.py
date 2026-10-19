@@ -3,7 +3,7 @@ and "Kopiér kapitler" / "Kopiér beskrivelse" buttons, so the user can paste th
 text is in "<video> - kapitler.txt" (chapters.py), which the hint names.
 
 As the design session's mockup chapters-done.png and its spec (assets/ui/README.md, "New features (T8)", item 7):
-the card replaces the compact step list in the right column (the step list only shows after an error); "FRA CLAUDE"
+the card replaces the compact step list in the right column (the step list only shows after an error); "FRA AI"
 in Press Start 2P 10 px hint on the right of the header; the description in text; 28 px chapter rows with the time in
 VT323 20 px heading in a 70 px column; 40 px copy buttons that read "Kopieret ✓" for 2 s; a hint naming the file.
 """
@@ -30,7 +30,7 @@ class ChaptersCard(skin.Card):
         self.kd = 2 if IMG.two else 1
         self.outline = Outline()
         self.columnconfigure(0, weight=1)
-        # "FRA CLAUDE" on the right of the header, on the title's line (placed like the card's own title)
+        # "FRA AI" on the right of the header, on the title's line (placed like the card's own title)
         left, top, right, _ = self._pad
         self.source = tk.Label(self, text=t("chapters.from_claude").upper(), background=P.card, foreground=P.hint,
                                borderwidth=0, padx=0, pady=0, font=(PIXEL_FONT, -10 * self.kd))
@@ -64,7 +64,7 @@ class ChaptersCard(skin.Card):
             child.configure(wraplength=max(120, width - int(70 * self.k)))
 
     def show(self, outline: Outline | None, file: Path | None) -> bool:
-        """Fill the card, or hide it when there is nothing (no chapters asked for, an older skill, an error).
+        """Fill the card, or hide it when there is nothing (no chapters asked for, none in the answer, an error).
         Returns whether it is shown."""
         self.outline = outline or Outline()
         if not self.outline:

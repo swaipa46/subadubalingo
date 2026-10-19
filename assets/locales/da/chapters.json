@@ -10,5 +10,5 @@
  "chapters.mcp_waiting": "Kapitler og beskrivelse: ikke modtaget endnu",
  "chapters.mcp_done": "Kapitler og beskrivelse: {n} kapitler modtaget",
  "chapters.type": "kapitler",
- "chapters.from_claude": "Fra Claude"
+ "chapters.from_claude": "Fra AI"
 }

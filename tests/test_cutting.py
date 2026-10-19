@@ -26,7 +26,7 @@ cuts, bad = cutting.parse_cut_lines(["1-2 start Folk kommer ind", "5 offtopic Ka
                                      "2:20-2:45 upassende Navn nævnt", "nonsens", "99 uklart"], cues, DUR)
 assert [c.kind for c in cuts] == ["start", "offtopic", "end", "inappropriate"], cuts
 assert bad == ["nonsens", "99 uklart"], bad
-# The English kinds of skill version 4
+# The English kinds (since 2.0)
 en, bad_en = cutting.parse_cut_lines(["1-2 start People joining", "blocks 5 to 6 unclear Crosstalk", "8 end Chatter",
                                       "2:20-2:45 inappropriate Name mentioned", "none"], cues, DUR)
 assert [c.kind for c in en] == ["start", "unclear", "end", "inappropriate"] and not bad_en, (en, bad_en)

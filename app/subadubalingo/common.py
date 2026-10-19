@@ -311,7 +311,15 @@ def setup_logging() -> logging.Logger:
 
 log = setup_logging()
 
-# --- Downloads folder and file clipboard ----------------------------------------
+# --- Downloads folder (find_videos looks there) ----------------------------------
+
+def started_by_assistant(argv: list[str] | None = None) -> bool:
+    """Whether an AI assistant started the app through the MCP server (mcp_server._start_app): the user is mid-chat,
+    so the app skips its install, resume and crash-report offers and its start-up notices. 2.1.x servers passed
+    --from-claude; a running one can start a newer app during an update, so both flags count."""
+    argv = sys.argv if argv is None else argv
+    return "--from-assistant" in argv or "--from-claude" in argv
+
 
 def downloads_dir() -> Path:
     """The user's Downloads folder, also when it has been moved (OneDrive, another drive)."""
@@ -328,19 +336,6 @@ def downloads_dir() -> Path:
         log.exception("could not look up the Downloads folder")
     return Path.home() / "Downloads"
 
-
-def copy_file_to_clipboard(path: Path) -> bool:
-    """Put a file on the clipboard as a file (as Explorer's Copy does), so Ctrl+V in Claude attaches it."""
-    ps = f"Set-Clipboard -LiteralPath '{str(path).replace(chr(39), chr(39) * 2)}'"
-    try:
-        r = subprocess.run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
-                           capture_output=True, timeout=20, creationflags=NO_WINDOW)
-        if r.returncode != 0:
-            log.warning("Set-Clipboard failed: %s", r.stderr.decode("utf-8", "replace")[:300])
-        return r.returncode == 0
-    except Exception:
-        log.exception("could not put the file on the clipboard")
-        return False
 
 # --- Machine info --------------------------------------------------------------
 

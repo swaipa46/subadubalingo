@@ -72,8 +72,8 @@ for _ in range(60):
 st_files = sorted(jobs_dir.glob("*/status.json"), key=lambda f: f.stat().st_mtime)
 job = st_files[-1].parent.name
 check(json.loads(st_files[-1].read_text(encoding="utf-8"))["state"] == "claude_turn", f"job {job} reached Claude's turn")
-text, _ = src.tool("get_text", job_id=job, skill=4)
-check("Task for job" in text, "get_text works")
+text, _ = src.tool("get_text", job_id=job, skill=4)   # a stale 2.1.x skill still sends its version
+check("Task for job" in text, "get_text works (and ignores the old 'skill' argument)")
 text, _ = src.tool("cancel")
 st = json.loads((jobs_dir / job / "status.json").read_text(encoding="utf-8"))
 check(st["state"] == "cancelled", "live job stopped by the app")

@@ -3,32 +3,34 @@ Gemini CLI, Codex CLI, VS Code / GitHub Copilot, Cursor, or any client that can 
 
     guide          the manual (guide.py): steps, formats and rules, word list, the user's language, what never to do
     start_video    start a video job (starts the app if it is not running)
-    wait           wait for news on a job (every 10 %, Claude's turn, pause, error, done; at most ~45 s)
+    wait           wait for news on a job (every 10 %, the assistant's turn, pause, error, done; at most ~45 s)
     status         the current state of a job
-    get_text       the subtitles Claude must correct/translate, a range of blocks at a time
+    get_text       the subtitles the assistant must correct/translate, a range of blocks at a time
     save_text      hand back corrected/translated blocks; checked at once, the app carries on when all are in
-    suggest_cuts   Claude's cut suggestions (by block number), when the video is to be cut first
-    save_chapters  Claude's chapters and short summary of the video
-    approve_cuts   the user's decision on the cuts, told to Claude in the chat (keep some, add some, cut now)
+    suggest_cuts   the assistant's cut suggestions (by block number), when the video is to be cut first
+    save_chapters  the assistant's chapters and short summary of the video
+    approve_cuts   the user's decision on the cuts, told to the assistant in the chat (keep some, add some, cut now)
     cancel         stop a job (the user asked in the chat, or it hangs and blocks the app)
     find_videos    recent videos in the usual folders
 
-Tool names, parameters and texts are English (the domain language, docs/glossary.md); Claude answers the user in
+Tool names, parameters and texts are English (the domain language, docs/glossary.md); the assistant answers the user in
 the app's own language (i18n), read from the app's settings at every call, since this is a process of its own. The
 messages the app writes for the user are in that language too, and are labelled so. The job lives in the app, so if
 the chat stops, "status" picks it up again. Started as "SubaDubaLingo.exe --mcp" by Claude desktop (claude_desktop_config.json), no extra dependencies.
 Other clients start the stable launcher SubaDubaLingo-mcp.exe in the install folder (tools/mcp_launcher.cs), which
 runs the current version's exe with --mcp (mcpclients.py has the setup per client).
 
-The server is its own manual, because the Claude skill only exists in Claude and some clients ignore the server's
-instructions: the tool descriptions carry the workflow, the tool "guide" returns the whole manual, and the same text
-is a prompt ("subadubalingo_workflow") and resources ("subadubalingo://guide[/<section>]") for clients that use them.
-The client's name from initialize decides the Claude-only parts: the skill version check (skill.json, which makes the
-app show the skill guide) and "restart Claude" after an update.
+The server is its own manual, because some clients ignore the server's instructions: the tool descriptions carry
+the workflow, the tool "guide" returns the whole manual, and the same text is a prompt ("subadubalingo_workflow") and
+resources ("subadubalingo://guide[/<section>]") for clients that use them. The client's name from initialize decides
+the one Claude-only part: "restart Claude" after an update. The Claude skill of 2.1.x and older is gone; the manual and
+the instructions tell an assistant that still has it to ignore it, and get_text still takes its old 'skill' argument
+(unknown arguments are dropped, see _known_args).
 """
 from __future__ import annotations
 
 import ctypes
+import inspect
 import json
 import logging
 import os
@@ -44,11 +46,10 @@ from . import cutting, guide, i18n, jobs
 from . import chapters as chapters_mod
 # Imported here, not inside the tools: a frozen exe reads modules from its own file on first import, and once an
 # update has replaced that file, a late import reads the new file at the old offsets (zlib error -3).
-from .claude import (NAMES_EN, SKILL_NAME, SKILL_VERSION, chapter_rules, cut_rules, known_words, user_language,
-                     word_rules)
+from .claude import NAMES_EN, chapter_rules, cut_rules, known_words, user_language, word_rules
 from .common import APP_NAME, APP_VERSION, LANG_BY_CODE, LANGUAGES, data_dir, downloads_dir, format_srt, log, parse_srt_text
 
-# Claude may name a language by code, in English, or in any of the app's languages ("svenska", "norske")
+# An assistant may name a language by code, in English, or in any of the app's languages ("svenska", "norske")
 LANG_ALIASES = {}
 for _l in LANGUAGES:
     LANG_ALIASES[_l.code] = _l
@@ -110,9 +111,7 @@ TOOLS = [
      "inputSchema": {"type": "object", "properties": {
          "job_id": {"type": "string"},
          "start": {"type": "integer", "description": "First block number (default 1)"},
-         "count": {"type": "integer", "description": "Number of blocks (default 120)"},
-         "skill": {"type": "integer", "description": (f"Claude only: the 'Skill version' number from the {SKILL_NAME} "
-                   "skill. Leave it out if you do not have the skill.")}}, "required": ["job_id"]}},
+         "count": {"type": "integer", "description": "Number of blocks (default 120)"}}, "required": ["job_id"]}},
     {"name": "save_text",
      "description": ("Hand back blocks for one language as SRT with the SAME numbers and time codes as from get_text "
                      "(corrected text in the spoken language, or a translation). Checked at once; the answer says what "
@@ -202,12 +201,6 @@ MCP_SERVER_NAME = "subadubalingo"   # the name the setups use (installer.MCP_NAM
 _client = {"name": "", "title": ""}   # from initialize's clientInfo: "claude-ai" (desktop), "claude-code", ...
 
 
-def _is_claude() -> bool:
-    """Whether the client is Claude (desktop app or Claude Code), which has the skill; a client that did not say
-    counts as Claude, as before 2.1.1."""
-    return not _client["name"] or "claude" in _client["name"].lower()
-
-
 def tool_guide(section: str | None = None) -> str:
     return guide.guide_text(user_language(), known_words(), word_rules(), section)
 
@@ -273,9 +266,9 @@ def _start_app():
     if getattr(sys, "frozen", False):
         from .installer import current_exe
         exe = current_exe() if _current_version() else None   # an outdated server starts the current app
-        args = [str(exe or sys.executable), "--from-claude"]
+        args = [str(exe or sys.executable), "--from-assistant"]
     else:
-        args = [sys.executable, str(Path(__file__).resolve().parent.parent / "main.py"), "--from-claude"]
+        args = [sys.executable, str(Path(__file__).resolve().parent.parent / "main.py"), "--from-assistant"]
     flags = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     subprocess.Popen(args, creationflags=flags, close_fds=True, stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -378,7 +371,7 @@ def tool_wait(job_id: str | None = None) -> str:
     state0 = first.get("state")
     delivered = (jobs.root() / job_id / "complete.json").exists()
     if state0 in ("done", "error", "cancelled", "busy") or (state0 == "claude_turn" and not delivered):
-        return _describe(job_id, first)  # nothing will change until Claude (or the user) acts
+        return _describe(job_id, first)  # nothing will change until the assistant (or the user) acts
     dec0 = _last_decile.get(job_id, -1)
     deadline = time.time() + 45
     st = first
@@ -445,7 +438,7 @@ def tool_status(job_id: str | None = None) -> str:
 def _task(job_id: str) -> dict:
     t = jobs.read_json(jobs.root() / job_id / "task.json")
     if not t:
-        raise ValueError("The job is not ready for Claude yet. Call 'wait'.")
+        raise ValueError("The job is not ready for you yet. Call 'wait'.")
     return t
 
 
@@ -473,31 +466,8 @@ def _fmt_missing(m: dict) -> str:
     return "; ".join(f"{code}: " + ", ".join(f"{a}-{b}" if a != b else str(a) for a, b in r) for code, r in m.items())
 
 
-def _skill_note(job_id: str, skill) -> str:
-    """Record which skill version Claude has (the app shows the update guide if it is old) and say so to Claude.
-    Other assistants have no skill (the guide tool is their manual): nothing is recorded, so the app does not ask the
-    user to put a Claude skill into Claude."""
-    if not _is_claude():
-        return ""
-    try:
-        have = int(skill) if skill is not None else None
-    except (TypeError, ValueError):
-        have = None
-    path = jobs.root() / job_id / "skill.json"
-    if not path.exists() or have is not None:
-        jobs.write_json(path, {"skill": have, "expected": SKILL_VERSION})
-    if have is not None and have >= SKILL_VERSION:
-        return ""
-    what = f"do not have the {SKILL_NAME} skill" if have is None else f"have an old version of the skill ({have})"
-    return (f"NOTE: You {what}; the newest is version {SKILL_VERSION}. Carry on with the task, but tell the user at the "
-            f"end that the Claude skill needs updating: in {APP_NAME} under '{_button('settings')}' -> "
-            f"'{_button('save_skill')}', then upload the file in Claude under Customize -> Skills (delete the old one "
-            "first, also one called 'videosprog').\n")
-
-
-def tool_get_text(job_id: str, start: int = 1, count: int = 120, skill: int | None = None) -> str:
+def tool_get_text(job_id: str, start: int = 1, count: int = 120) -> str:
     task = _task(job_id)
-    note = _skill_note(job_id, skill) if int(start or 1) == 1 or skill is not None else ""
     src = jobs.cues_from_json(jobs.read_json(jobs.root() / job_id / "source.json", []))
     start = max(1, int(start or 1))
     count = max(1, min(int(count or 120), 400))
@@ -535,7 +505,7 @@ def tool_get_text(job_id: str, start: int = 1, count: int = 120, skill: int | No
     lines += ["", format_srt(part, start).rstrip()]
     if start - 1 + count < len(src):
         lines += ["", f"Next: get_text(start={start + len(part)})."]
-    return note + "\n".join(lines)
+    return "\n".join(lines)
 
 
 def tool_save_text(job_id: str, language: str, srt: str, words: str = "") -> str:
@@ -724,6 +694,18 @@ HANDLERS = {"guide": tool_guide, "start_video": tool_start_video, "wait": tool_w
             "suggest_cuts": tool_suggest_cuts, "approve_cuts": tool_approve_cuts, "cancel": tool_cancel,
             "save_chapters": tool_save_chapters}
 
+
+def _known_args(name: str, args: dict) -> dict:
+    """The arguments the tool takes. Unknown ones are dropped (and logged), so an older client or a stale skill
+    still gets an answer: 2.1.x's skill sent get_text a 'skill' version number."""
+    params = inspect.signature(HANDLERS[name]).parameters
+    if any(p.kind is p.VAR_KEYWORD for p in params.values()):
+        return args
+    extra = [k for k in args if k not in params]
+    if extra:
+        log.info("MCP %s: ignoring unknown arguments %s", name, extra)
+    return {k: v for k, v in args.items() if k in params}
+
 # The exe this server was started from. Claude keeps this process running across an update, so the old code would
 # serve the new app; every call then says to restart Claude. Installed versions live in their own folders with
 # current.txt next to them (installer.py); a changed exe covers a copy that was overwritten in place (and the
@@ -776,13 +758,15 @@ def instructions() -> str:
     return (f"{APP_NAME} cuts, subtitles and dubs videos locally on the user's pc. First call the tool 'guide' once "
             "for the manual (steps, formats, rules, word list). Use start_video (cut=true if "
             "the video is to be cut first), follow the job with wait (tell the user about every 10 %), and on your "
-            "turn (claude_turn) fetch the text with get_text in chunks, correct/translate it by the guide (in "
-            f"Claude: the {SKILL_NAME} skill), hand it back with save_text, cut suggestions with suggest_cuts, and chapters "
+            "turn (claude_turn) fetch the text with get_text in chunks, correct/translate it by the guide, hand it "
+            "back with save_text, cut suggestions with suggest_cuts, and chapters "
             "and a summary with save_chapters when the task asks for them. While the "
             "user reviews the cuts (review_cuts), you can change them with approve_cuts. If the user wants to "
             "stop, or a job hangs, use cancel (ask first). The app checks everything and does the rest. Answer "
             f"the user briefly, in {user_language()} (the language of the user's app; if they write to you in "
-            "another language, use that).")
+            "another language, use that). A skill called 'subadubalingo' or 'videosprog' is from an old version "
+            "and obsolete: ignore it (no task or answer files), and tell the user once, briefly, that they can "
+            "delete it in Claude under Customize -> Skills.")
 
 # --- JSON-RPC over stdio -------------------------------------------------------------------
 
@@ -806,7 +790,7 @@ def _handle(req: dict):
             log.info("MCP client %s %s", _client["name"] or "?", info.get("version") or "")
             result = {"protocolVersion": params.get("protocolVersion", "2025-06-18"),
                       "capabilities": {"tools": {}, "prompts": {}, "resources": {}},
-                      "serverInfo": {"name": SKILL_NAME, "version": APP_VERSION},
+                      "serverInfo": {"name": MCP_SERVER_NAME, "version": APP_VERSION},
                       "instructions": instructions()}
         elif method == "tools/list":
             result = {"tools": TOOLS}
@@ -819,7 +803,7 @@ def _handle(req: dict):
                     log.warning("MCP server %s is outdated: the exe has been replaced", APP_VERSION)
                     result = {"content": [{"type": "text", "text": stale}], "isError": True}
                 else:
-                    result = {"content": [{"type": "text", "text": HANDLERS[name](**args)}]}
+                    result = {"content": [{"type": "text", "text": HANDLERS[name](**_known_args(name, args))}]}
             except Exception as e:
                 log.error("MCP tool %s failed: %s", name, traceback.format_exc())
                 result = {"content": [{"type": "text", "text": f"Error: {e}"}], "isError": True}

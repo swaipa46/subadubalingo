@@ -92,7 +92,7 @@ def publish(case: str, version: str, zip_bytes: bytes | None = None, key=SECRET,
     name = f"SubaDubaLingo-{version}.zip"
     (d / name).write_bytes(zip_bytes)
     m = {"version": version, "zip": name, "size": len(zip_bytes), "sha256": hashlib.sha256(zip_bytes).hexdigest(),
-         "notes": "Testnoter æøå", "skill": 3}
+         "notes": "Testnoter æøå", "skill": 3}   # "skill": what manifests up to 2.1.x carried
     m.update(override)
     m["signature"] = ed25519.sign(key, update.manifest_bytes(m)).hex()
     if tamper:
