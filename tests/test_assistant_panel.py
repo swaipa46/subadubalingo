@@ -33,7 +33,11 @@ def check(cond, what):
 
 
 root = tk.Tk()
-root.withdraw()
+# Not withdrawn: on Windows the clipboard of a root that was never mapped crashes Tk (access violation in
+# clipboard_clear, CI 2026-10-19). Mapped but fully transparent and tiny instead, so it never covers anything.
+root.geometry("1x1+0+0")
+root.attributes("-alpha", 0.0)
+root.update()
 theme.load_fonts()
 skin.apply(root, theme.resolve("light"), 1.0)
 L = common.LANG_BY_CODE
