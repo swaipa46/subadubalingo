@@ -49,6 +49,12 @@ def run(label: str, args: list[str], need_ok: bool, env: dict, timeout: int = 90
     elif need_ok and not OK.search(out):
         why = "no 'ok' line in the output"
     print(f"{'FAIL' if why else 'PASS'} {label} ({time.time() - t0:.0f} s){': ' + why if why else ''}", flush=True)
+    if why:
+        # Annotations are readable through the public API without a login (job logs are not), so the developer on
+        # McHoense can see why a run failed without gh being logged in.
+        tail = "\n".join(out.rstrip().splitlines()[-40:])[-3500:]
+        tail = tail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::error title={label} failed ({why})::{tail}", flush=True)
     return why
 
 
