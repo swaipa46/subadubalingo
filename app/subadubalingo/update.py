@@ -34,7 +34,7 @@ from .common import APP_NAME, APP_VERSION, data_dir, log
 REPO = "swaipa46/subadubalingo"
 MANIFEST_URL = f"https://github.com/{REPO}/releases/latest/download/latest.json"
 MANIFEST_NAME = "latest.json"
-PUBLIC_KEY = "ce94608fd831a809f63459dbae38195b31e426694b1388faf42d6d7a1c105ffc"   # tools/release_key.py public
+PUBLIC_KEY = "d811436937ce0d499bce39c742e3c06b48cd0bbf2a43f12766f9eaf9978ea1d3"   # tools/release_key.py public
 TIMEOUT = 5            # seconds for the manifest (docs/auto-opdatering.md: quiet when offline)
 ZIP_TIMEOUT = 30       # seconds without data before a zip download gives up
 MAX_MANIFEST = 64 * 1024

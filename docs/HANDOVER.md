@@ -113,6 +113,9 @@ Data: `~/.subadubalingo` (settings.json, corrections.txt word list, models/, rep
   makes the zip, `tools/release.py prepare` fetches it, you check it in the Windows test VM (`~/winvm`), and after
   Kasper says yes in the chat `tools/release.py publish --yes` signs (key in `~/.subadubalingo-release/`, mode 600)
   and publishes. The old way (`tools\release.ps1` on his PC) still works. Anyone on 2.0.0 or older installs 2.1.x once by hand; from 2.1.0 it updates itself.
+- **New signing key in 2.2.0 (2026-10-21):** the old key stayed DPAPI-locked on Kasper's PC and was not in his
+  password manager, so a new key was made on McHoense. 2.1.x copies reject manifests signed with it: whoever runs
+  2.1.x installs 2.2.0 once by hand (Kasper's call: the only real user, Anne, is on 1.8.0 anyway).
 - Released: 2.1.0 (2026-10-16), 2.1.1 (2026-10-19).
 
 ## Services on McHoense (yours now)

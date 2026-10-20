@@ -82,6 +82,7 @@ def main(argv):
             sys.exit(f"A key exists already: {KEY_FILE}. A new one would lock out every installed copy.")
         secret = secrets.token_bytes(32)
         _save(secret)
+        BACKUP_FILE.touch(mode=0o600)
         BACKUP_FILE.write_text(
             "SubaDubaLingo release signing key (Ed25519, private). Put this in your password manager, then delete "
             "this file.\nWithout it, a new pc cannot publish updates the installed copies accept.\n\n"
