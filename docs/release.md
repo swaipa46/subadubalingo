@@ -1,41 +1,33 @@
 # Sådan kommer en ny version ud
 
-Udviklingen sker på en Linux-server, men appen er kun til Windows. Derfor bygger og tester GitHub Actions på Windows,
-og Kasper godkender og udgiver fra sin pc, hvor signeringsnøglen ligger.
+Siden 2026-10-20 laves releases på McHoense (Linux) af Claude. Appen er kun til Windows: GitHub Actions bygger og
+tester på Windows, og den sidste kontrol sker i Windows-test-VM'en på boksen (`~/winvm`). Signeringsnøglen ligger på
+boksen (`~/.subadubalingo-release/signing-key.hex`, kun læsbar for `repo`; Kaspers beslutning, boksen har ingen andre
+brugere). Kasper siger ja i chatten, før en version lægges ud.
 
-1. **Udvikleren** hæver `APP_VERSION` i `app/subadubalingo/common.py` og pusher til `main`.
-   CI (`.github/workflows/ci.yml`) kører alle `tests/test_*.py` og skærmbillede-scripts i begge temaer.
-   Skærmbillederne ligger som artifact `screenshots` på kørslen.
-2. **Release-build:** start den med `gh workflow run release-build.yml --repo swaipa46/subadubalingo`
-   (eller *Run workflow* under Actions). Den kører testene og `build.ps1` og gemmer zip'en som artifact
-   `release-zip` i 30 dage. Den udgiver ikke noget og har ingen nøgle.
-3. **Kasper** kører på sin pc:
-
-   ```powershell
-   tools\release.ps1              # nyeste lykkede release-build på main
-   tools\release.ps1 -RunId 123   # en bestemt kørsel
-   tools\release.ps1 -DryRun      # find kørslen, hent zip'en og tjek versionen, uden at installere
-   ```
-
-   Scriptet henter zip'en og stopper, hvis versionen ikke er nyere end seneste udgivelse. Så beder det dig lukke
-   Claude desktop og installerer den nye version oven på din egen installation (`SubaDubaLingo.exe --install`)
-   og starter den.
-4. **Tjekliste** (j/n for hvert punkt):
+1. **Claude** hæver `APP_VERSION` i `app/subadubalingo/common.py` og pusher til `main`. CI (`ci.yml`) kører alle
+   `tests/test_*.py` og skærmbillede-scripts i begge temaer (artifact `screenshots`).
+2. **Release-build:** `gh workflow run release-build.yml --repo swaipa46/subadubalingo`. Den bygger zip'en
+   (artifact `release-zip`, 30 dage) og udgiver ikke noget.
+3. **Hent og tjek versionen:** `python3 tools/release.py prepare` (nyeste grønne release-build på main, eller
+   `--run-id N`). Den stopper, hvis versionen ikke er nyere end seneste udgivelse.
+4. **Tjek i Windows-VM'en:** `~/winvm/up.sh`, kopiér zip'en ind (scp, port 2222), installér med
+   `SubaDubaLingo.exe --install` oven på den forrige version, og start appen fra skrivebordsgenvejen (noVNC på
+   :8006; en app startet over SSH vises ikke på skrivebordet). Tjekliste:
    - Appen starter og viser den nye version.
-   - En kort, rigtig video kører igennem.
-   - Claude desktop/Cowork starter den nye version. Scriptet viser, hvor `claude_desktop_config.json` peger hen.
+   - Det nye i versionen virker (fx en kort video igennem, nye dialoger).
    - Opdateringsbanneret og Indstillinger ser rigtige ud.
-
-   Er ét punkt nej, stopper scriptet. Den nye version er så stadig installeret hos dig. Ret fejlen, hæv versionen
-   og byg igen.
-5. **Udgiv:** er alt ja, spørger scriptet efter en kort note til brugerne. Så kører det
-   `tools\publish.ps1 -Zip ...`, der signerer `latest.json` på din pc (se [auto-opdatering.md](auto-opdatering.md),
-   afsnit 5). Til sidst viser det `gh release create`-kommandoen og spørger "Udgiv nu? (j/n)". Det er først her,
-   noget bliver lagt ud.
+   Stop VM'en bagefter (`docker compose stop` i `~/winvm`). Skærmbilleder til Kasper.
+5. **Udgiv:** når Kasper har sagt ja i chatten til netop den version:
+   `python3 tools/release.py publish --zip "dist-release/run-N/SubaDubaLingo X.Y.Z.zip" --notes "..." --yes`.
+   Den skriver og signerer `latest.json`, tjekker signaturen som appen gør, og kører `gh release create` på den
+   commit, zip'en er bygget fra. Uden `--yes` viser den kun kommandoen.
 
 Godt at vide:
 
-- Tagget `v<version>` laves af `gh release create` på den commit, zip'en er bygget fra. Et tag-push starter også
-  release-build. Den kørsel skal ikke bruges til noget.
+- Nøglen lægges ind én gang med `python3 tools/release_key.py restore` (de 64 tegn fra backuppen i Kaspers password
+  manager; Kasper taster dem selv). `python3 tools/release_key.py public` skal give samme nøgle som `PUBLIC_KEY` i
+  `app/subadubalingo/update.py`.
+- `tools\release.ps1` og `tools\publish.ps1` (den gamle vej fra Kaspers pc) virker stadig, hvis det bliver nødvendigt.
 - På CI kører ikke de scripts, der kræver en Whisper-model, Kaspers optagelser eller to byggede programmapper.
-  Listen står øverst i `tests/ci_run.py`. Kør dem på en pc med modellerne, når de berører det, der er ændret.
+  Listen står øverst i `tests/ci_run.py`.

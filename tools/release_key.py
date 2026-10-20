@@ -1,6 +1,8 @@
-"""The release signing key (Ed25519). The private key never leaves this pc unencrypted: it is stored with
-Windows DPAPI (only this Windows user can decrypt it) in %USERPROFILE%\\.subadubalingo-release\\signing-key.dpapi
-(the folder was .videosprog-release before the rename; it is moved on first use).
+"""The release signing key (Ed25519). On Windows it is stored with DPAPI (only this Windows user can decrypt it) in
+%USERPROFILE%\\.subadubalingo-release\\signing-key.dpapi (the folder was .videosprog-release before the rename; it is
+moved on first use). On McHoense (Linux, where releases are made since 2026-10-20) it is the hex key in
+~/.subadubalingo-release/signing-key.hex, readable only by its owner (mode 600): Kasper's decision, the box has no
+other users.
 
     python tools/release_key.py new          make the key; prints the public key for app/subadubalingo/update.py and writes a
                                              one-time backup file to move into a password manager
@@ -14,9 +16,9 @@ from __future__ import annotations
 import ctypes
 import getpass
 import json
+import os
 import secrets
 import sys
-from ctypes import wintypes
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "app"))
@@ -27,12 +29,15 @@ KEY_DIR = Path.home() / ".subadubalingo-release"
 OLD_KEY_DIR = Path.home() / ".videosprog-release"
 if not KEY_DIR.exists() and OLD_KEY_DIR.is_dir():
     OLD_KEY_DIR.rename(KEY_DIR)
-KEY_FILE = KEY_DIR / "signing-key.dpapi"
+WINDOWS = sys.platform == "win32"
+KEY_FILE = KEY_DIR / ("signing-key.dpapi" if WINDOWS else "signing-key.hex")
 BACKUP_FILE = KEY_DIR / "BACKUP-signing-key.txt"
 
+if WINDOWS:
+    from ctypes import wintypes
 
-class _Blob(ctypes.Structure):
-    _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
+    class _Blob(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_char))]
 
 
 def _dpapi(data: bytes, protect: bool) -> bytes:
@@ -51,14 +56,23 @@ def _dpapi(data: bytes, protect: bool) -> bytes:
 
 
 def _save(secret: bytes):
-    KEY_DIR.mkdir(exist_ok=True)
-    KEY_FILE.write_bytes(_dpapi(secret, True))
+    KEY_DIR.mkdir(mode=0o700, exist_ok=True)
+    if WINDOWS:
+        KEY_FILE.write_bytes(_dpapi(secret, True))
+        return
+    fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(secret.hex() + "\n")
 
 
 def load_secret() -> bytes:
     if not KEY_FILE.exists():
         sys.exit(f"No key: {KEY_FILE}. Run 'new' or 'restore'.")
-    return _dpapi(KEY_FILE.read_bytes(), False)
+    if WINDOWS:
+        return _dpapi(KEY_FILE.read_bytes(), False)
+    if KEY_FILE.stat().st_mode & 0o077:
+        sys.exit(f"{KEY_FILE} is readable by others; chmod 600 it first.")
+    return bytes.fromhex(KEY_FILE.read_text().strip())
 
 
 def main(argv):
@@ -72,7 +86,7 @@ def main(argv):
             "SubaDubaLingo release signing key (Ed25519, private). Put this in your password manager, then delete "
             "this file.\nWithout it, a new pc cannot publish updates the installed copies accept.\n\n"
             f"{secret.hex()}\n", encoding="utf-8")
-        print(f"Key made and stored with DPAPI: {KEY_FILE}")
+        print(f"Key made and stored: {KEY_FILE}")
         print(f"Backup (move into a password manager, then delete): {BACKUP_FILE}")
         print(f"Public key: {ed25519.public_key(secret).hex()}")
     elif cmd == "public":

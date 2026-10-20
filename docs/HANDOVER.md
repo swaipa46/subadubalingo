@@ -109,9 +109,10 @@ Data: `~/.subadubalingo` (settings.json, corrections.txt word list, models/, rep
   and `autoupdate.py` shows "Genstart for at opdatere".
 - The release carries `SubaDubaLingo-<version>.zip`, `SubaDubaLingo.zip` (fixed name for the website) and the signed
   `latest.json`.
-- **Process (see docs/release.md):** you bump `APP_VERSION`, CI green, `release-build` makes the zip; Kasper runs
-  `tools\release.ps1` on his PC (installs it over his own install, checklist, signs with his DPAPI-protected key, asks,
-  publishes). You never publish. Anyone on 2.0.0 or older installs 2.1.x once by hand; from 2.1.0 it updates itself.
+- **Process (see docs/release.md), since 2026-10-20 on McHoense:** you bump `APP_VERSION`, CI green, `release-build`
+  makes the zip, `tools/release.py prepare` fetches it, you check it in the Windows test VM (`~/winvm`), and after
+  Kasper says yes in the chat `tools/release.py publish --yes` signs (key in `~/.subadubalingo-release/`, mode 600)
+  and publishes. The old way (`tools\release.ps1` on his PC) still works. Anyone on 2.0.0 or older installs 2.1.x once by hand; from 2.1.0 it updates itself.
 - Released: 2.1.0 (2026-10-16), 2.1.1 (2026-10-19).
 
 ## Services on McHoense (yours now)
