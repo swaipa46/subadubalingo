@@ -2,7 +2,10 @@
 
 # SubaDubaLingo (tidligere Videosprog og Video undertekster)
 
-> **2.2.0 (kommende): ingen Claude-skill og ingen fil-runde.** AI-assistentens tur sker på to måder: et AI-værktøj
+> **2.2.1 (2026-10-21):** Indstillinger beholder sin bredde, når alle kort er foldet sammen (første fejlrapport via
+> relæet).
+>
+> **2.2.0 (2026-10-21): ingen Claude-skill og ingen fil-runde.** AI-assistentens tur sker på to måder: et AI-værktøj
 > med MCP styrer appen selv (`mcp_server.py`, manualen er `guide.py`), eller brugeren bruger en hvilken som helst
 > AI-chat: kortet "AI-assistent" kopierer selvstændige instruktioner pr. del, og svaret kopieres tilbage
 > (`claude.prompt`; parseren læser også markdown-overskrifter, fede etiketter og en kodeblok pr. sprog). Skill'en

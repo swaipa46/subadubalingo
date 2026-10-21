@@ -2532,6 +2532,9 @@ class SettingsDialog(tk.Toplevel):
         # opened last, for as long as the program runs
         self._cards = {"language": lang, "look": look, "burnin": self.burnin, "text": f, "sound": sound,
                        "aitools": self.aitools}
+        # Measured while every card is still open, so the dialog has one width whichever card is open
+        self.update_idletasks()
+        self._body_w = outer.winfo_reqwidth()
         skin.accordion(self._cards, SettingsDialog.last_open, self._card_opened)
         foot = ttk.Frame(self, padding=14)
         foot.pack(side="bottom", fill="x", before=host)
@@ -2575,7 +2578,7 @@ class SettingsDialog(tk.Toplevel):
         top, bottom = (area[1], area[3]) if area else (0, self.winfo_screenheight())
         room = bottom - top - int(40 * k) - self._foot.winfo_reqheight() - int(14 * k) - int(16 * k)
         # Folded cards ask for almost no width (2.2.0 report: closing Programmets sprog with every other card folded
-        # left them half a centimetre wide at the left edge), so keep the widest width seen and stretch the cards to it
+        # left them half a centimetre wide at the left edge): keep the all-open width and stretch the cards to it
         self._body_w = w = max(self._body_w, outer.winfo_reqwidth())
         h = outer.winfo_reqheight()
         fits = h <= room
