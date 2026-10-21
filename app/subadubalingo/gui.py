@@ -2479,8 +2479,9 @@ class SettingsDialog(tk.Toplevel):
         canvas.configure(yscrollcommand=sb.set)
         canvas.pack(side="left", fill="both", expand=True)
         outer = ttk.Frame(canvas)
-        canvas.create_window(0, 0, window=outer, anchor="nw")
+        self._body_win = canvas.create_window(0, 0, window=outer, anchor="nw")
         self._body = (canvas, sb, outer)
+        self._body_w = 0   # the widest the cards have asked for: folded cards must not shrink the dialog
         lang = skin.Card(outer, text=t("pickers.lang_title"), padding=12)
         lang.pack(fill="x")
         ttk.Label(lang, text=t("pickers.lang_hint"), style="Hint.TLabel").pack(anchor="w", pady=(0, 10))
@@ -2573,8 +2574,12 @@ class SettingsDialog(tk.Toplevel):
         k = self.winfo_fpixels("1i") / 96
         top, bottom = (area[1], area[3]) if area else (0, self.winfo_screenheight())
         room = bottom - top - int(40 * k) - self._foot.winfo_reqheight() - int(14 * k) - int(16 * k)
-        w, h = outer.winfo_reqwidth(), outer.winfo_reqheight()
+        # Folded cards ask for almost no width (2.2.0 report: closing Programmets sprog with every other card folded
+        # left them half a centimetre wide at the left edge), so keep the widest width seen and stretch the cards to it
+        self._body_w = w = max(self._body_w, outer.winfo_reqwidth())
+        h = outer.winfo_reqheight()
         fits = h <= room
+        canvas.itemconfigure(self._body_win, width=w)
         canvas.configure(width=w, height=h if fits else max(int(200 * k), room), scrollregion=(0, 0, w, h))
         if fits:
             sb.pack_forget()
