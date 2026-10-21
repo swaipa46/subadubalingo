@@ -9,7 +9,8 @@ how releases and design work). This file holds the rules that apply to every ses
 - **Language:** code, comments, commit messages and docs for developers in English. Everything the user sees is in the
   four UI languages (`assets/locales/{da,sv,no,en}`, Danish is the source). Notes and replies to Kasper in Danish.
 - **Releases** (from McHoense since 2026-10-20, `docs/release.md`): bump `APP_VERSION`, push, CI green, run
-  `release-build`, `tools/release.py prepare`, check the zip in the Windows test VM (`~/winvm`, stop it after), then
+  `release-build`, `tools/release.py prepare`, check the zip in the Windows test VM (`~/winvm`, shared with
+  Lex247 work: `slot.sh take suba` / `release suba`, never stop the VM, never touch `C:\Lex247`), then
   publish with `tools/release.py publish --yes` **only after Kasper said yes in the chat for that version**. The
   signing key is in `~/.subadubalingo-release/` (mode 600): never print, copy or commit it.
 - **Design:** there is no separate design session (since 2026-10-19). Do the design here yourself, following the
