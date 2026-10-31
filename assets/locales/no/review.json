@@ -20,6 +20,7 @@
  "review.approve_n_one": "Klipp videoen ({n} klipp)",
  "review.skip": "Hopp over klipping",
  "review.skip_hint": "Ingenting å klippe? Trykk på \"{skip}\".",
+ "review.waits": "Programmet venter til du klikker på \"{approve}\".",
  "review.cancel": "Avbryt",
  "review.kept": "beholdes",
  "review.list_kept": "Beholdes - {why}",

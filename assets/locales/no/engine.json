@@ -9,6 +9,7 @@
  "engine.error.extract_audio": "Kunne ikke hente ut lyden fra videoen.",
  "engine.gpu_retry": "Skjermkortet kunne ikke brukes - prøver igjen med prosessoren",
  "engine.error.transcribe": "Transkripsjonen mislyktes. Se loggfilen for detaljer.",
+ "engine.error.old_cpu": "PC-ens prosessor er for gammel til å lage tekst fra tale (den mangler AVX2). Prøv på en nyere PC.",
  "engine.encode_retry": "Prøver en annen måte å lage videoen på",
  "engine.error.encode": "Kunne ikke lage {file}. Se loggfilen for detaljer.",
  "engine.error.piper": "Talesyntesen (Piper) mislyktes. Se loggfilen for detaljer.",

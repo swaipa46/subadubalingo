@@ -116,7 +116,7 @@ Data: `~/.subadubalingo` (settings.json, corrections.txt word list, models/, rep
 - **New signing key in 2.2.0 (2026-10-21):** the old key stayed DPAPI-locked on Kasper's PC and was not in his
   password manager, so a new key was made on McHoense. 2.1.x copies reject manifests signed with it: whoever runs
   2.1.x installs 2.2.0 once by hand (Kasper's call: the only real user, Anne, is on 1.8.0 anyway).
-- Released: 2.1.0 (2026-10-16), 2.1.1 (2026-10-19).
+- Released: 2.1.0 (2026-10-16), 2.1.1 (2026-10-19), 2.2.0 (2026-10-21). What changed: `CHANGELOG.md`.
 
 ## Services on McHoense (yours now)
 
@@ -141,6 +141,11 @@ to swaipa46/subadubalingo-design. (History: a Claude in Cowork on Kasper's PC ma
 `tasks.md` there; rounds 1-4 and the feature mockups T1-T12 are done, round 3 concluded "aligned".)
 
 ## Open items
+
+- **The Windows test VM cannot transcribe:** its CPU (i5-3470S) lacks AVX2, and the whisper.cpp build stops with
+  STATUS_ILLEGAL_INSTRUCTION (smoke test 2026-10-31). Release checks and smoke runs there use clips whose subtitles
+  already exist (the app reuses them); real transcription is only tested on a PC with AVX2. The app now tells a user on
+  such a PC that the processor is too old (`engine.error.old_cpu`).
 
 - Relay go-live (token, DRY_RUN=0) and a test report from the app -> an issue.
 - SmartScreen / code signing decision (Kasper).

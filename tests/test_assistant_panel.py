@@ -53,6 +53,16 @@ class FakeApp:
         self._pulsing = False
         self.cut_lines, self.created, self.learned_words = [], [], []
         self.outline, self.chapters_file = None, None
+        self.turn_layout = None   # what the last _turn_layout call asked for
+
+    def _turn_layout(self, active):
+        self.turn_layout = active
+
+    def turn_step(self):
+        return 3, 6
+
+    def queue_waits(self):
+        return False
 
     def _wrap(self, label, parent, pad=20):
         pass

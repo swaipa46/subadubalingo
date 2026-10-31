@@ -9,6 +9,7 @@
  "engine.error.extract_audio": "Kunne ikke trække lyden ud af videoen.",
  "engine.gpu_retry": "Grafikkortet kunne ikke bruges - prøver igen med processoren",
  "engine.error.transcribe": "Transskriptionen fejlede. Se logfilen for detaljer.",
+ "engine.error.old_cpu": "Pc'ens processor er for gammel til at lave tekst ud fra tale (den mangler AVX2). Prøv på en nyere pc.",
  "engine.encode_retry": "Prøver en anden måde at lave videoen på",
  "engine.error.encode": "Kunne ikke lave {file}. Se logfilen for detaljer.",
  "engine.error.piper": "Talesyntesen (Piper) fejlede. Se logfilen for detaljer.",

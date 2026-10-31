@@ -554,6 +554,21 @@ The title bar ✕ works again on this screen.
 4. Under the card, the real error in `err` with the `err` icon.
 5. The buttons: "Luk" and the primary "Prøv igen (indsæt ny mønt)".
 
+## Waiting animations (T13)
+
+Small loops that tell the user the program is alive while it waits on something. They are calm on purpose: nothing
+here may move while "DIN TUR" is showing, apart from the existing your-turn blink and pulse. All are in
+`<theme>/icons/` (1x + `@2x`), on a 2 px art grid, transparent, with holes that let the card colour through. They are
+drawn by `tools/make_wait_anims.py` from `tokens.json` (rerun it after a colour change; `--preview out.png` draws a
+contact sheet). With Windows animations turned off, show frame 0 still (frame 0 of `player2-idle` is the lit one).
+
+| Loop | Files | Frames | Frame time | Size (1x) | Colours | Used for |
+|---|---|---|---|---|---|---|
+| loading | `loading-0..7` | 8 | 100 ms | 16×16 | head `accent`, 2 trailing dots `heading`, rest `step_pending_icon` | Generic "working on it": the burn-in sample box ("Laver eksempel..."), the voice-preview button while the sample is being spoken ("making"), "Sender …" in the error report, the scrub preview's thumbnail-not-ready state |
+| ai-working | `ai-working-0..5` | 6 | 150 ms | 24×24 | bubble `heading`, dots are holes | The assistant card in MCP mode ("AI'en arbejder"), left of the heading |
+| download | `download-0..5` | 6 | 120 ms | 24×24 | arrow `accent`, tray `heading` | ModelDialog while the model files download, left of the status line |
+| player2-idle | `player2-idle-0..1` | 2 | 700 ms | 32×20 | body `hint`, start light `accent` | The idle assistant card ("PLAYER 2 KLAR"), under the app icon |
+
 ## Larger art (`<theme>/art/`, `common/`)
 
 - `header-logo.png` (+ `@2x`): icon and wordmark in the theme's colours on a transparent background, 52 px tall at 1x.

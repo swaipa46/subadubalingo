@@ -101,6 +101,8 @@ class CutReview(ttk.Frame):
                             {max(cues[i - 1].end if i else 0, c.start - 200) for i, c in enumerate(cues)})
         self.columnconfigure(0, weight=1)
         self.rowconfigure(3, weight=1)   # extra height goes to the timeline; the list is as tall as it needs
+        # ... but it never shrinks away: on a small screen the list and details give way under the buttons instead
+        self.rowconfigure(3, minsize=int(96 * self.k))
         self.rowconfigure(7, weight=0)
         self._build()
         self.bind("<Destroy>", self._on_destroy, add="+")
@@ -118,6 +120,10 @@ class CutReview(ttk.Frame):
         # time in every language like the other pixel-font headings (round 2, item 17)
         ttk.Label(head, text=t("review.title").upper(), style="Section.TLabel", foreground=P.heading,
                   font=(PIXEL_FONT, -16 * kd)).grid(row=0, column=0, sticky="w")
+        # DIN TUR, as in the work view's band: the run waits for her here (2026-10-31, Anne missed her turn)
+        tk.Label(head, text=t("gui.work.callout_tag"), background=P.callout_bg, foreground=P.callout_text,
+                 font=(PIXEL_FONT, -int(11 * k)), borderwidth=0, padx=int(8 * k), pady=int(5 * k)).grid(
+            row=0, column=1, sticky="w", padx=(int(14 * k), 0))
         zoom = ttk.Frame(head)
         zoom.grid(row=0, column=2, sticky="e")
         # Fyldord: keep them all with one click (T8, filler-review)
@@ -178,7 +184,7 @@ class CutReview(ttk.Frame):
         self._mid_min = 0
         mid.grid(row=7, column=0, sticky="nsew")
         mid.columnconfigure(0, weight=1)
-        mid.rowconfigure(0, weight=1)
+        mid.rowconfigure(2, weight=1)   # the held height (_hold_height) is room under the keys line, not above it
         # The list in a card (frames/card), without headings; the tree column holds the kind's colour chip (item 21)
         card = skin.Card(mid, padding=(14 * kd, 16 * kd, 18 * kd, 18 * kd))
         card.grid(row=0, column=0, sticky="new")   # as tall as its rows, like the mockup
@@ -211,7 +217,7 @@ class CutReview(ttk.Frame):
         det = ttk.Frame(mid, padding=(14, 0, 0, 0))
         # As wide as the two frame boxes also when a filler's details have none
         mid.columnconfigure(1, minsize=14 + 2 * int(DETAIL_W * self.k) + 6)
-        det.grid(row=0, column=1, rowspan=2, sticky="nsew")
+        det.grid(row=0, column=1, rowspan=3, sticky="nsew")
         self.d_title = ttk.Label(det, text="", font="SunValleyBodyStrongFont")
         self.d_title.grid(row=0, column=0, columnspan=2, sticky="w")
         self.d_text = ttk.Label(det, text=t("review.click_cut"), style="Hint.TLabel", justify="left",
@@ -241,8 +247,13 @@ class CutReview(ttk.Frame):
         self.b_delete.grid(row=1, column=1, sticky="w", padx=(6, 0), pady=(6, 0))
         self.detail_btns = (self.b_trans, self.b_cut, self.b_toggle, self.b_delete)
 
-        bottom = ttk.Frame(self)
-        bottom.grid(row=8, column=0, sticky="ew", pady=(14, 0))
+        # Pinned to the bottom edge, over whatever does not fit above it: in a 1000x680 window the list and the
+        # details pushed "Klip videoen" out of sight (2026-10-31). An empty row keeps its room when there is enough.
+        bottom = ttk.Frame(self, padding=(0, 14, 0, 0))
+        bottom.place(relx=0, rely=1, relwidth=1, anchor="sw")
+        room = ttk.Frame(self, height=1)
+        room.grid(row=8, column=0, sticky="ew")
+        bottom.bind("<Configure>", lambda e: self.rowconfigure(8, minsize=e.height), add="+")
         self.b_ok = skin.IconButton(bottom, "cut", text=t("review.approve"), style="Main.Accent.TButton",
                                     command=self._approve)
         self.b_ok.pack(side="left")
@@ -250,6 +261,7 @@ class CutReview(ttk.Frame):
         ttk.Button(bottom, text=t("review.cancel"), command=self.app._cancel).pack(side="left")
         self.b_hint = ttk.Label(bottom, text="", style="Hint.TLabel")
         self.b_hint.pack(side="left", padx=12)
+        bottom.lift()
         self._refresh_list()
         self._show_details()
         if self.cuts:   # start on the first cut, so the details and its buttons are there from the start
@@ -566,7 +578,7 @@ class CutReview(ttk.Frame):
             self.summary.configure(text=t("review.summary" + one, n=n_on, removed=fmt_length(removed),
                                           new=fmt_clock(self.dur - removed), old=fmt_clock(self.dur)))
             self.b_ok.configure(text=t("review.approve_n" + one, n=n_on), state="normal")
-            self.b_hint.configure(text="")
+            self.b_hint.configure(text=t("review.waits", approve=self.b_ok.cget("text")))
         else:
             self.summary.configure(text=t("review.summary_none", length=fmt_clock(self.dur)))
             self.b_ok.configure(text=t("review.approve"), state="disabled")

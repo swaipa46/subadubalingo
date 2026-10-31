@@ -22,6 +22,9 @@ from .i18n import t
 
 # --- Models ----------------------------------------------------------------------
 
+# whisper.cpp's build needs AVX2: on an older processor it stops with STATUS_ILLEGAL_INSTRUCTION (found in the
+# 2026-10-31 smoke test, on an i5-3470S)
+ILLEGAL_INSTRUCTION = 0xC000001D
 HF_WHISPER = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{f}?download=true"
 HF_PIPER = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/{path}/{f}?download=true"
 
@@ -256,6 +259,8 @@ def transcribe(runner: Runner, wav: Path, lang: Language, model: Path, duration_
         seen[0] = 0.0
         started = time.time()
         code, tail = runner.run(args(False), on_line)
+    if code == ILLEGAL_INSTRUCTION:
+        raise ToolError(t("engine.error.old_cpu"))
     if code != 0:
         raise ToolError(t("engine.error.transcribe"))
     log.info("transcribed %.1f min audio in %.1f min (gpu setting=%s, device=%s, threads=%d)",

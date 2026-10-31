@@ -545,3 +545,58 @@ def dialog(win):
         pass
     skin_cards(win)
     win.after(30, lambda: dark_title_bar(win, P.name == "night"))
+
+
+def reduced_motion() -> bool:
+    """Whether Windows has animations turned off (SPI_GETCLIENTAREAANIMATION): animations then stand still."""
+    try:
+        import ctypes
+        on = ctypes.c_int(1)
+        if ctypes.windll.user32.SystemParametersInfoW(0x1042, 0, ctypes.byref(on), 0):
+            return not on.value
+    except Exception:
+        pass
+    return False
+
+
+class Anim(tk.Label):
+    """A looping waiting animation from icons/<name>-<n> (assets/ui/README.md, "Waiting animations (T13)"). It shows
+    frame 0 until start(), and again after stop(); with reduced motion it never moves. In a card, skin_cards gives
+    it the card's colour behind the transparent pixels."""
+
+    def __init__(self, parent, name: str, frames: int, ms: int, background: str | None = None):
+        super().__init__(parent, borderwidth=0, highlightthickness=0, padx=0, pady=0,
+                         background=background or P.card)
+        self.frames = [IMG.get(f"icons/{name}-{i}") for i in range(frames)]
+        self.ms = ms
+        self._job = None
+        self.configure(image=self.frames[0])
+        self.bind("<Destroy>", lambda e: self.stop() if e.widget is self else None, add="+")
+
+    def start(self):
+        if self._job or reduced_motion():
+            return
+
+        def tick(i=1):
+            try:
+                self.configure(image=self.frames[i % len(self.frames)])
+                self._job = self.after(self.ms, tick, i + 1)
+            except tk.TclError:   # destroyed meanwhile
+                self._job = None
+        self._job = self.after(self.ms, tick)
+
+    def stop(self):
+        if self._job:
+            try:
+                self.after_cancel(self._job)
+            except tk.TclError:
+                pass
+            self._job = None
+        try:
+            self.configure(image=self.frames[0])
+        except tk.TclError:
+            pass
+
+    @property
+    def running(self) -> bool:
+        return self._job is not None

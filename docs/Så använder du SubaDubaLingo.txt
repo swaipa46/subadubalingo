@@ -42,8 +42,8 @@ SÅ GÖR DU EN VIDEO
 4. Tryck Starta. Du kan jobba vidare med annat under tiden.
 
 Medan programmet arbetar visar det stegen och hur långt det har kommit.
-När texten är skriven kommer programmet fram, och kortet "AI-assistent" till höger
-lyser upp med "Din tur" (se AI-ASSISTENTEN nedan). Sedan gör programmet resten
+När texten är skriven säger programmet till med ett meddelande vid klockan, och
+fönstret visar bara "Din tur" och det du ska göra (se AI-ASSISTENTEN nedan). Sedan gör programmet resten
 självt, och när videon är klar står det "Klart!" med knappar för att spela upp
 den, visa den i mappen eller göra en ny.
 
@@ -74,7 +74,7 @@ AI-ASSISTENTEN
 En AI-assistent rättar felhörda ord (till exempel produktnamn) och översätter
 till de språk den nya videon ska ha. Använd den AI-chatt som din arbetsplats
 tillåter (till exempel Copilot, ChatGPT, Gemini eller Claude):
-1. Klicka "Kopiera instruktioner till AI-chatt" i kortet till höger.
+1. Klicka "Kopiera instruktioner till AI-chatt".
 2. Öppna en ny chatt, klistra in (Ctrl+V) och skicka.
 3. När chatten är klar, kopiera hela svaret (kopieringsknappen i chatten).
    Programmet märker det själv, kontrollerar svaret och fortsätter. Du kan

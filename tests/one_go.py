@@ -44,7 +44,7 @@ app.cut.set("--cut" in sys.argv)
 app.recut.set("--recut" in sys.argv)
 app._refresh()
 root.update()
-print("plan:", app.plan.cget("text").replace("\n", " | "))
+print("plan:", " | ".join(x.replace("\n", " ") for x in app._plan_text()))
 app._start()
 
 

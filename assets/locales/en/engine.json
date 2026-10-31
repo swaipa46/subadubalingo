@@ -9,6 +9,7 @@
  "engine.error.extract_audio": "Could not get the sound out of the video.",
  "engine.gpu_retry": "The graphics card could not be used - trying again with the processor",
  "engine.error.transcribe": "The transcription failed. See the log file for details.",
+ "engine.error.old_cpu": "This PC's processor is too old to turn speech into text (it lacks AVX2). Try a newer PC.",
  "engine.encode_retry": "Trying another way to make the video",
  "engine.error.encode": "Could not make {file}. See the log file for details.",
  "engine.error.piper": "The speech synthesis (Piper) failed. See the log file for details.",

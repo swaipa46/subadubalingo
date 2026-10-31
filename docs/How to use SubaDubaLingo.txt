@@ -42,8 +42,8 @@ HOW TO MAKE A VIDEO
 4. Press Start. You can get on with other work in the meantime.
 
 While the program works, it shows the steps and how far it has got.
-When the text is written, the program comes to the front, and the "AI assistant" card
-on the right lights up with "Your turn" (see THE AI ASSISTANT below). After that the program
+When the text is written, the program tells you with a message by the clock, and
+the window shows only "Your turn" and what to do (see THE AI ASSISTANT below). After that the program
 does the rest by itself, and when the video is ready it says "Done!" with buttons
 to play it, show it in the folder or make a new one.
 
@@ -74,7 +74,7 @@ THE AI ASSISTANT
 An AI assistant fixes misheard words (product names, for example) and
 translates into the languages the new video needs. Use the AI chat your
 workplace allows (Copilot, ChatGPT, Gemini or Claude, for example):
-1. Click "Copy instructions for AI chat" in the card on the right.
+1. Click "Copy instructions for AI chat".
 2. Open a new chat, paste (Ctrl+V) and send.
 3. When the chat is done, copy the whole answer (the copy button in the chat).
    The program notices by itself, checks the answer and carries on. You can

@@ -5,7 +5,8 @@ tester på Windows, og den sidste kontrol sker i Windows-test-VM'en på boksen (
 boksen (`~/.subadubalingo-release/signing-key.hex`, kun læsbar for `repo`; Kaspers beslutning, boksen har ingen andre
 brugere). Kasper siger ja i chatten, før en version lægges ud.
 
-1. **Claude** hæver `APP_VERSION` i `app/subadubalingo/common.py` og pusher til `main`. CI (`ci.yml`) kører alle
+1. **Claude** hæver `APP_VERSION` i `app/subadubalingo/common.py`, skriver versionen i `CHANGELOG.md` og pusher til
+   `main`. CI (`ci.yml`) kører alle
    `tests/test_*.py` og skærmbillede-scripts i begge temaer (artifact `screenshots`).
 2. **Release-build:** `gh workflow run release-build.yml --repo swaipa46/subadubalingo`. Den bygger zip'en
    (artifact `release-zip`, 30 dage) og udgiver ikke noget.

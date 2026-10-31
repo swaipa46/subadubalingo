@@ -20,6 +20,7 @@
  "review.approve_n_one": "Cut the video ({n} cut)",
  "review.skip": "Skip cutting",
  "review.skip_hint": "Nothing to cut? Press \"{skip}\".",
+ "review.waits": "The program waits until you click \"{approve}\".",
  "review.cancel": "Cancel",
  "review.kept": "kept",
  "review.list_kept": "Kept - {why}",

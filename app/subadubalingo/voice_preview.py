@@ -329,7 +329,9 @@ class PreviewButton(skin.IconButton):
 
     def _show(self, state: str):
         self.state_name = state
-        self.icon = "voice-play" if state == "idle" else "stop"
+        # While the sample is being spoken the loading dots turn (_poll, T13); a click still stops it
+        self.icon = {"idle": "voice-play", "making": "loading-0"}.get(state, "stop")
+        self._frame = 0
         self._set_icon()
         if self.bubble is not None and state != "playing":
             self.bubble.stop()
@@ -370,6 +372,10 @@ class PreviewButton(skin.IconButton):
         if token != self._token:
             return
         if self._result is None:
+            if self.state_name == "making" and not skin.reduced_motion():
+                self._frame += 1
+                self.icon = f"loading-{self._frame % 8}"
+                self._set_icon()
             self.after(100, self._poll, token, lang)
             return
         _, wav, err = self._result

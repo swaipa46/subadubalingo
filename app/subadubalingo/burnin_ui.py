@@ -279,7 +279,19 @@ class BurninCard(skin.Card):
             c.create_image(b, b, image=self.image, anchor="nw")
         else:
             c.create_text(x1 // 2, y1 // 2, text=text, fill=P.hint, font="SunValleyBodyFont")
+            if text == t("burnin.sample_busy"):   # the loading dots above "Laver eksempel ..." (T13)
+                self._spin(c.create_image(x1 // 2, y1 // 2 - int(26 * k), image=IMG.get("icons/loading-0")))
         skin.pixel_frame(c, 0, 0, x1, y1, P.input_border, k)
+
+    def _spin(self, item, i: int = 1):
+        """Turn the loading dots while the sample is being made; the item is gone once _draw draws again."""
+        try:
+            if not self.picture.find_withtag(item) or skin.reduced_motion():
+                return
+            self.picture.itemconfigure(item, image=IMG.get(f"icons/loading-{i % 8}"))
+            self.after(100, self._spin, item, i + 1)
+        except tk.TclError:
+            pass
 
     def close(self):
         self.runner.cancel()

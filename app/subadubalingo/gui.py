@@ -21,7 +21,7 @@ from tkinter import filedialog, messagebox, ttk
 from . import audio, autoupdate, burnin, chapters, claude, cutting, editor, engine, jobs, report, textstate, upgrade_notice
 from .burnin_ui import BurninCard
 from .chapters_view import ChaptersCard
-from . import i18n, mcpclients, queue_view, skin, theme, voice_preview
+from . import i18n, mcpclients, queue_view, skin, theme, toast, voice_preview
 from .i18n import t
 from .pickers import LanguagePicker, ThemePicker, Tooltip, language_tiles, theme_tiles
 from .theme import IMG, P
@@ -419,11 +419,18 @@ class App:
         self._idle_icon = tk.PhotoImage(master=self.root, file=str(branding_dir() / (
             "icon-128.png" if IMG.two else "icon-64.png")))
         ttk.Label(mid, image=self._idle_icon).pack()
+        # A gamepad whose start light blinks: player 2 is there, waiting (T13)
+        self.idle_anim = skin.Anim(mid, "player2-idle", 2, 700)
+        self.idle_anim.pack(pady=(int(10 * k), 0))
+        self.idle_anim.start()
         ttk.Label(mid, text=t("gui.claude.player2").upper(), style="Hint.TLabel",
                   font=(theme.PIXEL_FONT, -int(12 * k))).pack(pady=(int(14 * k), int(12 * k)))
         idle = ttk.Label(mid, justify="center", style="Hint.TLabel", text=t("gui.claude.idle"),
                          wraplength=int(360 * k))
         idle.pack()
+        # The card is a quarter of the window while it waits: wrap to it, or the sentence is cut off at both sides
+        self.claude_idle.bind("<Configure>", lambda e: idle.configure(
+            wraplength=max(120, min(int(360 * k), e.width - int(32 * k)))), add="+")
         autoupdate.build(self)   # the "new version is ready" band under the header, if there is one
 
     def _build_header(self):
@@ -952,6 +959,33 @@ class App:
         """The Claude card takes 2/5 of the width during the user's turn, and 1/4 while it only waits."""
         self.main.columnconfigure(1, weight=2 if active else 1, uniform="cols")
 
+    def _turn_layout(self, active: bool):
+        """The AI-chat turn takes the whole window: the steps, the percentage and Pause go away, so only what the
+        user must do is left (2026-10-31: Anne watched the percentage stand still and missed DIN TUR). The cut
+        review does the same from the other side (_start_review)."""
+        if active:
+            self.left.grid_remove()
+            self.claude_wrap.grid_configure(column=0, columnspan=2)
+        else:
+            self.claude_wrap.grid_configure(column=1, columnspan=1)
+            self.left.grid()
+        self._turn_title(active)
+
+    def _turn_title(self, active: bool):
+        """DIN TUR in the title bar while the run waits for the user: the taskbar tooltip and Alt+Tab show it."""
+        self.root.title(t("gui.turn.window_title", app=APP_NAME) if active else APP_NAME)
+        if not active:
+            self._toast_text = None
+            toast.hide()
+
+    def turn_step(self) -> tuple[int, int]:
+        """The user's turn as "step n of total" for the turn view (the steps list is hidden then)."""
+        at = self.review_at if self._review is not None else self.claude_at
+        return max(at, 0) + 1, max(len(self.step_rows), 1)
+
+    def queue_waits(self) -> bool:
+        return self.vq.running
+
     def _show(self, name: str):
         # The done view has nothing for the Claude card: the result gets the whole width (as in the cut review)
         if name == "done":
@@ -1464,6 +1498,7 @@ class App:
                 self.step_rows[self.claude_at]["text"].configure(text=names[self.claude_at])
         self._pulsing = False
         self.callout.grid_remove()
+        self._turn_layout(False)   # the assistant works now: the progress is worth watching again
         self.claude_box.configure(style="TLabelframe")
         self.status.configure(text=t("gui.work.claude_in_chat"))
         log.info("job %s taken over by an assistant", job_id)
@@ -1559,6 +1594,7 @@ class App:
                 return
             if self.runner:
                 self.runner.cancel()
+        toast.hide()   # or its icon lingers by the clock until the mouse passes over it
         self.root.destroy()
 
     def _toggle_pause(self):
@@ -1839,9 +1875,10 @@ class App:
                     else:
                         self.status.configure(text=t("gui.work.waiting_for_you"))
                         self.callout.grid()
+                        self._turn_layout(True)
                         self._pulsing = True
                         self.claude_box.configure(style="TurnA.TLabelframe")
-                        self._call_attention()
+                        self._call_attention(t("gui.turn.toast_chat"))
                     skin.skin_cards(self.main)   # after the your-turn style, so the panel takes that card's colour
                 elif kind in ("done", "cancelled", "error", "skipped"):
                     self._close_claude_panel()
@@ -2320,6 +2357,7 @@ class App:
         self.view = "review"
         self._user_turn(True)
         self.status.configure(text=t("gui.work.waiting_review"))
+        self._turn_title(True)
         # Nothing to do in the Claude card meanwhile: the review gets the whole width
         self.claude_wrap.grid_remove()
         self.left.grid_configure(columnspan=2, padx=0)
@@ -2328,7 +2366,7 @@ class App:
             jobs.write_json(jobs.job_dir(self.mcp_job) / "cuts.json", self._review.snapshot())
         self._jstatus(state="review_cuts", step="Brugeren gennemser klippene", eta="",
                       message=f"{n} klipforslag vises for brugeren på en tidslinje.")
-        self._call_attention()
+        self._call_attention(t("gui.turn.toast_review", approve=self._review.b_ok.cget("text")))
 
     def _review_finished(self, chosen, _all):
         self._review_result = list(chosen)
@@ -2350,11 +2388,13 @@ class App:
             self._review = None
             self.left.grid_configure(columnspan=1, padx=(0, 16))
             self.claude_wrap.grid()
+            self._turn_title(False)
 
     def _close_claude_panel(self):
         self._pulsing = False
         self.claude_box.configure(style="TLabelframe")
         self.callout.grid_remove()
+        self._turn_layout(False)
         if self._tdialog is not None:
             try:
                 self._tdialog.destroy()
@@ -2386,15 +2426,44 @@ class App:
         """The window a message box belongs to: an open modal dialog, else the main window."""
         return self._grab_window() or self.root
 
-    def _call_attention(self):
+    def _call_attention(self, toast_text: str | None = None):
         """Ask for attention without moving the window or taking the keyboard from what the user is typing in:
         show it again (without activating it) only if it is minimised, then flash the taskbar button of the
-        window that needs her until she looks."""
+        window that needs her until she looks. The sound is Windows' friendly notification sound, not the error
+        bell. If the window has still not been in front two minutes later, it asks once more, then never again for
+        this turn."""
+        self._attention_gen = getattr(self, "_attention_gen", 0) + 1
+        gen = self._attention_gen
+        self._toast_text = toast_text   # with a text: also a notification by the clock (toast.py)
+        self.root.after(120_000, lambda: self._remind(gen))
+        self._flash()
+
+    def _waiting_for_user(self) -> bool:
+        return self._review is not None or (self._tdialog is not None and self._tdialog.mode == "chat")
+
+    def _remind(self, gen: int):
+        if gen != getattr(self, "_attention_gen", 0) or not self._waiting_for_user():
+            return
+        try:
+            if ctypes.windll.user32.GetForegroundWindow() == frame_hwnd(self.root):
+                return
+        except Exception:
+            return
+        self._flash()
+
+    def _flash(self):
         try:
             u32 = ctypes.windll.user32
             if self.root.state() == "iconic":
                 u32.ShowWindow(ctypes.c_void_p(frame_hwnd(self.root)), 4)  # SW_SHOWNOACTIVATE
-            self.root.bell()
+            try:
+                import winsound
+                winsound.MessageBeep(0x40)   # MB_ICONASTERISK
+            except Exception:
+                self.root.bell()
+            if getattr(self, "_toast_text", None):
+                toast.show(self.root, frame_hwnd(self.root), t("gui.turn.window_title", app=APP_NAME),
+                           self._toast_text)
             target = self._grab_window()
             notice = getattr(self, "_notice", None)
             if target is None and notice is not None and notice.winfo_exists():
@@ -2657,8 +2726,11 @@ class ModelDialog(tk.Toplevel):
                   text=t("gui.models.manual", download=t("gui.models.download"))).pack(anchor="w", pady=(8, 4))
         self.bar = ttk.Progressbar(f, maximum=1000)
         self.bar.pack(fill="x", pady=4)
-        self.status = ttk.Label(f, text="")
-        self.status.pack(anchor="w")
+        line = ttk.Frame(f)
+        line.pack(anchor="w")
+        self.anim = skin.Anim(line, "download", 6, 120, background=P.window)
+        self.status = ttk.Label(line, text="")
+        self.status.pack(side="left")
         b = ttk.Frame(f)
         b.pack(anchor="e", pady=(10, 0))
         self.get_btn = ttk.Button(b, text=t("gui.models.download"), style="Accent.TButton", command=self._download)
@@ -2696,6 +2768,8 @@ class ModelDialog(tk.Toplevel):
 
     def _download(self):
         self.get_btn.configure(state="disabled")
+        self.anim.pack(side="left", before=self.status, padx=(0, 8))   # the arrow drops while files come in (T13)
+        self.anim.start()
 
         def work():
             try:
@@ -2724,6 +2798,8 @@ class ModelDialog(tk.Toplevel):
                     return
                 else:
                     self.get_btn.configure(state="normal")
+                    self.anim.stop()
+                    self.anim.pack_forget()
                     boxes.showerror(t("gui.models.failed_title"), t("gui.models.failed", error=ev[1]), parent=self)
         except queue.Empty:
             pass
@@ -2783,8 +2859,9 @@ class ClaudePanel(ttk.Frame):
                ([t("gui.claude.task_translate", langs=join_and([x.singular for x in self.targets]))]
                 if self.targets else []) + \
                ([t("gui.claude.task_cut")] if cut else []) + [t("chapters.task")]
-        top = ttk.Frame(self)
+        top = self.top = ttk.Frame(self)
         top.grid(row=0, column=0, sticky="w")
+        self.ai_anim = None   # the "typing" bubble left of the heading in the MCP view (T13)
         self.head = ttk.Label(top, text=t("gui.claude.your_turn"), style="Big.TLabel", foreground=P.your_turn_title)
         self.head.pack(side="left", anchor="s")
         ttk.Label(top, text="PLAYER 1", style="Hint.TLabel", font=(theme.PIXEL_FONT, -int(10 * app.scale))).pack(
@@ -2846,9 +2923,20 @@ class ClaudePanel(ttk.Frame):
         if e.widget is self:
             self._end_offer("cancelled")
 
+    def _drop_turn_strip(self):
+        if getattr(self, "turn_strip", None) is not None:
+            self.turn_strip.destroy()
+        self.turn_strip = None
+
     def _build_mcp_mode(self, publish: bool = True):
         self.mode = "mcp"
+        self._drop_turn_strip()   # the assistant works now, not the user
         self.head.configure(text=t("gui.claude.working"))
+        if self.ai_anim is None:
+            self.ai_anim = skin.Anim(self.top, "ai-working", 6, 150)
+            self.ai_anim.pack(side="left", anchor="s", before=self.head, padx=(0, int(10 * self.app.scale)),
+                              pady=(0, int(6 * self.app.scale)))
+            self.ai_anim.start()
         if publish:
             jobs.publish_turn(self.mcp_job, jobs.cues_to_json(self.cues), self._task())
         b = self.body
@@ -2881,10 +2969,14 @@ class ClaudePanel(ttk.Frame):
         comes back (get_text, save_text), _tick switches back to the MCP view."""
         self.mode = "chat"
         self.head.configure(text=t("gui.claude.your_turn"))
+        if self.ai_anim is not None:   # nothing else may move while it is her turn
+            self.ai_anim.destroy()
+            self.ai_anim = None
         for w in self.body.winfo_children():
             w.destroy()
         self.switch_btn.grid_remove()
         self.app.callout.grid()
+        self.app._turn_layout(True)
         self.app._pulsing = True
         self._build_chat()
         skin.skin_cards(self.app.main)
@@ -2971,11 +3063,46 @@ class ClaudePanel(ttk.Frame):
         # The one thing to do now
         self.next_box = tk.Frame(b, background=P.card, padx=12, pady=10)
         self.next_box.grid(row=0, column=0, sticky="ew")
-        self.next_box.columnconfigure(0, weight=1)
+        self.next_box.columnconfigure(1, weight=1)
+        wrapped = []
+
+        def text(row, words, font="SunValleyBodyFont", colour=P.text, col=0, span=2, pady=(0, 0)):
+            lbl = tk.Label(self.next_box, text=words, font=font, background=P.card, foreground=colour,
+                           justify="left", anchor="w", borderwidth=0, padx=0, pady=0)
+            lbl.grid(row=row, column=col, columnspan=span, sticky="ew", pady=pady)
+            wrapped.append((lbl, col))
+            return lbl
+        # The turn view (App._turn_layout): what is going on, then the three things to do, numbered
+        if self.app.queue_waits():
+            text(0, t("gui.claude.queue_waits"), colour=P.your_turn_title, pady=(0, int(4 * k)))
+        text(1, t("gui.claude.turn_lead"), font="SunValleyBodyStrongFont", colour=P.heading, pady=(0, int(10 * k)))
+        self.turn_steps = []
+        for n, words in enumerate((t("gui.claude.step1", copy=t("gui.parts.copy")), t("gui.claude.step2"),
+                                   t("gui.claude.step3")), 1):
+            num = tk.Label(self.next_box, text=str(n), font=(theme.PIXEL_FONT, -int(16 * k)), background=P.card,
+                           foreground=P.hint, borderwidth=0, padx=0, pady=0, width=2, anchor="w")
+            num.grid(row=1 + n, column=0, sticky="nw", pady=(int(4 * k), int(4 * k)))
+            lbl = text(1 + n, words, col=1, span=1, pady=(int(4 * k), int(4 * k)))
+            self.turn_steps.append((num, lbl))
         self.next_lbl = tk.Label(self.next_box, text="", font="SunValleyBodyStrongFont", background=P.card,
                                  foreground=P.heading, justify="left", anchor="w")
-        self.next_lbl.grid(row=0, column=0, sticky="ew")
-        self.next_box.bind("<Configure>", lambda e: self.next_lbl.configure(wraplength=max(150, e.width - 30)))
+        self.next_lbl.grid(row=5, column=0, columnspan=2, sticky="ew", pady=(int(10 * k), 0))
+        wrapped.append((self.next_lbl, 0))
+
+        def wrap(e):
+            for lbl, col in wrapped:
+                lbl.configure(wraplength=max(150, e.width - 30 - (int(32 * k) if col else 0)))
+        self.next_box.bind("<Configure>", wrap)
+        # Instead of the percentage, which stands still meanwhile: the program waits for her, at step n of total
+        self._drop_turn_strip()
+        self.turn_strip = ttk.Frame(self.footer)
+        self.turn_strip.grid(row=0, column=0, sticky="w")
+        self.turn_icon = tk.Label(self.turn_strip, image=IMG.get("icons/step-your-turn-0"), borderwidth=0,
+                                  background=P.card)
+        self.turn_icon.pack(side="left")
+        n, total = self.app.turn_step()
+        ttk.Label(self.turn_strip, text=t("gui.claude.turn_status", n=n, total=total), foreground=P.your_turn_title,
+                  font="SunValleyBodyStrongFont").pack(side="left", padx=(int(8 * k), 0))
         if n_parts > 1:
             split = ttk.Label(b, text=t("gui.parts.split", n=n_parts), style="Hint.TLabel", justify="left")
             split.grid(row=1, column=0, sticky="ew", pady=(8, 0))
@@ -3071,6 +3198,11 @@ class ClaudePanel(ttk.Frame):
                     self._draw_part(row, frame)
                 except tk.TclError:   # the chat view was rebuilt
                     pass
+        if getattr(self, "turn_strip", None) is not None and frame % 4 == 0:
+            try:
+                self.turn_icon.configure(image=IMG.get(f"icons/step-your-turn-{(frame // 4) % 2}"))
+            except tk.TclError:
+                pass
         self.after(120, lambda: self._spin_parts(frame + 1))
 
     def _guide(self):
@@ -3084,14 +3216,18 @@ class ClaudePanel(ttk.Frame):
                                                           not self.answers[i] else "gui.parts.copy"))
             row["paste"].configure(style="TButton")
             self._draw_part(row)
+        self._paint_turn_steps(nxt)
         if nxt is None:
             self.watching = None
             self.next_lbl.configure(text=t("gui.claude.answer_ok_blocks", n=len(self.cues)), foreground=P.success)
+            self.next_lbl.grid()
             if not self._finishing:
                 self._finishing = True
                 self.after(1200, self._save_parts)
             return
         self.next_lbl.configure(foreground=P.heading)
+        # The numbered steps already say what to do next; the line under them only speaks up about a problem
+        self.next_lbl.grid() if self.problem[nxt] else self.next_lbl.grid_remove()
         row = self.part_rows[nxt]
         n = t("gui.parts.part", n=nxt + 1) if len(self.parts) > 1 else t("gui.parts.the_text")
         if self.problem[nxt]:
@@ -3104,6 +3240,23 @@ class ClaudePanel(ttk.Frame):
         else:
             row["paste"].configure(style="Accent.TButton")
             self.next_lbl.configure(text=t("gui.parts.waiting", part=n))
+
+    def _paint_turn_steps(self, nxt: int | None):
+        """The numbered steps: 1 until the part is copied, then 2 and 3 (send it, copy the answer back); a problem
+        with the answer marks 3 in the error colour. A done step is green, a later one grey."""
+        if nxt is None:
+            states = ["done"] * 3
+        elif self.problem[nxt]:
+            states = ["done", "done", "failed"]
+        elif not self.copied[nxt]:
+            states = ["active", "todo", "todo"]
+        else:
+            states = ["done", "active", "active"]
+        for (num, lbl), state in zip(self.turn_steps, states):
+            colour = {"done": P.success, "failed": P.error, "active": P.step_active}.get(state, P.hint)
+            num.configure(foreground=colour)
+            lbl.configure(foreground=P.text if state == "active" else colour,
+                          font="SunValleyBodyStrongFont" if state in ("active", "failed") else "SunValleyBodyFont")
 
     def _watch_clipboard(self):
         if self.watching is None:

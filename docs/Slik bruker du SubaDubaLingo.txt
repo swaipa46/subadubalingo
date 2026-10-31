@@ -42,8 +42,8 @@ SLIK LAGER DU EN VIDEO
 4. Trykk Start. Du kan jobbe videre med andre ting imens.
 
 Mens programmet jobber, viser det trinnene og hvor langt det har kommet.
-Når teksten er skrevet, kommer programmet fram, og kortet "AI-assistent" til høyre
-lyser opp med "Din tur" (se AI-ASSISTENTEN nedenfor). Etterpå gjør programmet resten
+Når teksten er skrevet, sier programmet fra med en melding ved klokka, og
+vinduet viser bare "Din tur" og det du skal gjøre (se AI-ASSISTENTEN nedenfor). Etterpå gjør programmet resten
 selv, og når videoen er klar, står det "Ferdig!" med knapper for å spille av
 den, vise den i mappen eller lage en ny.
 
@@ -74,7 +74,7 @@ AI-ASSISTENTEN
 En AI-assistent retter feilhørte ord (for eksempel produktnavn) og oversetter
 til språkene den nye videoen skal ha. Bruk den AI-chatten arbeidsplassen din
 tillater (for eksempel Copilot, ChatGPT, Gemini eller Claude):
-1. Klikk "Kopier instruksjoner til AI-chat" i kortet til høyre.
+1. Klikk "Kopier instruksjoner til AI-chat".
 2. Åpne en ny chat, lim inn (Ctrl+V) og send.
 3. Når chatten er ferdig, kopier hele svaret (kopiknappen i chatten).
    Programmet oppdager det selv, sjekker svaret og fortsetter. Du kan også

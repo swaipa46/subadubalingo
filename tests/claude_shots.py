@@ -94,8 +94,10 @@ shot(root, "claude-done-summary-only.png")
 # The assistant's turn in the chat view (a job started in the app, docs/assistant-panel.md): before and after copying
 # the instructions, then the one-time "delete the old skill" notice an upgrade from 2.1.x shows
 app._show("work")
-app.job = {"video": video, "lang": L["da"], "subs": L["sv"], "cut": True, "transcribe": True, "check": True,
-           "translate": [L["sv"]]}
+app.job = {"video": video, "lang": L["da"], "speech": None, "subs": L["sv"], "cut": True, "transcribe": True,
+           "check": True, "translate": [L["sv"]]}
+names, app.claude_at = app._step_names(app.job)
+app.step_rows = [{"name": n, "state": "todo"} for n in names]
 app.claude_idle.grid_remove()
 app._set_claude_width(True)
 panel = gui.ClaudePanel(app.claude_box, app, video, L["da"], find_srt(video, L["da"]), True, [L["sv"]],
@@ -103,6 +105,7 @@ panel = gui.ClaudePanel(app.claude_box, app, video, L["da"], find_srt(video, L["
 app._tdialog = panel
 panel.grid(row=0, column=0, sticky="nsew")
 app.callout.grid()
+app._turn_layout(True)   # the turn view: the card takes the whole window
 app.claude_box.configure(style="TurnA.TLabelframe")
 gui.skin.skin_cards(app.main)
 shot(root, "claude-chat-view.png")

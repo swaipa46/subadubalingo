@@ -1,7 +1,7 @@
 # Selvopdatering
 
 SubaDubaLingo finder selv en ny version, henter den og installerer den med ét klik fra brugeren. Det sker uden at gå
-i stykker, mens Claude kører MCP-serveren (se zlib-fejlen 15.10.2026 i README).
+i stykker, mens Claude kører MCP-serveren (se zlib-fejlen i docs/technical-notes.md).
 
 Bygget 16.10.2026 (branch `feature/autoupdate`). Koden: `app/subadubalingo/update.py` (net, tjek, udpakning, skift),
 `app/subadubalingo/autoupdate.py` (hvornår, og båndet i vinduet), `installer.place`/`installer.activate`,
