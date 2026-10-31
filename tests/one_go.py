@@ -33,6 +33,8 @@ def arg(name, default):
 
 video = Path(sys.argv[1])
 root = tk.Tk()
+# An answer left on the clipboard by an earlier run is old to the panel, and the same text again would be ignored
+root.clipboard_clear()
 app = gui.App(root)
 app.settings.use_gpu = "--cpu" not in sys.argv
 app.video.set(str(video))
@@ -78,6 +80,14 @@ def fake_answer(codes, src_code, cues, first=1, cut=False, n_total=None):
     return text + "=== words ===\nTestingen => Testing\n"
 
 
+def state_text(d: gui.ClaudePanel, i: int) -> str:
+    """The part's state line, or a note when the panel has already finished and closed."""
+    try:
+        return d.part_rows[i]["state_lbl"].cget("text")
+    except (tk.TclError, IndexError):
+        return "(the panel has finished)"
+
+
 def fake_chat(d: gui.ClaudePanel):
     for i, part in enumerate(d.parts):
         d._copy(i)
@@ -86,12 +96,12 @@ def fake_chat(d: gui.ClaudePanel):
             root.clipboard_clear()
             root.clipboard_append(fake_answer(d.codes[:1], d.src.code, part, d._first_number(i)))
             pump(2)   # the clipboard watch picks it up
-            print(f"  broken answer -> {d.part_rows[i]['state_lbl'].cget('text')[:110]}")
+            print(f"  broken answer -> {state_text(d, i)[:110]}")
         root.clipboard_clear()
         root.clipboard_append(fake_answer(d.codes, d.src.code, part, d._first_number(i), cut=d.cut,
                                           n_total=len(d.cues)))
         pump(2)
-        print(f"  part {i + 1} {d.codes}: {d.part_rows[i]['state_lbl'].cget('text')}")
+        print(f"  part {i + 1} {d.codes}: {state_text(d, i)}")
     pump(2)   # the panel finishes by itself
 
 
